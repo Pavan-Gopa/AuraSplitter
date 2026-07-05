@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import socketserver
 import sys
 import threading
 from pathlib import Path
@@ -16,10 +17,7 @@ _send_lock = threading.Lock()
 _stream_logger = logging.getLogger("kirtan_backend.stream")
 
 
-def send(message: dict):
-    with _send_lock:
-        sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
-        sys.stdout.flush()
+def log_stream_message(message: dict):
     message_type = message.get("type", "unknown")
     if message_type == "progress":
         _stream_logger.info(
@@ -31,6 +29,13 @@ def send(message: dict):
         )
     elif message_type in {"ready", "error"}:
         _stream_logger.info("%s %s", message_type, message)
+
+
+def send(message: dict):
+    with _send_lock:
+        sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
+    log_stream_message(message)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,6 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("KIRTAN_SPLITTER_LOG_FILE", str(project_root() / "logs" / "backend.log")),
         help="Path for persistent backend logs.",
     )
+    parser.add_argument("--tcp-host", default=None, help="Serve JSON-lines protocol on this host instead of stdio.")
+    parser.add_argument("--tcp-port", type=int, default=None, help="Serve JSON-lines protocol on this TCP port.")
     parser.add_argument("--debug", action="store_true", help="Enable backend debug logging.")
     return parser
 
@@ -69,15 +76,21 @@ def configure_logging(log_file: str, debug: bool) -> Path:
     return log_path
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    log_path = configure_logging(args.log_file, args.debug)
-    logger = logging.getLogger("kirtan_backend")
-    logger.info("Starting backend model_dir=%s log_file=%s", args.model_dir, log_path)
+def ready_payload(args, log_path: Path) -> dict:
+    payload = {
+        "type": "ready",
+        "backend": "mlx-audio-separator",
+        "modelDir": str(args.model_dir),
+        "logFile": str(log_path),
+    }
+    if args.tcp_host and args.tcp_port:
+        payload["tcpHost"] = args.tcp_host
+        payload["tcpPort"] = args.tcp_port
+    return payload
 
-    engine = MlxSeparatorEngine(model_dir=args.model_dir, logger=logger)
-    send({"type": "ready", "backend": "mlx-audio-separator", "modelDir": str(args.model_dir), "logFile": str(log_path)})
 
+def run_stdio(args, engine, log_path: Path, logger: logging.Logger) -> int:
+    send(ready_payload(args, log_path))
     for raw in sys.stdin:
         raw = raw.strip()
         if not raw:
@@ -93,6 +106,61 @@ def main(argv: list[str] | None = None) -> int:
             logger.exception("Unhandled backend error")
             send(error_response("", f"{type(exc).__name__}: {exc}"))
     return 0
+
+
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class BackendTCPHandler(socketserver.StreamRequestHandler):
+    def send_message(self, message: dict):
+        self.wfile.write(json.dumps(message, ensure_ascii=False).encode("utf-8") + b"\n")
+        self.wfile.flush()
+        log_stream_message(message)
+
+    def handle(self):
+        logger = logging.getLogger("kirtan_backend")
+        self.send_message(self.server.ready_message)
+        try:
+            for raw in self.rfile:
+                raw_text = raw.decode("utf-8").strip()
+                if not raw_text:
+                    continue
+                try:
+                    request = BackendRequest.from_json(raw_text)
+                    logger.info("request id=%s method=%s", request.id, request.method)
+                    result, _events = handle_request(request, engine=self.server.engine, emit_event=self.send_message)
+                    self.send_message(result)
+                except json.JSONDecodeError as exc:
+                    self.send_message(error_response("", f"JSONDecodeError: {exc}"))
+                except Exception as exc:
+                    logger.exception("Unhandled backend error")
+                    self.send_message(error_response("", f"{type(exc).__name__}: {exc}"))
+        except ConnectionResetError:
+            logger.debug("TCP client disconnected during read")
+
+
+def run_tcp(args, engine, log_path: Path, logger: logging.Logger) -> int:
+    host = args.tcp_host or "127.0.0.1"
+    with ThreadedTCPServer((host, args.tcp_port), BackendTCPHandler) as server:
+        server.engine = engine
+        server.ready_message = ready_payload(args, log_path)
+        logger.info("TCP backend listening host=%s port=%s", host, args.tcp_port)
+        server.serve_forever()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    log_path = configure_logging(args.log_file, args.debug)
+    logger = logging.getLogger("kirtan_backend")
+    logger.info("Starting backend model_dir=%s log_file=%s", args.model_dir, log_path)
+
+    engine = MlxSeparatorEngine(model_dir=args.model_dir, logger=logger)
+    if args.tcp_port is not None:
+        return run_tcp(args, engine, log_path, logger)
+    return run_stdio(args, engine, log_path, logger)
 
 
 if __name__ == "__main__":

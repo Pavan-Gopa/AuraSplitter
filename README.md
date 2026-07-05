@@ -63,11 +63,12 @@ Finder launcher:
 open "Launch KirtanSplitter.command"
 ```
 
-`script/build_and_run.sh` always stops a previous `KirtanSplitter` process,
-builds a fresh SwiftPM binary, stages `dist/KirtanSplitter.app`, and opens that
-fresh bundle through its binary. The direct binary launch avoids a macOS
-LaunchServices child-process stall seen when the app starts the Python backend
-from a bundle opened with `open`.
+`script/build_and_run.sh` always stops previous `KirtanSplitter` and backend
+processes, builds a fresh SwiftPM binary, stages `dist/KirtanSplitter.app`,
+starts the local Python backend on `127.0.0.1:51273`, then opens the fresh
+bundle. The backend is started by the shell script instead of by the `.app`
+itself; this avoids a macOS LaunchServices child-process stall seen when a
+bundle-opened app starts Python directly.
 
 ## Diagnostics Notes
 

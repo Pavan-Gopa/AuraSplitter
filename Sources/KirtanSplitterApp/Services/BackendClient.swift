@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 enum BackendClientError: Error, LocalizedError {
     case notRunning
@@ -40,17 +41,24 @@ final class BackendClient: ObservableObject {
     @Published var backendLogPath: String?
 
     private var process: Process?
+    private var connection: NWConnection?
     private var inputPipe: Pipe?
     private var outputBuffer = ""
     private var pendingRequests: [String: CheckedContinuation<[String: Any], Error>] = [:]
     private var requestCounter = 0
     private var telemetryTask: Task<Void, Never>?
     private var isTelemetryRequestInFlight = false
+    private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
 
     func start() async throws {
         if isReady { return }
 
         let paths = resolveBackendPaths()
+        if let tcpPort = paths.tcpPort {
+            try await startTCPBackend(paths: paths, port: tcpPort)
+            return
+        }
+
         guard FileManager.default.fileExists(atPath: paths.python) else {
             throw BackendClientError.launchFailed("Python not found at \(paths.python). Run script/setup_backend.sh first.")
         }
@@ -128,9 +136,42 @@ final class BackendClient: ObservableObject {
         startTelemetryLoop()
     }
 
+    private func startTCPBackend(paths: BackendPaths, port: Int) async throws {
+        guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            throw BackendClientError.launchFailed("Invalid backend TCP port: \(port)")
+        }
+
+        currentStage = "Connecting backend"
+        statusLine = "Connecting to local backend"
+
+        let conn = NWConnection(host: NWEndpoint.Host(paths.tcpHost ?? "127.0.0.1"), port: endpointPort, using: .tcp)
+        connection = conn
+        conn.stateUpdateHandler = { [weak self] state in
+            if case .failed(let error) = state {
+                Task { @MainActor [weak self] in
+                    self?.errorMessage = "Backend connection failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        conn.start(queue: networkQueue)
+        receiveFromConnection(conn)
+
+        do {
+            try await waitUntilReady(timeoutSeconds: 20)
+        } catch {
+            conn.cancel()
+            connection = nil
+            throw error
+        }
+        statusLine = "Backend ready"
+        startTelemetryLoop()
+    }
+
     func stop() {
         process?.terminate()
+        connection?.cancel()
         process = nil
+        connection = nil
         inputPipe = nil
         pendingRequests.removeAll()
         isReady = false
@@ -213,7 +254,7 @@ final class BackendClient: ObservableObject {
     }
 
     private func sendRequest(method: String, params: [String: Any]) async throws -> [String: Any] {
-        guard isReady, let pipe = inputPipe else {
+        guard isReady, inputPipe != nil || connection != nil else {
             throw BackendClientError.notRunning
         }
 
@@ -225,7 +266,38 @@ final class BackendClient: ObservableObject {
             pendingRequests[requestID] = continuation
             var line = data
             line.append(contentsOf: "\n".utf8)
-            pipe.fileHandleForWriting.write(line)
+            if let pipe = inputPipe {
+                pipe.fileHandleForWriting.write(line)
+            } else if let connection = connection {
+                connection.send(content: line, completion: .contentProcessed { [weak self] error in
+                    guard let error else { return }
+                    Task { @MainActor [weak self] in
+                        if let continuation = self?.pendingRequests.removeValue(forKey: requestID) {
+                            continuation.resume(throwing: BackendClientError.backend(error.localizedDescription))
+                        }
+                    }
+                })
+            }
+        }
+    }
+
+    private func receiveFromConnection(_ connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self, weak connection] data, _, isComplete, error in
+            if let data, !data.isEmpty, let text = String(data: data, encoding: .utf8) {
+                Task { @MainActor [weak self] in
+                    self?.handleStdout(text)
+                }
+            }
+            if let error {
+                Task { @MainActor [weak self] in
+                    self?.appendLog("Backend connection receive failed: \(error.localizedDescription)\n")
+                }
+                return
+            }
+            guard !isComplete, let connection else { return }
+            Task { @MainActor [weak self] in
+                self?.receiveFromConnection(connection)
+            }
         }
     }
 
@@ -360,6 +432,8 @@ final class BackendClient: ObservableObject {
         let bundledBackendLauncher = info["KirtanSplitterBackendLauncher"] as? String
         let bundledModelDir = info["KirtanSplitterModelDir"] as? String
         let bundledLogFile = info["KirtanSplitterLogFile"] as? String
+        let bundledTCPHost = info["KirtanSplitterBackendHost"] as? String
+        let bundledTCPPort = info["KirtanSplitterBackendPort"] as? String
 
         let projectRoot = env["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? bundledProjectRoot ?? FileManager.default.currentDirectoryPath
         let backendDir = URL(fileURLWithPath: projectRoot).appendingPathComponent("backend").path
@@ -387,6 +461,8 @@ final class BackendClient: ObservableObject {
         let runtimeDir = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/KirtanSplitter/runtime")
             .path
+        let tcpHost = env["KIRTAN_SPLITTER_BACKEND_HOST"] ?? bundledTCPHost
+        let tcpPort = (env["KIRTAN_SPLITTER_BACKEND_PORT"] ?? bundledTCPPort).flatMap(Int.init)
         return BackendPaths(
             projectRoot: projectRoot,
             backendDir: backendDir,
@@ -396,7 +472,9 @@ final class BackendClient: ObservableObject {
             backendLauncher: backendLauncher,
             modelDir: modelDir,
             logFile: logFile,
-            runtimeDir: runtimeDir
+            runtimeDir: runtimeDir,
+            tcpHost: tcpHost,
+            tcpPort: tcpPort
         )
     }
 }
@@ -411,4 +489,6 @@ private struct BackendPaths {
     let modelDir: String
     let logFile: String
     let runtimeDir: String
+    let tcpHost: String?
+    let tcpPort: Int?
 }

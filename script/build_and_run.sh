@@ -21,6 +21,9 @@ RUNTIME_MODEL_DIR="$APP_SUPPORT/models"
 LOG_FILE="$APP_SUPPORT/logs/backend.log"
 PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
 SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
+BACKEND_HOST="127.0.0.1"
+BACKEND_PORT="${KIRTAN_SPLITTER_BACKEND_PORT:-51273}"
+BACKEND_LABEL="com.pavan.kirtansplitter.backend"
 
 cd "$ROOT_DIR"
 
@@ -29,6 +32,7 @@ if [[ ! -x "$ROOT_DIR/.venv/bin/python" ]]; then
 fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+launchctl remove "$BACKEND_LABEL" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/backend/server.py" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/script/run_backend.sh" >/dev/null 2>&1 || true
 pkill -f "$APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
@@ -82,12 +86,44 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$RUNTIME_MODEL_DIR</string>
   <key>KirtanSplitterLogFile</key>
   <string>$LOG_FILE</string>
+  <key>KirtanSplitterBackendHost</key>
+  <string>$BACKEND_HOST</string>
+  <key>KirtanSplitterBackendPort</key>
+  <string>$BACKEND_PORT</string>
 </dict>
 </plist>
 PLIST
 
+start_backend() {
+  /usr/bin/perl -MPOSIX=setsid -e 'exit 0 if fork; setsid(); exec @ARGV or die $!' \
+    /usr/bin/env \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="$RUNTIME_BACKEND:$SITE_PACKAGES" \
+    KIRTAN_SPLITTER_MODEL_DIR="$RUNTIME_MODEL_DIR" \
+    KIRTAN_SPLITTER_LOG_FILE="$LOG_FILE" \
+    MLX_USE_FAST_SDP=1 \
+    "$PYTHON_REAL" "$RUNTIME_BACKEND/server.py" \
+    --model-dir "$RUNTIME_MODEL_DIR" \
+    --log-file "$LOG_FILE" \
+    --tcp-host "$BACKEND_HOST" \
+    --tcp-port "$BACKEND_PORT" \
+    >>"$APP_SUPPORT/logs/backend-launcher.out.log" \
+    2>>"$APP_SUPPORT/logs/backend-launcher.err.log"
+
+  for _ in {1..80}; do
+    if /usr/bin/nc -z "$BACKEND_HOST" "$BACKEND_PORT" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "Backend did not open $BACKEND_HOST:$BACKEND_PORT" >&2
+  return 1
+}
+
 open_app() {
-  /usr/bin/nohup "$APP_BINARY" >/tmp/kirtansplitter-app.log 2>&1 &
+  start_backend
+  /usr/bin/open -n "$APP_BUNDLE"
 }
 
 case "$MODE" in
