@@ -32,7 +32,7 @@ struct AudioPreviewPane: View {
             .help(isPlayingCurrentSource ? "Pause source preview" : "Play source preview")
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(analysis?.filename ?? "Source Preview")
+                Text(analysis?.filename ?? "Audio Preview")
                     .font(.callout.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -80,7 +80,7 @@ struct AudioPreviewPane: View {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Analyzing source audio")
+                        Text("Analyzing audio")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

@@ -14,6 +14,11 @@ let package = Package(
         .executableTarget(
             name: "KirtanSplitterApp",
             path: "Sources/KirtanSplitterApp"
+        ),
+        .testTarget(
+            name: "KirtanSplitterAppTests",
+            dependencies: ["KirtanSplitterApp"],
+            path: "tests/KirtanSplitterAppTests"
         )
     ]
 )

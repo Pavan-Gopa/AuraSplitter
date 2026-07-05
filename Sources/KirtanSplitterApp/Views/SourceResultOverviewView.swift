@@ -2,12 +2,13 @@ import SwiftUI
 
 struct SourceResultOverviewView: View {
     @ObservedObject var backend: BackendClient
-    let inputURL: URL?
-    let sourceAnalysis: AudioAnalysis?
-    let analysisError: String?
-    let results: [StemFile]
-    let summary: SeparationSummary?
-    @ObservedObject var previewPlayer: StemPreviewPlayer
+    @Binding var sources: [BatchSourceItem]
+    let presets: [SeparationPreset]
+    let resultGroups: [BatchResultGroup]
+    let previewSelection: AudioPreviewSelection
+    let previewSourceAction: (BatchSourceItem) -> Void
+    let previewStemAction: (StemFile) -> Void
+    let deleteStemAction: (StemFile) -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -21,126 +22,82 @@ struct SourceResultOverviewView: View {
     }
 
     private var sourceColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            columnHeader(title: "Source", systemImage: "waveform")
+        VStack(alignment: .leading, spacing: 12) {
+            columnHeader(title: "Source", systemImage: "waveform", detail: "\(selectedSourceCount)/\(sources.count) selected")
 
-            if let inputURL {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(inputURL.lastPathComponent)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(2)
-                        .textSelection(.enabled)
-                    Text(inputURL.deletingLastPathComponent().path)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                if let sourceAnalysis {
-                    sourceStats(analysis: sourceAnalysis)
-                } else if let analysisError {
-                    warningLine(text: analysisError)
-                } else {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Analyzing audio")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            if sources.isEmpty {
+                emptyColumnText("Drop files or choose a folder.")
+                Spacer(minLength: 0)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach($sources) { $source in
+                            BatchSourceRow(
+                                source: $source,
+                                presets: presets,
+                                isActive: previewSelection == .source(source.id),
+                                isDisabled: backend.isProcessing,
+                                previewAction: { previewSourceAction(source) }
+                            )
+                            Divider()
+                        }
                     }
                 }
-            } else {
-                emptyColumnText("Drop or choose a source recording.")
             }
-
-            Spacer(minLength: 0)
         }
         .padding(18)
     }
 
     private var resultColumn: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            columnHeader(title: "Result", systemImage: "square.stack.3d.up")
+        VStack(alignment: .leading, spacing: 12) {
+            columnHeader(title: "Result", systemImage: "square.stack.3d.up", detail: resultDetail)
 
-            if let summary {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(summary.model)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    Text("\(results.count) stems · \(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
+            if resultGroups.isEmpty {
                 emptyColumnText(backend.isProcessing ? backend.currentStage : "Separated stems will appear here.")
-            }
-
-            if !results.isEmpty {
+                Spacer(minLength: 0)
+            } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(results) { stem in
-                            StemRowView(
-                                stem: stem,
-                                isPlaying: previewPlayer.playingPath == stem.path,
-                                playAction: { previewPlayer.toggle(path: stem.path) }
+                        ForEach(resultGroups) { group in
+                            ResultGroupView(
+                                group: group,
+                                previewSelection: previewSelection,
+                                previewStemAction: previewStemAction,
+                                deleteStemAction: deleteStemAction
                             )
                             Divider()
-                                .padding(.leading, 68)
                         }
                     }
                 }
             }
-
-            Spacer(minLength: 0)
         }
         .padding(18)
     }
 
-    private func columnHeader(title: String, systemImage: String) -> some View {
+    private var selectedSourceCount: Int {
+        sources.filter(\.isSelectedForProcessing).count
+    }
+
+    private var resultDetail: String {
+        let fileCount = resultGroups.reduce(0) { $0 + $1.files.count }
+        if resultGroups.isEmpty {
+            return backend.models.isEmpty ? "Loading model catalog" : "\(backend.models.count) MLX models"
+        }
+        return "\(resultGroups.count) sources · \(fileCount) stems"
+    }
+
+    private func columnHeader(title: String, systemImage: String, detail: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
                 .foregroundStyle(.secondary)
             Text(title)
                 .font(.headline)
             Spacer()
-        }
-    }
-
-    private func sourceStats(analysis: AudioAnalysis) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                statPill(analysis.channelLabel, systemImage: analysis.channels == 1 ? "circle.lefthalf.filled" : "circle.grid.cross")
-                statPill(FileHelpers.formattedDuration(analysis.durationSeconds), systemImage: "timer")
-                statPill("\(analysis.sampleRate) Hz", systemImage: "dot.radiowaves.left.and.right")
-            }
-            HStack(spacing: 8) {
-                statPill(analysis.peakLabel, systemImage: "meter.waveform", warning: analysis.clipped || analysis.peakDb >= -0.25)
-                if analysis.clipped || analysis.peakDb >= -0.25 {
-                    warningLine(text: "Peak is at or near 0 dBFS. Repair or attenuate before separation.")
-                }
-            }
-        }
-    }
-
-    private func statPill(_ text: String, systemImage: String, warning: Bool = false) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: systemImage)
-            Text(text)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
-        .font(.caption)
-        .foregroundStyle(warning ? .red : .secondary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background((warning ? Color.red : Color.secondary).opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func warningLine(text: String) -> some View {
-        Label(text, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundStyle(.red)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func emptyColumnText(_ text: String) -> some View {
@@ -148,5 +105,211 @@ struct SourceResultOverviewView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct BatchSourceRow: View {
+    @Binding var source: BatchSourceItem
+    let presets: [SeparationPreset]
+    let isActive: Bool
+    let isDisabled: Bool
+    let previewAction: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Toggle("", isOn: $source.isSelectedForProcessing)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+                .disabled(isDisabled)
+
+            Button(action: previewAction) {
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 8) {
+                        Text(source.fileName)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        if source.isAnalyzing {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    if let analysis = source.analysis {
+                        SourceMetricRow(analysis: analysis)
+                    } else if let analysisError = source.analysisError {
+                        Label(analysisError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    } else {
+                        Text(source.url.deletingLastPathComponent().path)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Picker("Preset", selection: $source.presetID) {
+                ForEach(presets) { preset in
+                    Text(preset.title).tag(preset.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 170)
+            .disabled(presets.isEmpty || isDisabled)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+private struct SourceMetricRow: View {
+    let analysis: AudioAnalysis
+
+    var body: some View {
+        HStack(spacing: 6) {
+            metric(analysis.channelLabel, systemImage: analysis.channels == 1 ? "circle.lefthalf.filled" : "circle.grid.cross")
+            metric(FileHelpers.formattedDuration(analysis.durationSeconds), systemImage: "timer")
+            metric("\(analysis.sampleRate) Hz", systemImage: "dot.radiowaves.left.and.right")
+            metric(analysis.peakLabel, systemImage: "meter.waveform", warning: analysis.clipped || analysis.peakDb >= -0.25)
+        }
+    }
+
+    private func metric(_ text: String, systemImage: String, warning: Bool = false) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+                .monospacedDigit()
+        }
+        .font(.caption2)
+        .foregroundStyle(warning ? .red : .secondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background((warning ? Color.red : Color.secondary).opacity(0.10), in: RoundedRectangle(cornerRadius: 5))
+    }
+}
+
+private struct ResultGroupView: View {
+    let group: BatchResultGroup
+    let previewSelection: AudioPreviewSelection
+    let previewStemAction: (StemFile) -> Void
+    let deleteStemAction: (StemFile) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(group.sourceName)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let summary = group.summary {
+                        Text("\(summary.model) · \(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+                Text("\(group.files.count) stems")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            LazyVStack(spacing: 0) {
+                ForEach(group.files) { stem in
+                    ResultStemRow(
+                        stem: stem,
+                        isActive: previewSelection == .result(stem.path),
+                        previewAction: { previewStemAction(stem) },
+                        deleteAction: { deleteStemAction(stem) }
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 12)
+    }
+}
+
+private struct ResultStemRow: View {
+    let stem: StemFile
+    let isActive: Bool
+    let previewAction: () -> Void
+    let deleteAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: previewAction) {
+                HStack(spacing: 10) {
+                    Image(systemName: stemIconName)
+                        .foregroundStyle(stemColor)
+                        .frame(width: 22)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(stem.displayName)
+                            .font(.callout.weight(.medium))
+                        HStack(spacing: 8) {
+                            Text(stem.fileName)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(FileHelpers.formattedBytes(stem.sizeBytes))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                FileHelpers.reveal(path: stem.path)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.borderless)
+            .help("Reveal in Finder")
+
+            Button(role: .destructive, action: deleteAction) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.red)
+            .help("Delete stem file")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var stemIconName: String {
+        switch stem.stem {
+        case "vocals", "lead_vocals": return "mic.fill"
+        case "drums", "kick", "snare", "toms": return "music.quarternote.3"
+        case "bass": return "waveform.path.badge.minus"
+        case "piano": return "pianokeys"
+        case "guitar": return "guitars"
+        default: return "waveform"
+        }
+    }
+
+    private var stemColor: Color {
+        switch stem.stem {
+        case "vocals", "lead_vocals": return .orange
+        case "drums", "kick", "snare", "toms": return .red
+        case "bass": return .purple
+        case "piano": return .green
+        case "guitar": return .cyan
+        default: return .blue
+        }
     }
 }

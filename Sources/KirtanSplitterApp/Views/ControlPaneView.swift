@@ -4,11 +4,14 @@ import UniformTypeIdentifiers
 
 struct ControlPaneView: View {
     @ObservedObject var backend: BackendClient
-    @Binding var inputURL: URL?
     @Binding var outputDirectory: URL?
     @Binding var settings: SeparationSettings
     @Binding var isDropTargeted: Bool
 
+    let sources: [BatchSourceItem]
+    let chooseFilesAction: ([URL]) -> Void
+    let chooseFolderAction: (URL) -> Void
+    let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
 
     private let outputFormats = ["FLAC", "WAV"]
@@ -49,35 +52,53 @@ struct ControlPaneView: View {
     }
 
     private var dropZone: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .strokeBorder(
-                isDropTargeted ? Color.orange : Color.secondary.opacity(0.35),
-                style: StrokeStyle(lineWidth: 2, dash: [7])
-            )
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isDropTargeted ? Color.orange.opacity(0.08) : Color.clear)
-            )
-            .frame(height: 124)
-            .overlay {
-                VStack(spacing: 8) {
-                    Image(systemName: dropIconName)
-                        .font(.system(size: 30))
-                        .foregroundStyle(dropIconColor)
-                    Text(dropTitle)
-                        .font(.callout.weight(dropTitleWeight))
-                        .lineLimit(1)
-                    Text("WAV, FLAC, AIFF, M4A, MP3")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(
+                    isDropTargeted ? Color.orange : Color.secondary.opacity(0.35),
+                    style: StrokeStyle(lineWidth: 2, dash: [7])
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isDropTargeted ? Color.orange.opacity(0.08) : Color.clear)
+                )
+                .frame(height: 116)
+                .overlay {
+                    VStack(spacing: 8) {
+                        Image(systemName: dropIconName)
+                            .font(.system(size: 30))
+                            .foregroundStyle(dropIconColor)
+                        Text(dropTitle)
+                            .font(.callout.weight(dropTitleWeight))
+                            .lineLimit(1)
+                        Text("WAV, FLAC, AIFF, M4A, MP3")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
                 }
-                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: pickInputFiles)
+                .onDrop(of: [.fileURL, .audio], isTargeted: $isDropTargeted) { providers in
+                    handleDrop(providers)
+                }
+
+            HStack(spacing: 8) {
+                Button {
+                    pickInputFolder()
+                } label: {
+                    Label("Choose Folder", systemImage: "folder")
+                }
+                .controlSize(.small)
+                .disabled(backend.isProcessing)
+
+                Spacer()
+
+                Text(batchCountText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .contentShape(Rectangle())
-            .onTapGesture(perform: pickInputFile)
-            .onDrop(of: [.fileURL, .audio], isTargeted: $isDropTargeted) { providers in
-                handleDrop(providers)
-            }
+        }
     }
 
     private var presetSection: some View {
@@ -235,7 +256,7 @@ struct ControlPaneView: View {
                     } else {
                         Image(systemName: "wand.and.stars")
                     }
-                    Text(backend.isProcessing ? "Separating..." : "Separate")
+                    Text(backend.isProcessing ? "Separating..." : "Separate Selected")
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -243,7 +264,7 @@ struct ControlPaneView: View {
             .buttonStyle(.borderedProminent)
             .tint(.orange)
             .controlSize(.large)
-            .disabled(!backend.isReady || inputURL == nil || backend.isProcessing)
+            .disabled(!backend.isReady || !hasSelectedSources || backend.isProcessing)
 
             if backend.isProcessing {
                 ProgressView(value: backend.progress)
@@ -279,19 +300,35 @@ struct ControlPaneView: View {
     }
 
     private var dropIconName: String {
-        inputURL == nil ? "square.and.arrow.down" : "waveform"
+        sources.isEmpty ? "square.and.arrow.down" : "waveform"
     }
 
     private var dropIconColor: Color {
-        inputURL == nil ? .secondary : .orange
+        sources.isEmpty ? .secondary : .orange
     }
 
     private var dropTitle: String {
-        inputURL?.lastPathComponent ?? "Drop an audio file"
+        if sources.count == 1 {
+            return sources[0].fileName
+        }
+        if !sources.isEmpty {
+            return "\(sources.count) source files loaded"
+        }
+        return "Drop audio files or click to choose"
     }
 
     private var dropTitleWeight: Font.Weight {
-        inputURL == nil ? .regular : .semibold
+        sources.isEmpty ? .regular : .semibold
+    }
+
+    private var batchCountText: String {
+        guard !sources.isEmpty else { return "Batch ready" }
+        let selectedCount = sources.filter(\.isSelectedForProcessing).count
+        return "\(selectedCount)/\(sources.count) selected"
+    }
+
+    private var hasSelectedSources: Bool {
+        sources.contains { $0.isSelectedForProcessing }
     }
 
     private var selectedModelDownloaded: Bool {
@@ -310,12 +347,22 @@ struct ControlPaneView: View {
         return backend.presets.first(where: { $0.id == settings.presetID })?.modelFilename
     }
 
-    private func pickInputFile() {
+    private func pickInputFiles() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         if panel.runModal() == .OK {
-            inputURL = panel.url
+            chooseFilesAction(panel.urls)
+        }
+    }
+
+    private func pickInputFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            chooseFolderAction(url)
         }
     }
 
@@ -337,7 +384,7 @@ struct ControlPaneView: View {
                     let url = URL(dataRepresentation: data, relativeTo: nil)
                 else { return }
                 DispatchQueue.main.async {
-                    inputURL = url
+                    droppedURLAction(url)
                 }
             }
             return true

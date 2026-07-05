@@ -6,7 +6,8 @@ MLX/Metal.
 
 ## What Works
 
-- Drag-and-drop or file picker audio input.
+- Batch-first source queue from drag-and-drop, file picker, or folder picker.
+  Folder loading imports only first-level audio files and ignores nested folders.
 - Local Python backend launched by the SwiftUI app.
 - MLX/Metal acceleration through `mlx-audio-separator`.
 - Presets for:
@@ -28,6 +29,10 @@ MLX/Metal.
 - Finder reveal, path copy, and audio preview for generated stems.
 - Source preview with channel count, duration, peak dBFS, clipping warning,
   waveform, spectrogram, playhead, and click/drag seeking.
+- Source rows include processing checkboxes and per-file preset selection.
+- Separated results are grouped by source file. Clicking any generated stem
+  loads that stem into the waveform/spectrogram preview, and stem rows can
+  delete the generated audio file from disk.
 - Mono input preservation: MLX models can still receive a temporary stereo
   compatibility input, but stems are restored to mono when the source file is
   mono. Stereo sources stay stereo.
