@@ -185,7 +185,7 @@ final class BackendClient: ObservableObject {
     func loadInitialData() async {
         do {
             presets = try await listPresets()
-            models = try await listModels(limit: 140)
+            models = try await listModels(limit: 500)
             runtimeStats = try await fetchRuntimeStats()
             modelCache = try await fetchModelCache()
         } catch {

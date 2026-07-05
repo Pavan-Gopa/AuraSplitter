@@ -17,6 +17,10 @@ struct SeparatorModel: Identifiable, Hashable, Codable {
     let stems: [String]
     let sdr: [String: Double?]
     let isDownloaded: Bool
+
+    var pickerTitle: String {
+        name.isEmpty ? filename : name
+    }
 }
 
 struct StemFile: Identifiable, Hashable, Codable {

@@ -12,9 +12,12 @@ MLX/Metal.
 - Presets for:
   - `Kirtan Pro`: `BS-Roformer-SW.ckpt` 6-stem split.
   - `Clean Vocal / Instrumental`: `model_bs_roformer_ep_368_sdr_12.9628.ckpt`.
+  - `ViperX Vocal 1296`: `BS-Roformer-Viperx-1296` alias for `model_bs_roformer_ep_368_sdr_12.9628.ckpt`.
+  - `ViperX Karaoke Aufr33`: `MB-Ro-Kara-AuFR33-Viperx` alias for `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`.
   - `Instrument Bleed Control`: `mel_band_roformer_instrumental_instv7n_gabox.ckpt`.
   - `Drums / No Drums`: `kuielab_a_drums.onnx`.
-- Model picker with the live model catalog exposed by the backend.
+- Model picker with the full live model catalog exposed by the backend, using
+  UVR-friendly aliases for known ViperX names.
 - Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
 - Output stems in FLAC or WAV.
 - UVR/MDXC controls for RoFormer models:

@@ -80,7 +80,7 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             return response(request.id, {"presets": preset_list()}), events
 
         if request.method == "list_models":
-            limit = int(request.params.get("limit", 80))
+            limit = int(request.params.get("limit", 500))
             return response(request.id, {"models": engine.list_models(limit=limit)}), events
 
         if request.method == "runtime_stats":

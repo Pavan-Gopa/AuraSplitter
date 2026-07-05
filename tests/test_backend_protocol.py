@@ -16,8 +16,10 @@ from kirtan_backend.presets import PRESETS
 class FakeEngine:
     def __init__(self):
         self.calls = []
+        self.last_model_limit = None
 
     def list_models(self, limit=80):
+        self.last_model_limit = limit
         return [
             {
                 "filename": "BS-Roformer-SW.ckpt",
@@ -116,8 +118,23 @@ def test_list_presets_exposes_kirtan_focused_defaults():
 
     presets = response["result"]["presets"]
     preset_ids = {preset["id"] for preset in presets}
-    assert {"kirtan_pro", "vocal_clean", "instrument_bleed"}.issubset(preset_ids)
+    assert {"kirtan_pro", "vocal_clean", "instrument_bleed", "viperx_vocal", "viperx_karaoke"}.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
+    assert PRESETS["viperx_vocal"].model_filename == "model_bs_roformer_ep_368_sdr_12.9628.ckpt"
+    assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+
+
+def test_list_models_defaults_to_full_catalog_limit():
+    engine = FakeEngine()
+
+    response, events = handle_request(
+        BackendRequest(id="r-models", method="list_models", params={}),
+        engine=engine,
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert engine.last_model_limit == 500
 
 
 def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
@@ -366,6 +383,37 @@ def test_engine_rejects_separator_runs_that_return_no_files(tmp_path, monkeypatc
             ),
             progress=lambda *_args: None,
         )
+
+
+def test_engine_list_models_applies_uvr_favorite_aliases(tmp_path, monkeypatch):
+    class FakeSeparator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get_simplified_model_list(self, filter_sort_by=None):
+            return {
+                "model_bs_roformer_ep_368_sdr_12.9628.ckpt": {
+                    "Name": "Roformer Model: BS-Roformer-Viperx-1296",
+                    "Type": "MDXC",
+                    "Stems": ["vocals* (12.1)", "instrumental (16.3)"],
+                    "SDR": {"vocals": 12.1, "instrumental": 16.3},
+                },
+                "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": {
+                    "Name": "Roformer Model: Mel-Roformer-Karaoke-Aufr33-Viperx",
+                    "Type": "MDXC",
+                    "Stems": ["vocals* (8.4)", "instrumental (14.7)"],
+                    "SDR": {"vocals": 8.4, "instrumental": 14.7},
+                },
+            }
+
+    _install_fake_separator(monkeypatch, FakeSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+
+    models = engine.list_models(limit=20)
+
+    names = {model["filename"]: model["name"] for model in models}
+    assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "BS-Roformer-Viperx-1296"
+    assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "MB-Ro-Kara-AuFR33-Viperx"
 
 
 def _install_fake_separator(monkeypatch, separator_class):

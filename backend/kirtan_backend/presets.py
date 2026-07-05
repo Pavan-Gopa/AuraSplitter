@@ -36,6 +36,20 @@ PRESETS: dict[str, SeparationPreset] = {
         summary="High-quality BS-RoFormer vocal isolation for noisy live recordings.",
         expected_stems=("vocals", "instrumental"),
     ),
+    "viperx_vocal": SeparationPreset(
+        id="viperx_vocal",
+        title="ViperX Vocal 1296",
+        model_filename="model_bs_roformer_ep_368_sdr_12.9628.ckpt",
+        summary="BS-Roformer-Viperx-1296 vocal / instrumental split.",
+        expected_stems=("vocals", "instrumental"),
+    ),
+    "viperx_karaoke": SeparationPreset(
+        id="viperx_karaoke",
+        title="ViperX Karaoke Aufr33",
+        model_filename="mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+        summary="MB-Ro-Kara-AuFR33-Viperx karaoke split for vocal and backing separation.",
+        expected_stems=("vocals", "instrumental"),
+    ),
     "instrument_bleed": SeparationPreset(
         id="instrument_bleed",
         title="Instrument Bleed Control",

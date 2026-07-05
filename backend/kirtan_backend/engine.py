@@ -16,6 +16,12 @@ from .runtime import delete_model_cache_item, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
+UVR_MODEL_ALIASES = {
+    "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "BS-Roformer-Viperx-1297",
+    "model_bs_roformer_ep_368_sdr_12.9628.ckpt": "BS-Roformer-Viperx-1296",
+    "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": "MB-Ro-Kara-AuFR33-Viperx",
+}
+
 
 class MlxSeparatorEngine:
     def __init__(self, model_dir: str, logger: logging.Logger | None = None):
@@ -35,7 +41,7 @@ class MlxSeparatorEngine:
             "modelDir": self.model_dir,
         }
 
-    def list_models(self, limit: int = 80) -> list[dict]:
+    def list_models(self, limit: int = 500) -> list[dict]:
         from mlx_audio_separator import Separator
 
         separator = Separator(info_only=True, model_file_dir=self.model_dir)
@@ -45,7 +51,7 @@ class MlxSeparatorEngine:
             models.append(
                 {
                     "filename": filename,
-                    "name": info.get("Name", filename),
+                    "name": self._display_model_name(filename, info.get("Name", filename)),
                     "type": info.get("Type", "Unknown"),
                     "stems": info.get("Stems", []),
                     "sdr": info.get("SDR", {}),
@@ -265,6 +271,9 @@ class MlxSeparatorEngine:
         if model_path.exists():
             return True
         return any(Path(self.model_dir).glob(f"{stem}*"))
+
+    def _display_model_name(self, filename: str, fallback: str) -> str:
+        return UVR_MODEL_ALIASES.get(filename, fallback)
 
     def _file_result(self, path_value: str) -> dict:
         path = Path(path_value)

@@ -112,7 +112,7 @@ struct ControlPaneView: View {
                 Text("Use preset model").tag("")
                 Divider()
                 ForEach(backend.models) { model in
-                    Text("\(model.filename) · \(model.type)").tag(model.filename)
+                    Text("\(model.pickerTitle) · \(model.type)").tag(model.filename)
                 }
             }
             .labelsHidden()
@@ -125,6 +125,13 @@ struct ControlPaneView: View {
                 Text(selectedModelDownloaded ? "Model cached locally" : "Model downloads on first use")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if let selectedModel = selectedModel {
+                Text(selectedModel.filename)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
     }
@@ -288,11 +295,12 @@ struct ControlPaneView: View {
     }
 
     private var selectedModelDownloaded: Bool {
-        guard let filename = selectedModelFilename,
-              let model = backend.models.first(where: { $0.filename == filename }) else {
-            return false
-        }
-        return model.isDownloaded
+        selectedModel?.isDownloaded ?? false
+    }
+
+    private var selectedModel: SeparatorModel? {
+        guard let filename = selectedModelFilename else { return nil }
+        return backend.models.first(where: { $0.filename == filename })
     }
 
     private var selectedModelFilename: String? {
