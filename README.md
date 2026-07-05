@@ -74,9 +74,10 @@ bundle-opened app starts Python directly.
 
 CPU, memory, backend RSS, model cache, converted safetensors, and separation
 timings are collected directly from the local backend and system tools. GPU
-device detection is real through MLX. Detailed GPU utilization/power depends on
-macOS `powermetrics`; if the OS denies access without elevated privileges, the
-GPU widget shows that status instead of inventing a number.
+device detection is real through MLX. GPU utilization falls back to macOS
+`ioreg` when `powermetrics` is unavailable without elevated privileges. GPU
+power still depends on `powermetrics`; if the OS denies access, the GPU widget
+shows utilization without inventing power data.
 
 Persistent backend logs are written to:
 
