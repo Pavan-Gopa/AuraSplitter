@@ -3,8 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import subprocess
+import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
@@ -101,6 +104,9 @@ class MlxSeparatorEngine:
             performance_params=performance_params,
             save_converted_safetensors=job.save_converted_safetensors,
         )
+        if hasattr(separator, "_set_strict_separation_errors"):
+            separator._set_strict_separation_errors(True)
+
         self._with_heartbeat(
             start=0.06,
             end=0.28,
@@ -111,16 +117,28 @@ class MlxSeparatorEngine:
         )
 
         progress("model_ready", "Model ready", 0.30, self.runtime_stats())
-        output_files = self._with_heartbeat(
-            start=0.35,
-            end=0.92,
-            stage="separating",
-            message="Running MLX separation",
-            progress=progress,
-            work=lambda: separator.separate(str(input_path)),
-        )
+        with self._stereo_input_path(input_path, progress) as separator_input_path:
+            output_files = self._with_heartbeat(
+                start=0.35,
+                end=0.92,
+                stage="separating",
+                message="Running MLX separation",
+                progress=progress,
+                work=lambda: separator.separate(str(separator_input_path)),
+            )
+        if not output_files:
+            raise RuntimeError(
+                "No output stems were created. Check the backend log for the underlying separator error."
+            )
+
         elapsed = time.perf_counter() - started
         files = [self._file_result(path) for path in output_files]
+        missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
+        if missing_files:
+            raise RuntimeError(
+                "Separator returned output paths, but no audio data was written: "
+                + ", ".join(missing_files)
+            )
 
         progress("complete", "Done", 1.0, self.runtime_stats())
         return {
@@ -167,6 +185,76 @@ class MlxSeparatorEngine:
             raise error["error"]
         progress(stage, message, end, self.runtime_stats())
         return result.get("value")
+
+    @contextmanager
+    def _stereo_input_path(self, input_path: Path, progress: ProgressCallback):
+        channels = self._audio_channel_count(input_path)
+        if channels == 2 or channels is None:
+            yield input_path
+            return
+
+        with tempfile.TemporaryDirectory(prefix="kirtan-splitter-stereo-") as temp_dir:
+            prepared_path = Path(temp_dir) / f"{input_path.stem}.stereo.wav"
+            self.logger.info(
+                "Preparing %s-channel input as stereo for MLX model compatibility: %s",
+                channels,
+                prepared_path,
+            )
+            progress(
+                "preparing",
+                f"Preparing {channels}-channel audio for stereo model input",
+                0.32,
+                self.runtime_stats(),
+            )
+            self._convert_to_stereo(input_path, prepared_path)
+            yield prepared_path
+
+    def _audio_channel_count(self, input_path: Path) -> int | None:
+        try:
+            output = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=channels",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(input_path),
+                ],
+                text=True,
+                timeout=10,
+            )
+            return int(output.strip())
+        except Exception as exc:
+            self.logger.warning("Could not inspect audio channel count for %s: %s", input_path, exc)
+            return None
+
+    def _convert_to_stereo(self, input_path: Path, output_path: Path):
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(input_path),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-ac",
+            "2",
+            "-c:a",
+            "pcm_f32le",
+            str(output_path),
+        ]
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True, timeout=None)
+        except subprocess.CalledProcessError as exc:
+            message = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(f"Failed to prepare stereo input with ffmpeg: {message}") from exc
 
     def _is_model_downloaded(self, filename: str) -> bool:
         stem = Path(filename).stem

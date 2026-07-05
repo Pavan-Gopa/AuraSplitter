@@ -1,8 +1,14 @@
 import json
+import subprocess
+import sys
+import types
+import wave
 from pathlib import Path
 
 import pytest
 
+from kirtan_backend.engine import MlxSeparatorEngine
+from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
 from kirtan_backend.presets import PRESETS
 
@@ -247,3 +253,114 @@ def test_presets_have_user_visible_labels(preset_id):
     assert preset.title
     assert preset.model_filename.endswith((".ckpt", ".onnx", ".pth", ".yaml"))
     assert preset.summary
+
+
+def test_engine_converts_mono_input_before_running_separator(tmp_path, monkeypatch):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class FakeSeparator:
+        last_audio_path = None
+
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            FakeSeparator.last_audio_path = Path(audio_path)
+            assert _audio_channels(FakeSeparator.last_audio_path) == 2
+            output = self.output_dir / "mono_(vocals).flac"
+            output.write_bytes(b"stem")
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, FakeSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    assert result["files"][0]["stem"] == "vocals"
+    assert FakeSeparator.last_audio_path != input_path
+
+
+def test_engine_rejects_separator_runs_that_return_no_files(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+
+    class EmptySeparator:
+        last_perf_metrics = {}
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            return []
+
+    _install_fake_separator(monkeypatch, EmptySeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    with pytest.raises(RuntimeError, match="No output stems"):
+        engine.separate(
+            SeparationJob(
+                input_path=str(input_path),
+                output_dir=str(tmp_path / "out"),
+                model_filename="BS-Roformer-SW.ckpt",
+                preset="kirtan_pro",
+            ),
+            progress=lambda *_args: None,
+        )
+
+
+def _install_fake_separator(monkeypatch, separator_class):
+    monkeypatch.setitem(
+        sys.modules,
+        "mlx_audio_separator",
+        types.SimpleNamespace(Separator=separator_class),
+    )
+
+
+def _write_silent_wav(path: Path, channels: int):
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(44100)
+        wav.writeframes(b"\0\0" * channels * 4410)
+
+
+def _audio_channels(path: Path) -> int:
+    output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=channels",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        text=True,
+    )
+    return int(output.strip())
