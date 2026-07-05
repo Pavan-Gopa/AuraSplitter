@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .jobs import SeparationJob
-from .runtime import model_cache, runtime_stats
+from .runtime import delete_model_cache_item, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
@@ -61,6 +61,9 @@ class MlxSeparatorEngine:
 
     def model_cache(self) -> dict:
         return model_cache(self.model_dir)
+
+    def delete_model_cache_item(self, item_path: str) -> dict:
+        return delete_model_cache_item(self.model_dir, item_path)
 
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator

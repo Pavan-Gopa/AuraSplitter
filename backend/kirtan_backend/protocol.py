@@ -89,6 +89,12 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
         if request.method == "model_cache":
             return response(request.id, engine.model_cache()), events
 
+        if request.method == "delete_model_cache_item":
+            item_path = request.params.get("path") or request.params.get("filename")
+            if not item_path:
+                raise ValueError("Missing required parameter: path")
+            return response(request.id, engine.delete_model_cache_item(str(item_path))), events
+
         if request.method == "separate":
             preset_id = str(request.params.get("preset", "kirtan_pro"))
             explicit_model = request.params.get("modelFilename")

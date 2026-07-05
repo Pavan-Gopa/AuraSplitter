@@ -34,7 +34,7 @@ struct ResultsPaneView: View {
                 Text(summaryText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Spacer()
@@ -102,7 +102,7 @@ struct ResultsPaneView: View {
         guard let summary else {
             return backend.models.isEmpty ? "Loading model catalog" : "\(backend.models.count) MLX models available"
         }
-        return "\(summary.files.count) files · \(summary.model) · \(String(format: "%.1f", summary.elapsedSeconds))s"
+        return "\(summary.files.count) files · \(summary.model) · \(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))"
     }
 }
 

@@ -18,7 +18,7 @@ MLX/Metal.
 - Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
 - Output stems in FLAC or WAV.
 - UVR/MDXC controls for RoFormer models:
-  - segment size,
+  - segment size up to 4096,
   - overlap,
   - batch size,
   - model segment override.
@@ -30,6 +30,7 @@ MLX/Metal.
   - backend PID / CPU / RSS memory,
   - MLX GPU device and GPU telemetry status,
   - cached checkpoints and converted `.safetensors`,
+  - confirmable deletion for cached model files,
   - last-run UVR parameters and decode / inference / write timings.
 
 ## Requirements
@@ -74,10 +75,15 @@ bundle-opened app starts Python directly.
 
 CPU, memory, backend RSS, model cache, converted safetensors, and separation
 timings are collected directly from the local backend and system tools. GPU
-device detection is real through MLX. GPU utilization falls back to macOS
-`ioreg` when `powermetrics` is unavailable without elevated privileges. GPU
-power still depends on `powermetrics`; if the OS denies access, the GPU widget
-shows utilization without inventing power data.
+device detection is real through MLX. GPU utilization and GPU core count fall
+back to macOS `ioreg` when `powermetrics` is unavailable without elevated
+privileges. GPU power still depends on `powermetrics`; if the OS denies access,
+the GPU widget shows utilization without inventing power data.
+
+`Speed` is a runtime profile passed to `mlx-audio-separator`, not an output
+quality preset. `default` leaves the library defaults untouched, `latency_safe`
+uses conservative batch sizes for lower peak memory, and `latency_safe_v3` adds
+deferred cache clearing plus two write workers for long FLAC/WAV runs.
 
 Persistent backend logs are written to:
 

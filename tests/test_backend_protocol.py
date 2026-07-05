@@ -57,6 +57,26 @@ class FakeEngine:
             ],
         }
 
+    def delete_model_cache_item(self, item_path):
+        assert item_path == "/tmp/models/BS-Roformer-SW.safetensors"
+        return {
+            "modelDir": "/tmp/models",
+            "totalBytes": 20,
+            "items": [
+                {
+                    "filename": "BS-Roformer-SW.ckpt",
+                    "sizeBytes": 20,
+                    "kind": "checkpoint",
+                    "converted": False,
+                }
+            ],
+            "deleted": {
+                "filename": "BS-Roformer-SW.safetensors",
+                "path": item_path,
+                "sizeBytes": 22,
+            },
+        }
+
     def separate(self, job, progress):
         self.calls.append(job)
         progress("loading", "Loading model", 0.1)
@@ -205,6 +225,23 @@ def test_model_cache_reports_checkpoints_and_converted_weights():
     assert response["type"] == "response"
     assert response["result"]["totalBytes"] == 42
     assert response["result"]["items"][0]["converted"] is True
+
+
+def test_delete_model_cache_item_returns_refreshed_cache():
+    response, events = handle_request(
+        BackendRequest(
+            id="r-cache-delete",
+            method="delete_model_cache_item",
+            params={"path": "/tmp/models/BS-Roformer-SW.safetensors"},
+        ),
+        engine=FakeEngine(),
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["result"]["deleted"]["filename"] == "BS-Roformer-SW.safetensors"
+    assert response["result"]["totalBytes"] == 20
+    assert [item["filename"] for item in response["result"]["items"]] == ["BS-Roformer-SW.ckpt"]
 
 
 def test_separate_rejects_missing_input_path(tmp_path):

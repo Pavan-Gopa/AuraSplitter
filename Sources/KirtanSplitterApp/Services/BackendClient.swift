@@ -213,6 +213,19 @@ final class BackendClient: ObservableObject {
         return try decodeObject(ModelCache.self, from: result)
     }
 
+    func deleteModelCacheItem(_ item: ModelCacheItem) async {
+        guard !isProcessing else { return }
+        do {
+            let result = try await sendRequest(method: "delete_model_cache_item", params: ["path": item.path])
+            modelCache = try decodeObject(ModelCache.self, from: result)
+            runtimeStats = try? await fetchRuntimeStats()
+            statusLine = "Deleted \(item.filename)"
+        } catch {
+            errorMessage = error.localizedDescription
+            appendLog("Model cache delete failed: \(error.localizedDescription)\n")
+        }
+    }
+
     func separate(inputURL: URL, outputDirectory: URL, settings: SeparationSettings) async throws -> SeparationSummary {
         isProcessing = true
         progress = 0
@@ -243,7 +256,7 @@ final class BackendClient: ObservableObject {
         let summary = try decodeObject(SeparationSummary.self, from: result)
         progress = 1
         currentStage = "Complete"
-        statusLine = "Finished in \(String(format: "%.1f", summary.elapsedSeconds))s"
+        statusLine = "Finished in \(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))"
         lastSummary = summary
         if let cache = summary.modelCache {
             modelCache = cache

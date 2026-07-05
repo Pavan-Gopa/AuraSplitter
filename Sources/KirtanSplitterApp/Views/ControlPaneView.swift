@@ -168,6 +168,7 @@ struct ControlPaneView: View {
             }
             .pickerStyle(.menu)
             .disabled(backend.isProcessing)
+            .help("default leaves mlx-audio-separator settings unchanged; latency_safe uses conservative batch sizes; latency_safe_v3 also defers cache clearing and uses two write workers.")
 
             Divider()
 
@@ -176,7 +177,7 @@ struct ControlPaneView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                Stepper(value: $settings.mdxcSegmentSize, in: 64...512, step: 32) {
+                Stepper(value: $settings.mdxcSegmentSize, in: 64...4096, step: 64) {
                     HStack {
                         Text("Segment Size")
                         Spacer()
@@ -185,7 +186,7 @@ struct ControlPaneView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .help("MDXC/RoFormer segment size passed to mlx-audio-separator.")
+                .help("MDXC/RoFormer segment size passed to mlx-audio-separator. Values above the model default require Override Model Segment and use more memory.")
 
                 Stepper(value: $settings.mdxcOverlap, in: 1...16, step: 1) {
                     HStack {

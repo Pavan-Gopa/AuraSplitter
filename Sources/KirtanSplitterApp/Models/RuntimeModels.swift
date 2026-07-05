@@ -32,6 +32,7 @@ struct GPUStats: Codable, Equatable {
     let device: String
     let utilizationPercent: Double?
     let powerWatts: Double?
+    let gpuCoreCount: Int?
     let status: String
     let source: String?
 }

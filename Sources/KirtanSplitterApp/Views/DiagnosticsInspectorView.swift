@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DiagnosticsInspectorView: View {
     @ObservedObject var backend: BackendClient
+    @State private var deletionCandidate: ModelCacheItem?
 
     var body: some View {
         ScrollView {
@@ -16,6 +17,24 @@ struct DiagnosticsInspectorView: View {
             .padding(16)
         }
         .background(.thinMaterial)
+        .confirmationDialog(
+            "Delete cached model file?",
+            isPresented: deleteConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let item = deletionCandidate else { return }
+                deletionCandidate = nil
+                Task {
+                    await backend.deleteModelCacheItem(item)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                deletionCandidate = nil
+            }
+        } message: {
+            Text(deletionCandidate?.filename ?? "")
+        }
     }
 
     private var jobWidget: some View {
@@ -91,6 +110,12 @@ struct DiagnosticsInspectorView: View {
                         .lineLimit(1)
                     Spacer()
                 }
+                if let gpuDetail {
+                    Text(gpuDetail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 if let utilization = backend.runtimeStats?.gpu.utilizationPercent {
                     GaugeLine(title: "Utilization", value: utilization, detail: String(format: "%.1f%%", utilization), tint: .orange)
                 } else {
@@ -137,6 +162,17 @@ struct DiagnosticsInspectorView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
+                            Spacer(minLength: 4)
+                            Button(role: .destructive) {
+                                deletionCandidate = item
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .foregroundStyle(.red)
+                            .disabled(backend.isProcessing)
+                            .help("Delete this cached model file from disk")
                         }
                     }
                 }
@@ -152,7 +188,7 @@ struct DiagnosticsInspectorView: View {
                         Text(summary.model)
                             .lineLimit(1)
                         Spacer()
-                        Text("\(summary.elapsedSeconds, specifier: "%.1f")s")
+                        Text(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
@@ -213,6 +249,29 @@ struct DiagnosticsInspectorView: View {
             total > 0
         else { return 0 }
         return min(100, Double(process.rssBytes) / Double(total) * 100)
+    }
+
+    private var deleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { deletionCandidate != nil },
+            set: { isPresented in
+                if !isPresented {
+                    deletionCandidate = nil
+                }
+            }
+        )
+    }
+
+    private var gpuDetail: String? {
+        guard let gpu = backend.runtimeStats?.gpu else { return nil }
+        var parts: [String] = []
+        if let count = gpu.gpuCoreCount {
+            parts.append("\(count) GPU cores")
+        }
+        if let source = gpu.source {
+            parts.append("telemetry \(source)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func settingRows(from settings: RunSettings) -> [(String, String)] {

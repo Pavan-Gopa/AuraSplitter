@@ -104,6 +104,7 @@ def gpu_stats() -> dict:
         "device": device,
         "utilizationPercent": sample.get("utilizationPercent"),
         "powerWatts": sample.get("powerWatts"),
+        "gpuCoreCount": sample.get("gpuCoreCount"),
         "status": sample.get("status", "unavailable"),
         "source": sample.get("source", "powermetrics"),
     }
@@ -156,6 +157,7 @@ def parse_ioreg_gpu_stats(output: str) -> dict:
     tiler = _ioreg_number(output, "Tiler Utilization %")
     in_use_memory = _ioreg_number(output, "In use system memory")
     allocated_memory = _ioreg_number(output, "Alloc system memory")
+    gpu_core_count = _ioreg_number(output, "gpu-core-count")
 
     result = {
         "utilizationPercent": utilization,
@@ -171,6 +173,8 @@ def parse_ioreg_gpu_stats(output: str) -> dict:
         result["inUseSystemMemoryBytes"] = int(in_use_memory)
     if allocated_memory is not None:
         result["allocatedSystemMemoryBytes"] = int(allocated_memory)
+    if gpu_core_count is not None:
+        result["gpuCoreCount"] = int(gpu_core_count)
     return result
 
 
@@ -198,6 +202,33 @@ def model_cache(model_dir: str) -> dict:
         "totalBytes": sum(item["sizeBytes"] for item in items),
         "items": items,
     }
+
+
+def delete_model_cache_item(model_dir: str, item_path: str) -> dict:
+    root = Path(model_dir).expanduser().resolve()
+    requested = Path(item_path).expanduser()
+    if not requested.is_absolute():
+        requested = root / requested
+    target = requested.resolve(strict=False)
+
+    if target.parent != root:
+        raise ValueError(f"Refusing to delete outside model cache: {item_path}")
+    if target.suffix.lower() not in MODEL_SUFFIXES:
+        raise ValueError(f"Refusing to delete unsupported model cache file: {target.name}")
+    if not target.exists():
+        raise FileNotFoundError(f"Model cache file does not exist: {target.name}")
+    if not target.is_file():
+        raise ValueError(f"Model cache item is not a file: {target.name}")
+
+    deleted_bytes = target.stat().st_size
+    target.unlink()
+    result = model_cache(str(root))
+    result["deleted"] = {
+        "filename": target.name,
+        "path": str(target),
+        "sizeBytes": deleted_bytes,
+    }
+    return result
 
 
 def model_cache_items(model_dir: str) -> list[dict]:

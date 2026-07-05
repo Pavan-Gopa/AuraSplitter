@@ -18,6 +18,25 @@ enum FileHelpers {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
     }
+
+    static func formattedDuration(_ seconds: Double) -> String {
+        let totalSeconds = max(0, Int(seconds.rounded()))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let remainingSeconds = totalSeconds % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m \(remainingSeconds)s"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(remainingSeconds)s"
+        }
+        return "\(remainingSeconds)s"
+    }
+
+    static func formattedDurationWithRawSeconds(_ seconds: Double) -> String {
+        "\(formattedDuration(seconds)) (\(String(format: "%.1f", seconds))s)"
+    }
 }
 
 final class StemPreviewPlayer: ObservableObject {
