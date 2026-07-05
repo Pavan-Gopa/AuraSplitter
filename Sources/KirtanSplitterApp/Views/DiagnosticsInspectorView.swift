@@ -7,6 +7,7 @@ struct DiagnosticsInspectorView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 jobWidget
+                logWidget
                 resourceWidget
                 gpuWidget
                 modelCacheWidget
@@ -34,6 +35,24 @@ struct DiagnosticsInspectorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
+            }
+        }
+    }
+
+    private var logWidget: some View {
+        InspectorCard(title: "Logs", systemImage: "doc.text.magnifyingglass") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(backend.backendLogPath ?? "Waiting for backend log path")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+                if !backend.backendLog.isEmpty {
+                    Text(backend.backendLog.split(separator: "\n").suffix(1).joined())
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
             }
         }
     }
@@ -138,7 +157,21 @@ struct DiagnosticsInspectorView: View {
                     }
                     .font(.caption)
 
+                    if let settings = summary.settings {
+                        Divider()
+                        ForEach(settingRows(from: settings), id: \.0) { key, value in
+                            HStack {
+                                Text(key)
+                                Spacer()
+                                Text(value)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption2.monospacedDigit())
+                        }
+                    }
+
                     if let metrics = summary.metrics, !metrics.isEmpty {
+                        Divider()
                         ForEach(metricRows(from: metrics), id: \.0) { key, value in
                             HStack {
                                 Text(key)
@@ -180,6 +213,16 @@ struct DiagnosticsInspectorView: View {
             total > 0
         else { return 0 }
         return min(100, Double(process.rssBytes) / Double(total) * 100)
+    }
+
+    private func settingRows(from settings: RunSettings) -> [(String, String)] {
+        [
+            ("segment", settings.mdxcSegmentSize.map(String.init) ?? "default"),
+            ("overlap", settings.mdxcOverlap.map(String.init) ?? "default"),
+            ("batch", settings.mdxcBatchSize.map(String.init) ?? "default"),
+            ("override", settings.mdxcOverrideModelSegmentSize == true ? "on" : "off"),
+            ("speed", settings.speedMode ?? "default"),
+        ]
     }
 
     private func metricRows(from metrics: [String: Double]) -> [(String, Double)] {

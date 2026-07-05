@@ -168,6 +168,52 @@ struct ControlPaneView: View {
             }
             .pickerStyle(.menu)
             .disabled(backend.isProcessing)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("UVR Params")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Stepper(value: $settings.mdxcSegmentSize, in: 64...512, step: 32) {
+                    HStack {
+                        Text("Segment Size")
+                        Spacer()
+                        Text("\(settings.mdxcSegmentSize)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("MDXC/RoFormer segment size passed to mlx-audio-separator.")
+
+                Stepper(value: $settings.mdxcOverlap, in: 1...16, step: 1) {
+                    HStack {
+                        Text("Overlap")
+                        Spacer()
+                        Text("\(settings.mdxcOverlap)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("MDXC/RoFormer overlap between inference windows.")
+
+                Stepper(value: $settings.mdxcBatchSize, in: 1...4, step: 1) {
+                    HStack {
+                        Text("Batch")
+                        Spacer()
+                        Text("\(settings.mdxcBatchSize)")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Higher batch values can be faster but use more memory.")
+
+                Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
+                    .toggleStyle(.checkbox)
+                    .help("When off, models may keep their own embedded segment size.")
+            }
+            .disabled(backend.isProcessing)
         }
     }
 
@@ -241,10 +287,18 @@ struct ControlPaneView: View {
     }
 
     private var selectedModelDownloaded: Bool {
-        guard let model = backend.models.first(where: { $0.filename == (settings.modelOverride ?? "") }) else {
+        guard let filename = selectedModelFilename,
+              let model = backend.models.first(where: { $0.filename == filename }) else {
             return false
         }
         return model.isDownloaded
+    }
+
+    private var selectedModelFilename: String? {
+        if let override = settings.modelOverride, !override.isEmpty {
+            return override
+        }
+        return backend.presets.first(where: { $0.id == settings.presetID })?.modelFilename
     }
 
     private func pickInputFile() {

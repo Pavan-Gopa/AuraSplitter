@@ -14,6 +14,13 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+APP_SUPPORT="$HOME/Library/Application Support/$APP_NAME"
+RUNTIME_BACKEND="$APP_SUPPORT/backend"
+RUNTIME_LAUNCHER="$APP_SUPPORT/run_backend.sh"
+RUNTIME_MODEL_DIR="$APP_SUPPORT/models"
+LOG_FILE="$APP_SUPPORT/logs/backend.log"
+PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
+SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
 
 cd "$ROOT_DIR"
 
@@ -22,14 +29,25 @@ if [[ ! -x "$ROOT_DIR/.venv/bin/python" ]]; then
 fi
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -f "$ROOT_DIR/backend/server.py" >/dev/null 2>&1 || true
+pkill -f "$ROOT_DIR/script/run_backend.sh" >/dev/null 2>&1 || true
+pkill -f "$APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
+pkill -f "$APP_SUPPORT/run_backend.sh" >/dev/null 2>&1 || true
 
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$APP_RESOURCES"
+rm -rf "$RUNTIME_BACKEND"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$(dirname "$LOG_FILE")" "$RUNTIME_MODEL_DIR"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+cp -R "$ROOT_DIR/backend" "$RUNTIME_BACKEND"
+cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
+chmod +x "$RUNTIME_LAUNCHER"
+if [[ -d "$ROOT_DIR/models" ]]; then
+  rsync -a --ignore-existing "$ROOT_DIR/models/" "$RUNTIME_MODEL_DIR/"
+fi
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -53,17 +71,23 @@ cat >"$INFO_PLIST" <<PLIST
   <key>KirtanSplitterProjectRoot</key>
   <string>$ROOT_DIR</string>
   <key>KirtanSplitterPython</key>
-  <string>$ROOT_DIR/.venv/bin/python</string>
+  <string>$PYTHON_REAL</string>
+  <key>KirtanSplitterPythonPath</key>
+  <string>$RUNTIME_BACKEND:$SITE_PACKAGES</string>
   <key>KirtanSplitterBackendServer</key>
-  <string>$ROOT_DIR/backend/server.py</string>
+  <string>$RUNTIME_BACKEND/server.py</string>
+  <key>KirtanSplitterBackendLauncher</key>
+  <string>$RUNTIME_LAUNCHER</string>
   <key>KirtanSplitterModelDir</key>
-  <string>$ROOT_DIR/models</string>
+  <string>$RUNTIME_MODEL_DIR</string>
+  <key>KirtanSplitterLogFile</key>
+  <string>$LOG_FILE</string>
 </dict>
 </plist>
 PLIST
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  /usr/bin/nohup "$APP_BINARY" >/tmp/kirtansplitter-app.log 2>&1 &
 }
 
 case "$MODE" in

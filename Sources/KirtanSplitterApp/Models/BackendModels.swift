@@ -41,6 +41,10 @@ struct SeparationSettings: Equatable {
     var outputFormat = "FLAC"
     var speedMode = "latency_safe_v3"
     var chunkDuration: Double = 30
+    var mdxcSegmentSize: Int = 256
+    var mdxcOverlap: Int = 8
+    var mdxcBatchSize: Int = 1
+    var mdxcOverrideModelSegmentSize = false
     var saveConvertedSafetensors = true
 
     var chunkDurationForBackend: Double? {
@@ -55,4 +59,14 @@ struct SeparationSummary: Codable {
     let files: [StemFile]
     let metrics: [String: Double]?
     let modelCache: ModelCache?
+    let settings: RunSettings?
+}
+
+struct RunSettings: Codable {
+    let chunkDuration: Double?
+    let mdxcSegmentSize: Int?
+    let mdxcOverlap: Int?
+    let mdxcBatchSize: Int?
+    let mdxcOverrideModelSegmentSize: Bool?
+    let speedMode: String?
 }

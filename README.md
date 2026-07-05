@@ -15,16 +15,22 @@ MLX/Metal.
   - `Instrument Bleed Control`: `mel_band_roformer_instrumental_instv7n_gabox.ckpt`.
   - `Drums / No Drums`: `kuielab_a_drums.onnx`.
 - Model picker with the live model catalog exposed by the backend.
-- Local model cache in `models/`.
+- Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
 - Output stems in FLAC or WAV.
+- UVR/MDXC controls for RoFormer models:
+  - segment size,
+  - overlap,
+  - batch size,
+  - model segment override.
 - Finder reveal, path copy, and audio preview for generated stems.
 - Right-side diagnostics inspector:
   - live process stage and progress,
+  - persistent backend log path,
   - system CPU and memory,
   - backend PID / CPU / RSS memory,
   - MLX GPU device and GPU telemetry status,
   - cached checkpoints and converted `.safetensors`,
-  - last-run decode / inference / write timings.
+  - last-run UVR parameters and decode / inference / write timings.
 
 ## Requirements
 
@@ -59,7 +65,9 @@ open "Launch KirtanSplitter.command"
 
 `script/build_and_run.sh` always stops a previous `KirtanSplitter` process,
 builds a fresh SwiftPM binary, stages `dist/KirtanSplitter.app`, and opens that
-fresh bundle.
+fresh bundle through its binary. The direct binary launch avoids a macOS
+LaunchServices child-process stall seen when the app starts the Python backend
+from a bundle opened with `open`.
 
 ## Diagnostics Notes
 
@@ -68,6 +76,16 @@ timings are collected directly from the local backend and system tools. GPU
 device detection is real through MLX. Detailed GPU utilization/power depends on
 macOS `powermetrics`; if the OS denies access without elevated privileges, the
 GPU widget shows that status instead of inventing a number.
+
+Persistent backend logs are written to:
+
+```text
+~/Library/Application Support/KirtanSplitter/logs/backend.log
+```
+
+The log contains backend startup, request methods, progress events, model load
+activity, conversion messages, and any uncaught exceptions from the Python
+server.
 
 ## Tests
 
@@ -81,7 +99,9 @@ The backend tests use a fake engine, so they do not download models.
 ## Runtime Data
 
 - `.venv/`: local Python 3.11 environment.
-- `models/`: downloaded UVR model files and converted safetensors.
+- `models/`: project-side cache copied into runtime cache when present.
+- `~/Library/Application Support/KirtanSplitter/models/`: runtime UVR model files and converted safetensors.
+- `~/Library/Application Support/KirtanSplitter/logs/backend.log`: backend startup, progress, and error log.
 - `dist/`: staged local app bundle.
 - Output stems: selected output folder, or `<input>_stems` next to the input.
 

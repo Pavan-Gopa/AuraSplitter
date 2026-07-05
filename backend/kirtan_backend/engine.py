@@ -82,6 +82,13 @@ class MlxSeparatorEngine:
             "experimental_roformer_compile_fullgraph": False,
             "experimental_flac_fast_write": job.output_format == "FLAC",
         }
+        mdxc_params = {
+            "segment_size": job.mdxc_segment_size,
+            "override_model_segment_size": job.mdxc_override_model_segment_size,
+            "batch_size": job.mdxc_batch_size,
+            "overlap": job.mdxc_overlap,
+            "pitch_shift": 0,
+        }
 
         separator = Separator(
             model_file_dir=self.model_dir,
@@ -90,6 +97,7 @@ class MlxSeparatorEngine:
             normalization_threshold=job.normalization,
             amplification_threshold=job.amplification,
             chunk_duration=job.chunk_duration,
+            mdxc_params=mdxc_params,
             performance_params=performance_params,
             save_converted_safetensors=job.save_converted_safetensors,
         )
@@ -122,6 +130,14 @@ class MlxSeparatorEngine:
             "files": files,
             "metrics": getattr(separator, "last_perf_metrics", None),
             "modelCache": self.model_cache(),
+            "settings": {
+                "chunkDuration": job.chunk_duration,
+                "mdxcSegmentSize": job.mdxc_segment_size,
+                "mdxcOverlap": job.mdxc_overlap,
+                "mdxcBatchSize": job.mdxc_batch_size,
+                "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
+                "speedMode": job.speed_mode,
+            },
         }
 
     def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):

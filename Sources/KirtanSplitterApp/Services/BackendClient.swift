@@ -37,6 +37,7 @@ final class BackendClient: ObservableObject {
     @Published var runtimeStats: RuntimeSnapshot?
     @Published var modelCache: ModelCache?
     @Published var lastSummary: SeparationSummary?
+    @Published var backendLogPath: String?
 
     private var process: Process?
     private var inputPipe: Pipe?
@@ -56,20 +57,31 @@ final class BackendClient: ObservableObject {
         guard FileManager.default.fileExists(atPath: paths.server) else {
             throw BackendClientError.launchFailed("Backend server not found at \(paths.server).")
         }
+        guard FileManager.default.fileExists(atPath: paths.backendLauncher) else {
+            throw BackendClientError.launchFailed("Backend launcher not found at \(paths.backendLauncher).")
+        }
 
         currentStage = "Starting backend"
         statusLine = "Launching Python backend"
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: paths.runtimeDir),
+            withIntermediateDirectories: true
+        )
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: paths.python)
-        proc.arguments = [paths.server, "--model-dir", paths.modelDir]
-        proc.currentDirectoryURL = URL(fileURLWithPath: paths.projectRoot)
+        proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+        proc.arguments = [paths.backendLauncher]
+        proc.currentDirectoryURL = URL(fileURLWithPath: paths.runtimeDir)
 
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
         environment["PYTHONUNBUFFERED"] = "1"
-        environment["PYTHONPATH"] = paths.backendDir
+        environment["PYTHONPATH"] = paths.pythonPath
+        environment["KIRTAN_SPLITTER_PROJECT_ROOT"] = paths.projectRoot
+        environment["KIRTAN_SPLITTER_PYTHON"] = paths.python
+        environment["KIRTAN_SPLITTER_BACKEND_SERVER"] = paths.server
         environment["KIRTAN_SPLITTER_MODEL_DIR"] = paths.modelDir
+        environment["KIRTAN_SPLITTER_LOG_FILE"] = paths.logFile
         environment["MLX_USE_FAST_SDP"] = "1"
         proc.environment = environment
 
@@ -104,7 +116,14 @@ final class BackendClient: ObservableObject {
             throw BackendClientError.launchFailed(error.localizedDescription)
         }
 
-        try await waitUntilReady(timeoutSeconds: 30)
+        do {
+            try await waitUntilReady(timeoutSeconds: 30)
+        } catch {
+            proc.terminate()
+            self.process = nil
+            self.inputPipe = nil
+            throw error
+        }
         statusLine = "Backend ready"
         startTelemetryLoop()
     }
@@ -166,6 +185,10 @@ final class BackendClient: ObservableObject {
             "preset": settings.presetID,
             "outputFormat": settings.outputFormat,
             "speedMode": settings.speedMode,
+            "mdxcSegmentSize": settings.mdxcSegmentSize,
+            "mdxcOverlap": settings.mdxcOverlap,
+            "mdxcBatchSize": settings.mdxcBatchSize,
+            "mdxcOverrideModelSegmentSize": settings.mdxcOverrideModelSegmentSize,
             "saveConvertedSafetensors": settings.saveConvertedSafetensors,
         ]
         if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {
@@ -231,6 +254,7 @@ final class BackendClient: ObservableObject {
         switch type {
         case "ready":
             isReady = true
+            backendLogPath = message["logFile"] as? String
             statusLine = "Backend ready"
             currentStage = "Ready"
 
@@ -331,8 +355,11 @@ final class BackendClient: ObservableObject {
         let info = Bundle.main.infoDictionary ?? [:]
         let bundledProjectRoot = info["KirtanSplitterProjectRoot"] as? String
         let bundledPython = info["KirtanSplitterPython"] as? String
+        let bundledPythonPath = info["KirtanSplitterPythonPath"] as? String
         let bundledServer = info["KirtanSplitterBackendServer"] as? String
+        let bundledBackendLauncher = info["KirtanSplitterBackendLauncher"] as? String
         let bundledModelDir = info["KirtanSplitterModelDir"] as? String
+        let bundledLogFile = info["KirtanSplitterLogFile"] as? String
 
         let projectRoot = env["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? bundledProjectRoot ?? FileManager.default.currentDirectoryPath
         let backendDir = URL(fileURLWithPath: projectRoot).appendingPathComponent("backend").path
@@ -342,15 +369,34 @@ final class BackendClient: ObservableObject {
         let server = env["KIRTAN_SPLITTER_BACKEND_SERVER"]
             ?? bundledServer
             ?? URL(fileURLWithPath: backendDir).appendingPathComponent("server.py").path
+        let backendLauncher = env["KIRTAN_SPLITTER_BACKEND_LAUNCHER"]
+            ?? bundledBackendLauncher
+            ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("script/run_backend.sh").path
+        let pythonPath = env["KIRTAN_SPLITTER_PYTHONPATH"]
+            ?? bundledPythonPath
+            ?? [
+                backendDir,
+                URL(fileURLWithPath: projectRoot).appendingPathComponent(".venv/lib/python3.11/site-packages").path,
+            ].joined(separator: ":")
         let modelDir = env["KIRTAN_SPLITTER_MODEL_DIR"]
             ?? bundledModelDir
             ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("models").path
+        let logFile = env["KIRTAN_SPLITTER_LOG_FILE"]
+            ?? bundledLogFile
+            ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("logs/backend.log").path
+        let runtimeDir = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/KirtanSplitter/runtime")
+            .path
         return BackendPaths(
             projectRoot: projectRoot,
             backendDir: backendDir,
             python: python,
+            pythonPath: pythonPath,
             server: server,
-            modelDir: modelDir
+            backendLauncher: backendLauncher,
+            modelDir: modelDir,
+            logFile: logFile,
+            runtimeDir: runtimeDir
         )
     }
 }
@@ -359,6 +405,10 @@ private struct BackendPaths {
     let projectRoot: String
     let backendDir: String
     let python: String
+    let pythonPath: String
     let server: String
+    let backendLauncher: String
     let modelDir: String
+    let logFile: String
+    let runtimeDir: String
 }

@@ -106,6 +106,10 @@ def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
             "outputFormat": "FLAC",
             "chunkDuration": 30,
             "speedMode": "latency_safe_v3",
+            "mdxcSegmentSize": 384,
+            "mdxcOverlap": 10,
+            "mdxcBatchSize": 2,
+            "mdxcOverrideModelSegmentSize": True,
         },
     )
 
@@ -119,6 +123,35 @@ def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
     assert engine.calls[0].input_path == "/tmp/mix.wav"
     assert engine.calls[0].output_format == "FLAC"
     assert engine.calls[0].speed_mode == "latency_safe_v3"
+    assert engine.calls[0].mdxc_segment_size == 384
+    assert engine.calls[0].mdxc_overlap == 10
+    assert engine.calls[0].mdxc_batch_size == 2
+    assert engine.calls[0].mdxc_override_model_segment_size is True
+
+
+def test_separate_accepts_snake_case_mdxc_parameters(tmp_path):
+    engine = FakeEngine()
+    request = BackendRequest(
+        id="r3-mdxc-snake",
+        method="separate",
+        params={
+            "inputPath": "/tmp/mix.wav",
+            "outputDir": str(tmp_path),
+            "preset": "kirtan_pro",
+            "mdxc_segment_size": 128,
+            "mdxc_overlap": 4,
+            "mdxc_batch_size": 1,
+            "mdxc_override_model_segment_size": False,
+        },
+    )
+
+    response, _events = handle_request(request, engine=engine)
+
+    assert response["type"] == "response"
+    assert engine.calls[0].mdxc_segment_size == 128
+    assert engine.calls[0].mdxc_overlap == 4
+    assert engine.calls[0].mdxc_batch_size == 1
+    assert engine.calls[0].mdxc_override_model_segment_size is False
 
 
 def test_separate_streams_progress_when_emit_callback_is_provided(tmp_path):
