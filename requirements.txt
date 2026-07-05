@@ -1,0 +1,3 @@
+mlx-audio-separator==0.1.5
+pytest==9.1.1
+torch
