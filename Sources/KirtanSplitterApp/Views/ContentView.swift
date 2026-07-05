@@ -13,31 +13,37 @@ struct ContentView: View {
     @State private var isDropTargeted = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            ControlPaneView(
-                backend: backend,
-                inputURL: $inputURL,
-                outputDirectory: $outputDirectory,
-                settings: $settings,
-                isDropTargeted: $isDropTargeted,
-                startAction: startSeparation
-            )
-            .frame(width: 370)
+        ZStack {
+            HStack(spacing: 0) {
+                ControlPaneView(
+                    backend: backend,
+                    inputURL: $inputURL,
+                    outputDirectory: $outputDirectory,
+                    settings: $settings,
+                    isDropTargeted: $isDropTargeted,
+                    startAction: startSeparation
+                )
+                .frame(width: 370)
 
-            Divider()
+                Divider()
 
-            ResultsPaneView(
-                backend: backend,
-                results: results,
-                summary: summary,
-                previewPlayer: previewPlayer
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ResultsPaneView(
+                    backend: backend,
+                    results: results,
+                    summary: summary,
+                    previewPlayer: previewPlayer
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
+                Divider()
 
-            DiagnosticsInspectorView(backend: backend)
-                .frame(width: 310)
+                DiagnosticsInspectorView(backend: backend)
+                    .frame(width: 310)
+            }
+
+            if let message = backend.modelSetupMessage {
+                ModelSetupOverlay(message: message)
+            }
         }
         .frame(minWidth: 1220, minHeight: 700)
         .task {
@@ -92,5 +98,28 @@ struct ContentView: View {
         return input
             .deletingLastPathComponent()
             .appendingPathComponent(input.deletingPathExtension().lastPathComponent + "_stems")
+    }
+}
+
+private struct ModelSetupOverlay: View {
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+            Text("First model setup")
+                .font(.headline)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .frame(maxWidth: 360)
+        }
+        .padding(22)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .shadow(radius: 18)
+        .accessibilityElement(children: .combine)
     }
 }

@@ -50,6 +50,15 @@ final class BackendClient: ObservableObject {
     private var isTelemetryRequestInFlight = false
     private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
 
+    var modelSetupMessage: String? {
+        guard isProcessing else { return nil }
+        if currentStage.contains("Downloading and converting model for MLX") ||
+            currentStage.contains("Converting model for MLX") {
+            return currentStage
+        }
+        return nil
+    }
+
     func start() async throws {
         if isReady { return }
 
@@ -223,6 +232,19 @@ final class BackendClient: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             appendLog("Model cache delete failed: \(error.localizedDescription)\n")
+        }
+    }
+
+    func deleteModelGroupSource(_ group: ModelCacheGroup) async {
+        guard !isProcessing else { return }
+        do {
+            let result = try await sendRequest(method: "delete_model_group_source", params: ["groupID": group.id])
+            modelCache = try decodeObject(ModelCache.self, from: result)
+            runtimeStats = try? await fetchRuntimeStats()
+            statusLine = "Deleted source for \(group.displayName)"
+        } catch {
+            errorMessage = error.localizedDescription
+            appendLog("Model source delete failed: \(error.localizedDescription)\n")
         }
     }
 
@@ -432,7 +454,7 @@ final class BackendClient: ObservableObject {
 
     private func mergeModelCacheSummary(_ summary: ModelCacheSummary) {
         guard modelCache == nil else { return }
-        modelCache = ModelCache(modelDir: summary.modelDir, totalBytes: summary.totalBytes, items: [])
+        modelCache = ModelCache(modelDir: summary.modelDir, totalBytes: summary.totalBytes, items: [], groups: [])
     }
 
     private func resolveBackendPaths() -> BackendPaths {

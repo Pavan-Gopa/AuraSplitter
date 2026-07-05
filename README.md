@@ -32,8 +32,8 @@ MLX/Metal.
   - system CPU and memory,
   - backend PID / CPU / RSS memory,
   - MLX GPU device and GPU telemetry status,
-  - cached checkpoints and converted `.safetensors`,
-  - confirmable deletion for cached model files,
+  - installed model groups backed by converted `.safetensors`,
+  - confirmable source-checkpoint deletion after conversion,
   - last-run UVR parameters and decode / inference / write timings.
 
 ## Requirements
@@ -117,6 +117,13 @@ The backend tests use a fake engine, so they do not download models.
 - Output stems: selected output folder, or `<input>_stems` next to the input.
 
 These paths are intentionally ignored by git.
+
+After the first successful MLX conversion, the app groups a model's source
+checkpoint, converted `.safetensors`, and YAML config as one installed model.
+The diagnostics UI hides YAML config files as separate rows. Deleting a source
+checkpoint for an installed model keeps the `.safetensors` and YAML config, and
+replaces the large source file with a tiny placeholder so the upstream loader
+does not re-download it before loading the converted weights.
 
 ## Notes
 

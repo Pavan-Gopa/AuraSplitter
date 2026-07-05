@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from .jobs import SeparationJob
-from .runtime import delete_model_cache_item, model_cache, runtime_stats
+from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
@@ -71,6 +71,9 @@ class MlxSeparatorEngine:
     def delete_model_cache_item(self, item_path: str) -> dict:
         return delete_model_cache_item(self.model_dir, item_path)
 
+    def delete_model_group_source(self, group_id: str) -> dict:
+        return delete_model_group_source(self.model_dir, group_id)
+
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator
 
@@ -80,7 +83,7 @@ class MlxSeparatorEngine:
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        progress("loading", f"Loading {job.model_filename}", 0.05, self.runtime_stats())
+        progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
 
         performance_params = {
@@ -120,7 +123,7 @@ class MlxSeparatorEngine:
             start=0.06,
             end=0.28,
             stage="loading",
-            message="Downloading or converting model",
+            message=self._model_load_message(job.model_filename),
             progress=progress,
             work=lambda: separator.load_model(model_filename=job.model_filename),
         )
@@ -274,6 +277,16 @@ class MlxSeparatorEngine:
 
     def _display_model_name(self, filename: str, fallback: str) -> str:
         return UVR_MODEL_ALIASES.get(filename, fallback)
+
+    def _model_load_message(self, filename: str) -> str:
+        stem = Path(filename).stem
+        model_path = Path(self.model_dir) / filename
+        converted_path = Path(self.model_dir) / f"{stem}.safetensors"
+        if converted_path.exists():
+            return "Using converted MLX model"
+        if model_path.exists():
+            return "Converting model for MLX on first run"
+        return "Downloading and converting model for MLX on first run"
 
     def _file_result(self, path_value: str) -> dict:
         path = Path(path_value)

@@ -9,6 +9,8 @@ from pathlib import Path
 
 
 MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth", ".yaml", ".safetensors"}
+SOURCE_MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth"}
+SOURCE_PLACEHOLDER_PREFIX = "KirtanSplitter source checkpoint removed after MLX conversion."
 
 
 def runtime_stats(model_dir: str) -> dict:
@@ -187,11 +189,13 @@ def _ioreg_number(output: str, key: str) -> float | None:
 
 def model_cache_summary(model_dir: str) -> dict:
     items = model_cache_items(model_dir)
+    groups = model_cache_groups(model_dir)
     return {
         "modelDir": str(Path(model_dir).expanduser()),
         "totalBytes": sum(item["sizeBytes"] for item in items),
         "itemCount": len(items),
         "convertedCount": sum(1 for item in items if item["kind"] == "converted"),
+        "groupCount": len(groups),
     }
 
 
@@ -201,6 +205,7 @@ def model_cache(model_dir: str) -> dict:
         "modelDir": str(Path(model_dir).expanduser()),
         "totalBytes": sum(item["sizeBytes"] for item in items),
         "items": items,
+        "groups": model_cache_groups(model_dir),
     }
 
 
@@ -231,6 +236,90 @@ def delete_model_cache_item(model_dir: str, item_path: str) -> dict:
     return result
 
 
+def delete_model_group_source(model_dir: str, group_id: str) -> dict:
+    root = Path(model_dir).expanduser().resolve()
+    groups = {group["id"]: group for group in model_cache_groups(str(root))}
+    group = groups.get(group_id)
+    if group is None:
+        raise FileNotFoundError(f"Model group does not exist: {group_id}")
+    if not group.get("convertedPath") or not group.get("configPath") or not group.get("sourcePath"):
+        raise ValueError(f"Model group {group_id} needs converted weights and config before source removal.")
+    if group.get("sourceRemoved"):
+        raise ValueError(f"Model group {group_id} source is already removed.")
+
+    source = Path(group["sourcePath"]).resolve(strict=False)
+    if source.parent != root or source.suffix.lower() not in SOURCE_MODEL_SUFFIXES:
+        raise ValueError(f"Refusing to delete unsupported model source: {group_id}")
+    if not source.exists() or not source.is_file():
+        raise FileNotFoundError(f"Model source does not exist: {source.name}")
+
+    deleted_bytes = source.stat().st_size
+    placeholder = (
+        f"{SOURCE_PLACEHOLDER_PREFIX}\n"
+        f"original_filename={source.name}\n"
+        f"original_size_bytes={deleted_bytes}\n"
+        "The matching .safetensors and .yaml files are the installed MLX model.\n"
+    )
+    source.write_text(placeholder, encoding="utf-8")
+
+    result = model_cache(str(root))
+    result["deleted"] = {
+        "filename": source.name,
+        "path": str(source),
+        "sizeBytes": deleted_bytes,
+        "replacedWithPlaceholder": True,
+    }
+    return result
+
+
+def model_cache_groups(model_dir: str) -> list[dict]:
+    root = Path(model_dir).expanduser()
+    if not root.exists():
+        return []
+
+    grouped: dict[str, list[Path]] = {}
+    for path in root.iterdir():
+        if path.is_file() and path.suffix.lower() in MODEL_SUFFIXES:
+            grouped.setdefault(path.stem, []).append(path)
+
+    groups = []
+    for stem, paths in sorted(grouped.items(), key=lambda item: item[0].lower()):
+        source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
+        converted = _first_path_with_suffix(paths, {".safetensors"})
+        config = _first_path_with_suffix(paths, {".yaml"})
+        source_removed = bool(source and _is_source_placeholder(source))
+        if converted is None and (source is None or source_removed):
+            continue
+        source_bytes = 0 if source_removed or source is None else source.stat().st_size
+        converted_bytes = converted.stat().st_size if converted else 0
+        config_bytes = config.stat().st_size if config else 0
+        visible_files = [
+            _cache_file_entry(path)
+            for path in sorted(paths, key=lambda item: _group_file_sort_key(item))
+            if path.suffix.lower() != ".yaml" and not _is_source_placeholder(path)
+        ]
+
+        groups.append(
+            {
+                "id": stem,
+                "displayName": stem,
+                "converted": converted is not None,
+                "hasSource": source is not None and not source_removed,
+                "sourceRemoved": source_removed,
+                "canDeleteSource": bool(source and converted and config and not source_removed),
+                "totalBytes": sum(path.stat().st_size for path in paths),
+                "sourceBytes": source_bytes,
+                "convertedBytes": converted_bytes,
+                "configBytes": config_bytes,
+                "sourcePath": str(source) if source and not source_removed else None,
+                "convertedPath": str(converted) if converted else None,
+                "configPath": str(config) if config else None,
+                "files": visible_files,
+            }
+        )
+    return groups
+
+
 def model_cache_items(model_dir: str) -> list[dict]:
     root = Path(model_dir).expanduser()
     if not root.exists():
@@ -240,20 +329,53 @@ def model_cache_items(model_dir: str) -> list[dict]:
     stems_with_safetensors = {path.stem for path in files if path.suffix.lower() == ".safetensors"}
     items = []
     for path in sorted(files, key=lambda item: item.name.lower()):
-        if path.suffix.lower() == ".safetensors":
-            kind = "converted"
-        elif path.suffix.lower() == ".yaml":
-            kind = "config"
-        else:
-            kind = "checkpoint"
-        items.append(
-            {
-                "filename": path.name,
-                "path": str(path),
-                "sizeBytes": path.stat().st_size,
-                "kind": kind,
-                "converted": kind == "converted" or path.stem in stems_with_safetensors,
-                "modifiedAt": path.stat().st_mtime,
-            }
-        )
+        item = _cache_file_entry(path)
+        item["converted"] = item["kind"] == "converted" or path.stem in stems_with_safetensors
+        items.append(item)
     return items
+
+
+def _cache_file_entry(path: Path) -> dict:
+    if path.suffix.lower() == ".safetensors":
+        kind = "converted"
+    elif path.suffix.lower() == ".yaml":
+        kind = "config"
+    elif _is_source_placeholder(path):
+        kind = "source_placeholder"
+    else:
+        kind = "checkpoint"
+    return {
+        "filename": path.name,
+        "path": str(path),
+        "sizeBytes": path.stat().st_size,
+        "kind": kind,
+        "converted": kind == "converted",
+        "modifiedAt": path.stat().st_mtime,
+    }
+
+
+def _first_path_with_suffix(paths: list[Path], suffixes: set[str]) -> Path | None:
+    matches = [path for path in paths if path.suffix.lower() in suffixes]
+    return sorted(matches, key=lambda item: item.name.lower())[0] if matches else None
+
+
+def _group_file_sort_key(path: Path) -> tuple[int, str]:
+    order = {
+        ".ckpt": 0,
+        ".pth": 0,
+        ".onnx": 0,
+        ".safetensors": 1,
+        ".yaml": 2,
+    }
+    return (order.get(path.suffix.lower(), 9), path.name.lower())
+
+
+def _is_source_placeholder(path: Path) -> bool:
+    if path.suffix.lower() not in SOURCE_MODEL_SUFFIXES or not path.exists() or not path.is_file():
+        return False
+    if path.stat().st_size > 1024:
+        return False
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore").startswith(SOURCE_PLACEHOLDER_PREFIX)
+    except Exception:
+        return False

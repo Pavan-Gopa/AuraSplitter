@@ -57,6 +57,83 @@ def test_delete_model_cache_item_removes_file_and_reports_remaining_cache(tmp_pa
     assert [item["filename"] for item in result["items"]] == ["BS-Roformer-SW.ckpt"]
 
 
+def test_model_cache_groups_hide_config_files_and_report_installed_model(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    checkpoint = model_dir / "BS-Roformer-SW.ckpt"
+    converted = model_dir / "BS-Roformer-SW.safetensors"
+    config = model_dir / "BS-Roformer-SW.yaml"
+    checkpoint.write_bytes(b"source-checkpoint")
+    converted.write_bytes(b"converted-weights")
+    config.write_text("audio:\n  sample_rate: 44100\n", encoding="utf-8")
+
+    result = runtime.model_cache(str(model_dir))
+
+    assert result["groups"][0]["id"] == "BS-Roformer-SW"
+    assert result["groups"][0]["converted"] is True
+    assert result["groups"][0]["hasSource"] is True
+    assert result["groups"][0]["sourceRemoved"] is False
+    assert result["groups"][0]["canDeleteSource"] is True
+    assert result["groups"][0]["sourceBytes"] == len(b"source-checkpoint")
+    assert result["groups"][0]["convertedBytes"] == len(b"converted-weights")
+    assert result["groups"][0]["configBytes"] == config.stat().st_size
+    assert [file["kind"] for file in result["groups"][0]["files"]] == ["checkpoint", "converted"]
+
+
+def test_model_cache_groups_ignore_config_only_files(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "orphan.yaml").write_text("audio:\n  sample_rate: 44100\n", encoding="utf-8")
+
+    result = runtime.model_cache(str(model_dir))
+
+    assert result["groups"] == []
+
+
+def test_delete_model_group_source_replaces_checkpoint_with_placeholder(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    checkpoint = model_dir / "BS-Roformer-SW.ckpt"
+    converted = model_dir / "BS-Roformer-SW.safetensors"
+    config = model_dir / "BS-Roformer-SW.yaml"
+    source_bytes = b"x" * 4096
+    checkpoint.write_bytes(source_bytes)
+    converted.write_bytes(b"converted-weights")
+    config.write_text("audio:\n  sample_rate: 44100\n", encoding="utf-8")
+
+    result = runtime.delete_model_group_source(str(model_dir), "BS-Roformer-SW")
+
+    assert checkpoint.exists()
+    assert checkpoint.stat().st_size < len(source_bytes)
+    assert converted.exists()
+    assert config.exists()
+    group = result["groups"][0]
+    assert group["id"] == "BS-Roformer-SW"
+    assert group["converted"] is True
+    assert group["hasSource"] is False
+    assert group["sourceRemoved"] is True
+    assert group["sourceBytes"] == 0
+    assert group["canDeleteSource"] is False
+    assert result["deleted"]["filename"] == "BS-Roformer-SW.ckpt"
+    assert result["deleted"]["replacedWithPlaceholder"] is True
+
+
+def test_delete_model_group_source_requires_converted_weights_and_config(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    checkpoint = model_dir / "BS-Roformer-SW.ckpt"
+    checkpoint.write_bytes(b"source-checkpoint")
+
+    try:
+        runtime.delete_model_group_source(str(model_dir), "BS-Roformer-SW")
+    except ValueError as exc:
+        assert "converted weights and config" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+    assert checkpoint.read_bytes() == b"source-checkpoint"
+
+
 def test_delete_model_cache_item_rejects_paths_outside_model_dir(tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()

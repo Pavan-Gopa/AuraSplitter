@@ -42,12 +42,14 @@ struct ModelCacheSummary: Codable, Equatable {
     let totalBytes: Int
     let itemCount: Int
     let convertedCount: Int
+    let groupCount: Int?
 }
 
 struct ModelCache: Codable, Equatable {
     let modelDir: String
     let totalBytes: Int
     let items: [ModelCacheItem]
+    let groups: [ModelCacheGroup]?
 }
 
 struct ModelCacheItem: Identifiable, Codable, Equatable {
@@ -59,4 +61,21 @@ struct ModelCacheItem: Identifiable, Codable, Equatable {
     let kind: String
     let converted: Bool
     let modifiedAt: Double
+}
+
+struct ModelCacheGroup: Identifiable, Codable, Equatable {
+    let id: String
+    let displayName: String
+    let converted: Bool
+    let hasSource: Bool
+    let sourceRemoved: Bool
+    let canDeleteSource: Bool
+    let totalBytes: Int
+    let sourceBytes: Int
+    let convertedBytes: Int
+    let configBytes: Int
+    let sourcePath: String?
+    let convertedPath: String?
+    let configPath: String?
+    let files: [ModelCacheItem]
 }

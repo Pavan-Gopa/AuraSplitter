@@ -79,6 +79,33 @@ class FakeEngine:
             },
         }
 
+    def delete_model_group_source(self, group_id):
+        assert group_id == "BS-Roformer-SW"
+        return {
+            "modelDir": "/tmp/models",
+            "totalBytes": 22,
+            "items": [],
+            "groups": [
+                {
+                    "id": "BS-Roformer-SW",
+                    "displayName": "BS-Roformer-SW",
+                    "converted": True,
+                    "hasSource": False,
+                    "sourceRemoved": True,
+                    "canDeleteSource": False,
+                    "totalBytes": 22,
+                    "sourceBytes": 0,
+                    "convertedBytes": 22,
+                    "configBytes": 5,
+                    "files": [],
+                }
+            ],
+            "deleted": {
+                "filename": "BS-Roformer-SW.ckpt",
+                "replacedWithPlaceholder": True,
+            },
+        }
+
     def separate(self, job, progress):
         self.calls.append(job)
         progress("loading", "Loading model", 0.1)
@@ -261,6 +288,23 @@ def test_delete_model_cache_item_returns_refreshed_cache():
     assert [item["filename"] for item in response["result"]["items"]] == ["BS-Roformer-SW.ckpt"]
 
 
+def test_delete_model_group_source_returns_refreshed_group_cache():
+    response, events = handle_request(
+        BackendRequest(
+            id="r-group-delete-source",
+            method="delete_model_group_source",
+            params={"groupID": "BS-Roformer-SW"},
+        ),
+        engine=FakeEngine(),
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["result"]["deleted"]["filename"] == "BS-Roformer-SW.ckpt"
+    assert response["result"]["deleted"]["replacedWithPlaceholder"] is True
+    assert response["result"]["groups"][0]["sourceRemoved"] is True
+
+
 def test_separate_rejects_missing_input_path(tmp_path):
     response, events = handle_request(
         BackendRequest(
@@ -414,6 +458,20 @@ def test_engine_list_models_applies_uvr_favorite_aliases(tmp_path, monkeypatch):
     names = {model["filename"]: model["name"] for model in models}
     assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "BS-Roformer-Viperx-1296"
     assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "MB-Ro-Kara-AuFR33-Viperx"
+
+
+def test_engine_reports_model_load_state_for_converted_and_first_run_models(tmp_path):
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+    model_dir = Path(engine.model_dir)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    assert engine._model_load_message("BS-Roformer-SW.ckpt") == "Downloading and converting model for MLX on first run"
+
+    (model_dir / "BS-Roformer-SW.ckpt").write_bytes(b"checkpoint")
+    assert engine._model_load_message("BS-Roformer-SW.ckpt") == "Converting model for MLX on first run"
+
+    (model_dir / "BS-Roformer-SW.safetensors").write_bytes(b"converted")
+    assert engine._model_load_message("BS-Roformer-SW.ckpt") == "Using converted MLX model"
 
 
 def _install_fake_separator(monkeypatch, separator_class):

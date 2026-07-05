@@ -95,6 +95,12 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
                 raise ValueError("Missing required parameter: path")
             return response(request.id, engine.delete_model_cache_item(str(item_path))), events
 
+        if request.method == "delete_model_group_source":
+            group_id = request.params.get("groupID") or request.params.get("groupId") or request.params.get("id")
+            if not group_id:
+                raise ValueError("Missing required parameter: groupID")
+            return response(request.id, engine.delete_model_group_source(str(group_id))), events
+
         if request.method == "separate":
             preset_id = str(request.params.get("preset", "kirtan_pro"))
             explicit_model = request.params.get("modelFilename")

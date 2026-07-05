@@ -3,6 +3,7 @@ import SwiftUI
 struct DiagnosticsInspectorView: View {
     @ObservedObject var backend: BackendClient
     @State private var deletionCandidate: ModelCacheItem?
+    @State private var sourceDeletionCandidate: ModelCacheGroup?
 
     var body: some View {
         ScrollView {
@@ -34,6 +35,24 @@ struct DiagnosticsInspectorView: View {
             }
         } message: {
             Text(deletionCandidate?.filename ?? "")
+        }
+        .confirmationDialog(
+            "Delete source checkpoint?",
+            isPresented: sourceDeleteConfirmationBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Source", role: .destructive) {
+                guard let group = sourceDeletionCandidate else { return }
+                sourceDeletionCandidate = nil
+                Task {
+                    await backend.deleteModelGroupSource(group)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                sourceDeletionCandidate = nil
+            }
+        } message: {
+            Text("Keeps the converted MLX model and config. The large source checkpoint is replaced with a tiny placeholder so the backend will not download it again.")
         }
     }
 
@@ -137,20 +156,48 @@ struct DiagnosticsInspectorView: View {
         InspectorCard(title: "Models", systemImage: "externaldrive") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("\(backend.modelCache?.items.count ?? backend.runtimeStats?.modelCache?.itemCount ?? 0) files")
+                    Text(modelCacheCountText)
                     Spacer()
                     Text(FileHelpers.formattedBytes(backend.modelCache?.totalBytes ?? backend.runtimeStats?.modelCache?.totalBytes ?? 0))
                         .foregroundStyle(.secondary)
                 }
                 .font(.caption)
 
-                let items = Array((backend.modelCache?.items ?? []).prefix(7))
-                if items.isEmpty {
+                if !modelCacheGroups.isEmpty {
+                    ForEach(Array(modelCacheGroups.prefix(7))) { group in
+                        HStack(spacing: 8) {
+                            Image(systemName: group.converted ? "checkmark.seal.fill" : "shippingbox")
+                                .foregroundStyle(group.converted ? .green : .secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(group.displayName)
+                                    .font(.caption2.weight(.semibold))
+                                    .lineLimit(1)
+                                Text(modelGroupDetail(group))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer(minLength: 4)
+                            if group.canDeleteSource {
+                                Button(role: .destructive) {
+                                    sourceDeletionCandidate = group
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .foregroundStyle(.red)
+                                .disabled(backend.isProcessing)
+                                .help("Delete source checkpoint and keep converted MLX model")
+                            }
+                        }
+                    }
+                } else if legacyModelCacheItems.isEmpty {
                     Text("No cached models yet")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(items) { item in
+                    ForEach(Array(legacyModelCacheItems.prefix(7))) { item in
                         HStack(spacing: 8) {
                             Image(systemName: item.kind == "converted" ? "checkmark.seal.fill" : "shippingbox")
                                 .foregroundStyle(item.kind == "converted" ? .green : .secondary)
@@ -260,6 +307,49 @@ struct DiagnosticsInspectorView: View {
                 }
             }
         )
+    }
+
+    private var sourceDeleteConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { sourceDeletionCandidate != nil },
+            set: { isPresented in
+                if !isPresented {
+                    sourceDeletionCandidate = nil
+                }
+            }
+        )
+    }
+
+    private var modelCacheGroups: [ModelCacheGroup] {
+        backend.modelCache?.groups ?? []
+    }
+
+    private var legacyModelCacheItems: [ModelCacheItem] {
+        (backend.modelCache?.items ?? []).filter { $0.kind != "config" }
+    }
+
+    private var modelCacheCountText: String {
+        if !modelCacheGroups.isEmpty {
+            return "\(modelCacheGroups.count) models"
+        }
+        let count = backend.runtimeStats?.modelCache?.groupCount ?? legacyModelCacheItems.count
+        return "\(count) models"
+    }
+
+    private func modelGroupDetail(_ group: ModelCacheGroup) -> String {
+        var parts: [String] = []
+        if group.converted {
+            parts.append("converted \(FileHelpers.formattedBytes(group.convertedBytes))")
+        }
+        if group.hasSource {
+            parts.append("source \(FileHelpers.formattedBytes(group.sourceBytes))")
+        } else if group.sourceRemoved {
+            parts.append("source removed")
+        }
+        if group.configBytes > 0 {
+            parts.append("config kept")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var gpuDetail: String? {
