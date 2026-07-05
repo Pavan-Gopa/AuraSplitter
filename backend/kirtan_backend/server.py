@@ -5,15 +5,20 @@ import json
 import logging
 import os
 import sys
+import threading
 from pathlib import Path
 
 from .engine import MlxSeparatorEngine
 from .protocol import BackendRequest, error_response, handle_request
 
 
+_send_lock = threading.Lock()
+
+
 def send(message: dict):
-    sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    with _send_lock:
+        sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,9 +54,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             request = BackendRequest.from_json(raw)
-            result, events = handle_request(request, engine=engine)
-            for event in events:
-                send(event)
+            result, _events = handle_request(request, engine=engine, emit_event=send)
             send(result)
         except json.JSONDecodeError as exc:
             send(error_response("", f"JSONDecodeError: {exc}"))

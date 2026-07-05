@@ -18,6 +18,13 @@ MLX/Metal.
 - Local model cache in `models/`.
 - Output stems in FLAC or WAV.
 - Finder reveal, path copy, and audio preview for generated stems.
+- Right-side diagnostics inspector:
+  - live process stage and progress,
+  - system CPU and memory,
+  - backend PID / CPU / RSS memory,
+  - MLX GPU device and GPU telemetry status,
+  - cached checkpoints and converted `.safetensors`,
+  - last-run decode / inference / write timings.
 
 ## Requirements
 
@@ -53,6 +60,14 @@ open "Launch KirtanSplitter.command"
 `script/build_and_run.sh` always stops a previous `KirtanSplitter` process,
 builds a fresh SwiftPM binary, stages `dist/KirtanSplitter.app`, and opens that
 fresh bundle.
+
+## Diagnostics Notes
+
+CPU, memory, backend RSS, model cache, converted safetensors, and separation
+timings are collected directly from the local backend and system tools. GPU
+device detection is real through MLX. Detailed GPU utilization/power depends on
+macOS `powermetrics`; if the OS denies access without elevated privileges, the
+GPU widget shows that status instead of inventing a number.
 
 ## Tests
 

@@ -39,19 +39,27 @@ def error_response(request_id: str, message: str) -> dict:
     return {"type": "error", "id": request_id, "error": message}
 
 
-def progress_event(request_id: str, stage: str, message: str, progress: float) -> dict:
+def progress_event(request_id: str, stage: str, message: str, progress: float, runtime: dict | None = None) -> dict:
     clamped = min(1.0, max(0.0, float(progress)))
-    return {
+    event = {
         "type": "progress",
         "id": request_id,
         "stage": stage,
         "message": message,
         "progress": round(clamped, 3),
     }
+    if runtime is not None:
+        event["runtime"] = runtime
+    return event
 
 
-def handle_request(request: BackendRequest, engine) -> tuple[dict, list[dict]]:
+def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[dict, list[dict]]:
     events: list[dict] = []
+
+    def collect_event(event: dict):
+        events.append(event)
+        if emit_event is not None:
+            emit_event(event)
 
     try:
         if request.method == "ping":
@@ -75,6 +83,12 @@ def handle_request(request: BackendRequest, engine) -> tuple[dict, list[dict]]:
             limit = int(request.params.get("limit", 80))
             return response(request.id, {"models": engine.list_models(limit=limit)}), events
 
+        if request.method == "runtime_stats":
+            return response(request.id, engine.runtime_stats()), events
+
+        if request.method == "model_cache":
+            return response(request.id, engine.model_cache()), events
+
         if request.method == "separate":
             preset_id = str(request.params.get("preset", "kirtan_pro"))
             explicit_model = request.params.get("modelFilename")
@@ -84,8 +98,8 @@ def handle_request(request: BackendRequest, engine) -> tuple[dict, list[dict]]:
             model_filename = resolve_model_filename(preset_id, explicit_model)
             job = SeparationJob.from_params(request.params, model_filename=model_filename)
 
-            def emit(stage: str, message: str, progress: float):
-                events.append(progress_event(request.id, stage, message, progress))
+            def emit(stage: str, message: str, progress: float, runtime: dict | None = None):
+                collect_event(progress_event(request.id, stage, message, progress, runtime=runtime))
 
             result = engine.separate(job, emit)
             return response(request.id, result), events

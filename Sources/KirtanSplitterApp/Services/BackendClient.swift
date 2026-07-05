@@ -34,12 +34,17 @@ final class BackendClient: ObservableObject {
     @Published var backendLog = ""
     @Published var presets: [SeparationPreset] = []
     @Published var models: [SeparatorModel] = []
+    @Published var runtimeStats: RuntimeSnapshot?
+    @Published var modelCache: ModelCache?
+    @Published var lastSummary: SeparationSummary?
 
     private var process: Process?
     private var inputPipe: Pipe?
     private var outputBuffer = ""
     private var pendingRequests: [String: CheckedContinuation<[String: Any], Error>] = [:]
     private var requestCounter = 0
+    private var telemetryTask: Task<Void, Never>?
+    private var isTelemetryRequestInFlight = false
 
     func start() async throws {
         if isReady { return }
@@ -101,6 +106,7 @@ final class BackendClient: ObservableObject {
 
         try await waitUntilReady(timeoutSeconds: 30)
         statusLine = "Backend ready"
+        startTelemetryLoop()
     }
 
     func stop() {
@@ -112,12 +118,16 @@ final class BackendClient: ObservableObject {
         isProcessing = false
         statusLine = "Backend stopped"
         currentStage = "Backend stopped"
+        telemetryTask?.cancel()
+        telemetryTask = nil
     }
 
     func loadInitialData() async {
         do {
             presets = try await listPresets()
             models = try await listModels(limit: 140)
+            runtimeStats = try await fetchRuntimeStats()
+            modelCache = try await fetchModelCache()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -131,6 +141,16 @@ final class BackendClient: ObservableObject {
     func listModels(limit: Int) async throws -> [SeparatorModel] {
         let result = try await sendRequest(method: "list_models", params: ["limit": limit])
         return try decodeArray(SeparatorModel.self, from: result, key: "models")
+    }
+
+    func fetchRuntimeStats() async throws -> RuntimeSnapshot {
+        let result = try await sendRequest(method: "runtime_stats", params: [:])
+        return try decodeObject(RuntimeSnapshot.self, from: result)
+    }
+
+    func fetchModelCache() async throws -> ModelCache {
+        let result = try await sendRequest(method: "model_cache", params: [:])
+        return try decodeObject(ModelCache.self, from: result)
     }
 
     func separate(inputURL: URL, outputDirectory: URL, settings: SeparationSettings) async throws -> SeparationSummary {
@@ -160,6 +180,12 @@ final class BackendClient: ObservableObject {
         progress = 1
         currentStage = "Complete"
         statusLine = "Finished in \(String(format: "%.1f", summary.elapsedSeconds))s"
+        lastSummary = summary
+        if let cache = summary.modelCache {
+            modelCache = cache
+        } else {
+            modelCache = try? await fetchModelCache()
+        }
         return summary
     }
 
@@ -212,6 +238,13 @@ final class BackendClient: ObservableObject {
             currentStage = (message["message"] as? String) ?? (message["stage"] as? String) ?? "Working"
             progress = message["progress"] as? Double ?? progress
             statusLine = currentStage
+            if let runtime = message["runtime"] as? [String: Any],
+               let snapshot = try? decodeObject(RuntimeSnapshot.self, from: runtime) {
+                runtimeStats = snapshot
+                if let cacheSummary = snapshot.modelCache {
+                    mergeModelCacheSummary(cacheSummary)
+                }
+            }
 
         case "response":
             guard let requestID, let continuation = pendingRequests.removeValue(forKey: requestID) else { return }
@@ -263,6 +296,34 @@ final class BackendClient: ObservableObject {
     private func decodeObject<T: Decodable>(_ type: T.Type, from result: [String: Any]) throws -> T {
         let data = try JSONSerialization.data(withJSONObject: result)
         return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func startTelemetryLoop() {
+        telemetryTask?.cancel()
+        telemetryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await self?.refreshTelemetryIfIdle()
+            }
+        }
+    }
+
+    private func refreshTelemetryIfIdle() async {
+        guard isReady, !isProcessing, !isTelemetryRequestInFlight else { return }
+        isTelemetryRequestInFlight = true
+        defer { isTelemetryRequestInFlight = false }
+
+        do {
+            runtimeStats = try await fetchRuntimeStats()
+            modelCache = try await fetchModelCache()
+        } catch {
+            appendLog("Telemetry refresh failed: \(error.localizedDescription)\n")
+        }
+    }
+
+    private func mergeModelCacheSummary(_ summary: ModelCacheSummary) {
+        guard modelCache == nil else { return }
+        modelCache = ModelCache(modelDir: summary.modelDir, totalBytes: summary.totalBytes, items: [])
     }
 
     private func resolveBackendPaths() -> BackendPaths {

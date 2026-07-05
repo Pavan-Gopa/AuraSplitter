@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Callable
 
 from .jobs import SeparationJob
+from .runtime import model_cache, runtime_stats
 
-ProgressCallback = Callable[[str, str, float], None]
+ProgressCallback = Callable[[str, str, float, dict | None], None]
 
 
 class MlxSeparatorEngine:
@@ -51,6 +53,12 @@ class MlxSeparatorEngine:
                 break
         return models
 
+    def runtime_stats(self) -> dict:
+        return runtime_stats(self.model_dir)
+
+    def model_cache(self) -> dict:
+        return model_cache(self.model_dir)
+
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator
 
@@ -60,7 +68,7 @@ class MlxSeparatorEngine:
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        progress("loading", f"Loading {job.model_filename}", 0.05)
+        progress("loading", f"Loading {job.model_filename}", 0.05, self.runtime_stats())
         started = time.perf_counter()
 
         performance_params = {
@@ -85,21 +93,64 @@ class MlxSeparatorEngine:
             performance_params=performance_params,
             save_converted_safetensors=job.save_converted_safetensors,
         )
-        separator.load_model(model_filename=job.model_filename)
+        self._with_heartbeat(
+            start=0.06,
+            end=0.28,
+            stage="loading",
+            message="Downloading or converting model",
+            progress=progress,
+            work=lambda: separator.load_model(model_filename=job.model_filename),
+        )
 
-        progress("separating", "Running MLX separation", 0.35)
-        output_files = separator.separate(str(input_path))
+        progress("model_ready", "Model ready", 0.30, self.runtime_stats())
+        output_files = self._with_heartbeat(
+            start=0.35,
+            end=0.92,
+            stage="separating",
+            message="Running MLX separation",
+            progress=progress,
+            work=lambda: separator.separate(str(input_path)),
+        )
         elapsed = time.perf_counter() - started
         files = [self._file_result(path) for path in output_files]
 
-        progress("complete", "Done", 1.0)
+        progress("complete", "Done", 1.0, self.runtime_stats())
         return {
             "model": job.model_filename,
             "preset": job.preset,
             "elapsedSeconds": round(elapsed, 2),
             "files": files,
             "metrics": getattr(separator, "last_perf_metrics", None),
+            "modelCache": self.model_cache(),
         }
+
+    def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):
+        stop = threading.Event()
+        result = {}
+        error = {}
+
+        def heartbeat():
+            started = time.perf_counter()
+            while not stop.wait(2.0):
+                elapsed = time.perf_counter() - started
+                fraction = min(0.95, elapsed / 120.0)
+                value = start + (end - start) * fraction
+                progress(stage, message, value, self.runtime_stats())
+
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        try:
+            result["value"] = work()
+        except Exception as exc:
+            error["error"] = exc
+        finally:
+            stop.set()
+            thread.join(timeout=0.2)
+
+        if "error" in error:
+            raise error["error"]
+        progress(stage, message, end, self.runtime_stats())
+        return result.get("value")
 
     def _is_model_downloaded(self, filename: str) -> bool:
         stem = Path(filename).stem

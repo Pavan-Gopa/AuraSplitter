@@ -23,6 +23,34 @@ class FakeEngine:
             }
         ]
 
+    def runtime_stats(self):
+        return {
+            "cpu": {"systemPercent": 12.5, "coreCount": 10},
+            "memory": {"totalBytes": 1000, "usedBytes": 550, "usedPercent": 55.0},
+            "process": {"pid": 123, "cpuPercent": 22.0, "rssBytes": 200},
+            "gpu": {"device": "Device(gpu, 0)", "utilizationPercent": None, "status": "unavailable"},
+        }
+
+    def model_cache(self):
+        return {
+            "modelDir": "/tmp/models",
+            "totalBytes": 42,
+            "items": [
+                {
+                    "filename": "BS-Roformer-SW.ckpt",
+                    "sizeBytes": 20,
+                    "kind": "checkpoint",
+                    "converted": True,
+                },
+                {
+                    "filename": "BS-Roformer-SW.safetensors",
+                    "sizeBytes": 22,
+                    "kind": "converted",
+                    "converted": True,
+                },
+            ],
+        }
+
     def separate(self, job, progress):
         self.calls.append(job)
         progress("loading", "Loading model", 0.1)
@@ -91,6 +119,53 @@ def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
     assert engine.calls[0].input_path == "/tmp/mix.wav"
     assert engine.calls[0].output_format == "FLAC"
     assert engine.calls[0].speed_mode == "latency_safe_v3"
+
+
+def test_separate_streams_progress_when_emit_callback_is_provided(tmp_path):
+    streamed = []
+    response, events = handle_request(
+        BackendRequest(
+            id="r3-stream",
+            method="separate",
+            params={
+                "inputPath": "/tmp/mix.wav",
+                "outputDir": str(tmp_path),
+                "preset": "kirtan_pro",
+            },
+        ),
+        engine=FakeEngine(),
+        emit_event=streamed.append,
+    )
+
+    assert response["type"] == "response"
+    assert events == streamed
+    assert streamed[0]["type"] == "progress"
+    assert streamed[0]["stage"] == "loading"
+
+
+def test_runtime_stats_returns_process_memory_cpu_and_gpu_status():
+    response, events = handle_request(
+        BackendRequest(id="r-stats", method="runtime_stats", params={}),
+        engine=FakeEngine(),
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["result"]["process"]["pid"] == 123
+    assert response["result"]["memory"]["usedPercent"] == 55.0
+    assert response["result"]["gpu"]["device"] == "Device(gpu, 0)"
+
+
+def test_model_cache_reports_checkpoints_and_converted_weights():
+    response, events = handle_request(
+        BackendRequest(id="r-cache", method="model_cache", params={}),
+        engine=FakeEngine(),
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["result"]["totalBytes"] == 42
+    assert response["result"]["items"][0]["converted"] is True
 
 
 def test_separate_rejects_missing_input_path(tmp_path):

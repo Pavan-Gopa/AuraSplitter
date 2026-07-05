@@ -1,0 +1,240 @@
+import SwiftUI
+
+struct DiagnosticsInspectorView: View {
+    @ObservedObject var backend: BackendClient
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                jobWidget
+                resourceWidget
+                gpuWidget
+                modelCacheWidget
+                metricsWidget
+            }
+            .padding(16)
+        }
+        .background(.thinMaterial)
+    }
+
+    private var jobWidget: some View {
+        InspectorCard(title: "Process", systemImage: "waveform.path.ecg") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(backend.isProcessing ? "Running" : "Idle")
+                        .font(.callout.weight(.semibold))
+                    Spacer()
+                    Text("\(Int(backend.progress * 100))%")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: backend.progress)
+                    .tint(.orange)
+                Text(backend.currentStage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+        }
+    }
+
+    private var resourceWidget: some View {
+        InspectorCard(title: "System", systemImage: "cpu") {
+            VStack(spacing: 12) {
+                GaugeLine(
+                    title: "CPU",
+                    value: backend.runtimeStats?.cpu.systemPercent ?? 0,
+                    detail: cpuDetail,
+                    tint: .blue
+                )
+                GaugeLine(
+                    title: "Memory",
+                    value: backend.runtimeStats?.memory.usedPercent ?? 0,
+                    detail: memoryDetail,
+                    tint: .purple
+                )
+                GaugeLine(
+                    title: "Backend RSS",
+                    value: backendRSSPercent,
+                    detail: backendRSSDetail,
+                    tint: .green
+                )
+            }
+        }
+    }
+
+    private var gpuWidget: some View {
+        InspectorCard(title: "GPU", systemImage: "display") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text(backend.runtimeStats?.gpu.device ?? "MLX device unknown")
+                        .font(.caption)
+                        .lineLimit(1)
+                    Spacer()
+                }
+                if let utilization = backend.runtimeStats?.gpu.utilizationPercent {
+                    GaugeLine(title: "Utilization", value: utilization, detail: String(format: "%.1f%%", utilization), tint: .orange)
+                } else {
+                    Text(backend.runtimeStats?.gpu.status ?? "GPU telemetry unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let power = backend.runtimeStats?.gpu.powerWatts {
+                    Text("Power \(power, specifier: "%.2f") W")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var modelCacheWidget: some View {
+        InspectorCard(title: "Models", systemImage: "externaldrive") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("\(backend.modelCache?.items.count ?? backend.runtimeStats?.modelCache?.itemCount ?? 0) files")
+                    Spacer()
+                    Text(FileHelpers.formattedBytes(backend.modelCache?.totalBytes ?? backend.runtimeStats?.modelCache?.totalBytes ?? 0))
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+
+                let items = Array((backend.modelCache?.items ?? []).prefix(7))
+                if items.isEmpty {
+                    Text("No cached models yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(items) { item in
+                        HStack(spacing: 8) {
+                            Image(systemName: item.kind == "converted" ? "checkmark.seal.fill" : "shippingbox")
+                                .foregroundStyle(item.kind == "converted" ? .green : .secondary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(item.filename)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                Text("\(item.kind) · \(FileHelpers.formattedBytes(item.sizeBytes))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var metricsWidget: some View {
+        InspectorCard(title: "Last Run", systemImage: "timer") {
+            VStack(alignment: .leading, spacing: 8) {
+                if let summary = backend.lastSummary {
+                    HStack {
+                        Text(summary.model)
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(summary.elapsedSeconds, specifier: "%.1f")s")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+
+                    if let metrics = summary.metrics, !metrics.isEmpty {
+                        ForEach(metricRows(from: metrics), id: \.0) { key, value in
+                            HStack {
+                                Text(key)
+                                Spacer()
+                                Text("\(value, specifier: "%.3f")s")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption2.monospacedDigit())
+                        }
+                    }
+                } else {
+                    Text("No completed run yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var cpuDetail: String {
+        guard let cpu = backend.runtimeStats?.cpu else { return "waiting" }
+        return "\(cpu.coreCount) cores · load \(String(format: "%.2f", cpu.loadAverage?.first ?? 0))"
+    }
+
+    private var memoryDetail: String {
+        guard let memory = backend.runtimeStats?.memory else { return "waiting" }
+        return "\(FileHelpers.formattedBytes(memory.usedBytes)) / \(FileHelpers.formattedBytes(memory.totalBytes))"
+    }
+
+    private var backendRSSDetail: String {
+        guard let process = backend.runtimeStats?.process else { return "waiting" }
+        return "PID \(process.pid) · \(FileHelpers.formattedBytes(process.rssBytes)) · CPU \(String(format: "%.1f", process.cpuPercent))%"
+    }
+
+    private var backendRSSPercent: Double {
+        guard
+            let process = backend.runtimeStats?.process,
+            let total = backend.runtimeStats?.memory.totalBytes,
+            total > 0
+        else { return 0 }
+        return min(100, Double(process.rssBytes) / Double(total) * 100)
+    }
+
+    private func metricRows(from metrics: [String: Double]) -> [(String, Double)] {
+        let order = ["decode_s", "preprocess_s", "inference_s", "postprocess_s", "write_s", "cleanup_s", "total_s"]
+        return order.compactMap { key in
+            guard let value = metrics[key] else { return nil }
+            return (key.replacingOccurrences(of: "_s", with: ""), value)
+        }
+    }
+}
+
+private struct InspectorCard<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Spacer()
+            }
+            content
+        }
+        .padding(12)
+        .background(.background.opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct GaugeLine: View {
+    let title: String
+    let value: Double
+    let detail: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(value, specifier: "%.1f")%")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption.monospacedDigit())
+
+            ProgressView(value: min(100, max(0, value)), total: 100)
+                .tint(tint)
+
+            Text(detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}

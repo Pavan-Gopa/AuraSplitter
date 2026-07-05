@@ -33,8 +33,13 @@ struct ContentView: View {
                 previewPlayer: previewPlayer
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            DiagnosticsInspectorView(backend: backend)
+                .frame(width: 310)
         }
-        .frame(minWidth: 980, minHeight: 660)
+        .frame(minWidth: 1220, minHeight: 700)
         .task {
             await startBackend()
         }

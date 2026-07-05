@@ -53,4 +53,6 @@ struct SeparationSummary: Codable {
     let preset: String?
     let elapsedSeconds: Double
     let files: [StemFile]
+    let metrics: [String: Double]?
+    let modelCache: ModelCache?
 }
