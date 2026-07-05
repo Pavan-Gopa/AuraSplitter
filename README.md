@@ -26,6 +26,11 @@ MLX/Metal.
   - batch size,
   - model segment override.
 - Finder reveal, path copy, and audio preview for generated stems.
+- Source preview with channel count, duration, peak dBFS, clipping warning,
+  waveform, spectrogram, playhead, and click/drag seeking.
+- Mono input preservation: MLX models can still receive a temporary stereo
+  compatibility input, but stems are restored to mono when the source file is
+  mono. Stereo sources stay stereo.
 - Right-side diagnostics inspector:
   - live process stage and progress,
   - persistent backend log path,

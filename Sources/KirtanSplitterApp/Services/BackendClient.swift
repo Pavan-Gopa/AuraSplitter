@@ -222,6 +222,19 @@ final class BackendClient: ObservableObject {
         return try decodeObject(ModelCache.self, from: result)
     }
 
+    func analyzeAudio(url: URL) async throws -> AudioAnalysis {
+        let result = try await sendRequest(
+            method: "analyze_audio",
+            params: [
+                "path": url.path,
+                "waveformPoints": 1200,
+                "spectrogramColumns": 520,
+                "spectrogramBins": 96,
+            ]
+        )
+        return try decodeObject(AudioAnalysis.self, from: result)
+    }
+
     func deleteModelCacheItem(_ item: ModelCacheItem) async {
         guard !isProcessing else { return }
         do {

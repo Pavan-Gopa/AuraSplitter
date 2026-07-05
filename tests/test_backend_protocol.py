@@ -305,6 +305,32 @@ def test_delete_model_group_source_returns_refreshed_group_cache():
     assert response["result"]["groups"][0]["sourceRemoved"] is True
 
 
+def test_analyze_audio_returns_preview_data(tmp_path):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+
+    response, events = handle_request(
+        BackendRequest(
+            id="r-analyze",
+            method="analyze_audio",
+            params={"path": str(input_path), "waveformPoints": 64, "spectrogramColumns": 24, "spectrogramBins": 16},
+        ),
+        engine=MlxSeparatorEngine(model_dir=str(tmp_path / "models")),
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    result = response["result"]
+    assert result["channels"] == 1
+    assert result["durationSeconds"] > 0
+    assert result["peakDb"] <= 0
+    assert result["clipped"] is False
+    assert len(result["waveformPeaks"]) == 64
+    assert result["spectrogram"]["columns"] == 24
+    assert result["spectrogram"]["bins"] == 16
+    assert len(result["spectrogram"]["values"]) == 24 * 16
+
+
 def test_separate_rejects_missing_input_path(tmp_path):
     response, events = handle_request(
         BackendRequest(
@@ -372,8 +398,8 @@ def test_engine_converts_mono_input_before_running_separator(tmp_path, monkeypat
         def separate(self, audio_path):
             FakeSeparator.last_audio_path = Path(audio_path)
             assert _audio_channels(FakeSeparator.last_audio_path) == 2
-            output = self.output_dir / "mono_(vocals).flac"
-            output.write_bytes(b"stem")
+            output = self.output_dir / "mono_(vocals).wav"
+            _write_silent_wav(output, channels=2)
             return [str(output)]
 
     _install_fake_separator(monkeypatch, FakeSeparator)
@@ -393,6 +419,90 @@ def test_engine_converts_mono_input_before_running_separator(tmp_path, monkeypat
 
     assert result["files"][0]["stem"] == "vocals"
     assert FakeSeparator.last_audio_path != input_path
+
+
+def test_engine_restores_mono_outputs_for_mono_sources(tmp_path, monkeypatch):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class StereoOutputSeparator:
+        last_audio_path = None
+
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            StereoOutputSeparator.last_audio_path = Path(audio_path)
+            assert _audio_channels(StereoOutputSeparator.last_audio_path) == 2
+            output = self.output_dir / "mono_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, StereoOutputSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    assert _audio_channels(Path(result["files"][0]["path"])) == 1
+
+
+def test_engine_keeps_stereo_outputs_for_stereo_sources(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class StereoOutputSeparator:
+        last_audio_path = None
+
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            StereoOutputSeparator.last_audio_path = Path(audio_path)
+            assert StereoOutputSeparator.last_audio_path == input_path
+            output = self.output_dir / "stereo_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, StereoOutputSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    assert _audio_channels(Path(result["files"][0]["path"])) == 2
 
 
 def test_engine_rejects_separator_runs_that_return_no_files(tmp_path, monkeypatch):

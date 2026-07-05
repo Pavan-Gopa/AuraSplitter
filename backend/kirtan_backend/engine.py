@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
+from .audio_analysis import analyze_audio
 from .jobs import SeparationJob
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
@@ -74,6 +75,9 @@ class MlxSeparatorEngine:
     def delete_model_group_source(self, group_id: str) -> dict:
         return delete_model_group_source(self.model_dir, group_id)
 
+    def analyze_audio(self, path: str, waveform_points: int = 1200, spectrogram_columns: int = 520, spectrogram_bins: int = 96) -> dict:
+        return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins)
+
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator
 
@@ -82,6 +86,7 @@ class MlxSeparatorEngine:
         if not input_path.exists():
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
+        source_channels = self._audio_channel_count(input_path)
 
         progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
@@ -129,7 +134,7 @@ class MlxSeparatorEngine:
         )
 
         progress("model_ready", "Model ready", 0.30, self.runtime_stats())
-        with self._stereo_input_path(input_path, progress) as separator_input_path:
+        with self._stereo_input_path(input_path, progress, channels=source_channels) as separator_input_path:
             output_files = self._with_heartbeat(
                 start=0.35,
                 end=0.92,
@@ -138,6 +143,9 @@ class MlxSeparatorEngine:
                 progress=progress,
                 work=lambda: separator.separate(str(separator_input_path)),
             )
+        if source_channels == 1:
+            progress("postprocessing", "Restoring mono channel layout", 0.94, self.runtime_stats())
+            output_files = self._restore_mono_outputs(output_files)
         if not output_files:
             raise RuntimeError(
                 "No output stems were created. Check the backend log for the underlying separator error."
@@ -199,8 +207,9 @@ class MlxSeparatorEngine:
         return result.get("value")
 
     @contextmanager
-    def _stereo_input_path(self, input_path: Path, progress: ProgressCallback):
-        channels = self._audio_channel_count(input_path)
+    def _stereo_input_path(self, input_path: Path, progress: ProgressCallback, channels: int | None = None):
+        if channels is None:
+            channels = self._audio_channel_count(input_path)
         if channels == 2 or channels is None:
             yield input_path
             return
@@ -220,6 +229,17 @@ class MlxSeparatorEngine:
             )
             self._convert_to_stereo(input_path, prepared_path)
             yield prepared_path
+
+    def _restore_mono_outputs(self, output_files) -> list[str]:
+        restored = []
+        for output_file in output_files or []:
+            path = Path(output_file)
+            if self._audio_channel_count(path) == 1:
+                restored.append(str(path))
+                continue
+            self._convert_output_to_mono(path)
+            restored.append(str(path))
+        return restored
 
     def _audio_channel_count(self, input_path: Path) -> int | None:
         try:
@@ -267,6 +287,34 @@ class MlxSeparatorEngine:
         except subprocess.CalledProcessError as exc:
             message = (exc.stderr or exc.stdout or str(exc)).strip()
             raise RuntimeError(f"Failed to prepare stereo input with ffmpeg: {message}") from exc
+
+    def _convert_output_to_mono(self, output_path: Path):
+        temp_path = output_path.with_name(f"{output_path.stem}.mono.tmp{output_path.suffix}")
+        codec = "flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le"
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(output_path),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-ac",
+            "1",
+            "-c:a",
+            codec,
+            str(temp_path),
+        ]
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True, timeout=None)
+            temp_path.replace(output_path)
+        except subprocess.CalledProcessError as exc:
+            temp_path.unlink(missing_ok=True)
+            message = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(f"Failed to restore mono output with ffmpeg: {message}") from exc
 
     def _is_model_downloaded(self, filename: str) -> bool:
         stem = Path(filename).stem

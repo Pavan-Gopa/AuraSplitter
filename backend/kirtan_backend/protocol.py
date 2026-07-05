@@ -86,6 +86,23 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
         if request.method == "runtime_stats":
             return response(request.id, engine.runtime_stats()), events
 
+        if request.method == "analyze_audio":
+            audio_path = request.params.get("path") or request.params.get("inputPath")
+            if not audio_path:
+                raise ValueError("Missing required parameter: path")
+            waveform_points = int(request.params.get("waveformPoints", 1200))
+            spectrogram_columns = int(request.params.get("spectrogramColumns", 520))
+            spectrogram_bins = int(request.params.get("spectrogramBins", 96))
+            return response(
+                request.id,
+                engine.analyze_audio(
+                    str(audio_path),
+                    waveform_points=waveform_points,
+                    spectrogram_columns=spectrogram_columns,
+                    spectrogram_bins=spectrogram_bins,
+                ),
+            ), events
+
         if request.method == "model_cache":
             return response(request.id, engine.model_cache()), events
 
