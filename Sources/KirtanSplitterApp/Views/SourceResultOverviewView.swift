@@ -30,7 +30,7 @@ struct SourceResultOverviewView: View {
                 emptyColumnText("Drop files or choose a folder.")
                 Spacer(minLength: 0)
             } else {
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
                         ForEach($sources) { $source in
                             BatchSourceRow(
@@ -58,7 +58,7 @@ struct SourceResultOverviewView: View {
                 emptyColumnText(backend.isProcessing ? backend.currentStage : "Separated stems will appear here.")
                 Spacer(minLength: 0)
             } else {
-                ScrollView {
+                ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
                         ForEach(resultGroups) { group in
                             ResultGroupView(

@@ -15,33 +15,38 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
     @State private var previewResizeStartFraction: CGFloat?
+    @State private var isSettingsSidebarOpen = false
+    @State private var didInitializeLayout = false
 
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
-                ControlPaneView(
-                    backend: backend,
-                    outputDirectory: $outputDirectory,
-                    settings: $settings,
-                    isDropTargeted: $isDropTargeted,
-                    sources: sources,
-                    chooseFilesAction: loadInputFiles,
-                    chooseFolderAction: loadInputFolder,
-                    droppedURLAction: handleDroppedURL,
-                    startAction: startBatchSeparation
-                )
-                .frame(width: 370)
-
-                Divider()
-
-                centerWorkspace
+                mainWorkspace
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                Divider()
-
-                DiagnosticsInspectorView(backend: backend)
-                    .frame(width: 310)
+                if isSettingsSidebarOpen {
+                    Divider()
+                    SettingsDrawerView(
+                        backend: backend,
+                        outputDirectory: $outputDirectory,
+                        settings: $settings,
+                        isDropTargeted: $isDropTargeted,
+                        sources: sources,
+                        chooseFilesAction: loadInputFiles,
+                        chooseFolderAction: loadInputFolder,
+                        droppedURLAction: handleDroppedURL,
+                        startAction: startBatchSeparation,
+                        closeAction: {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                isSettingsSidebarOpen = false
+                            }
+                        }
+                    )
+                    .frame(width: WorkspaceLayoutMetrics.settingsDrawerWidth)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
+            .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
 
             if let message = backend.modelSetupMessage {
                 ModelSetupOverlay(message: message)
@@ -49,7 +54,13 @@ struct ContentView: View {
         }
         .frame(minWidth: 1220, minHeight: 700)
         .task {
+            isSettingsSidebarOpen = false
             await startBackend()
+        }
+        .onAppear {
+            guard !didInitializeLayout else { return }
+            didInitializeLayout = true
+            isSettingsSidebarOpen = false
         }
         .alert("Backend Error", isPresented: Binding(
             get: { backend.errorMessage != nil },
@@ -61,7 +72,7 @@ struct ContentView: View {
         }
     }
 
-    private var centerWorkspace: some View {
+    private var mainWorkspace: some View {
         GeometryReader { geometry in
             let handleHeight: CGFloat = 8
             let bottomFraction = AudioPreviewLayout.clampedBottomFraction(previewHeightFraction)
@@ -69,17 +80,7 @@ struct ContentView: View {
             let topHeight = max(260, geometry.size.height - bottomHeight - handleHeight)
 
             VStack(spacing: 0) {
-                SourceResultOverviewView(
-                    backend: backend,
-                    sources: $sources,
-                    presets: backend.presets,
-                    usesPerSourcePresets: usesPerSourcePresets,
-                    resultGroups: resultGroups,
-                    previewSelection: previewSelection,
-                    previewSourceAction: previewSource,
-                    previewStemAction: previewStem,
-                    deleteStemAction: deleteStem
-                )
+                topWorkspace
                 .frame(height: topHeight)
 
                 PreviewResizeHandle()
@@ -107,6 +108,42 @@ struct ContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private var topWorkspace: some View {
+        HStack(spacing: 0) {
+            WorkspaceWidgetRailView(
+                backend: backend,
+                sources: sources,
+                isSettingsSidebarOpen: isSettingsSidebarOpen,
+                isDropTargeted: $isDropTargeted,
+                chooseFilesAction: loadInputFiles,
+                chooseFolderAction: loadInputFolder,
+                droppedURLAction: handleDroppedURL,
+                startAction: startBatchSeparation,
+                settingsAction: {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isSettingsSidebarOpen.toggle()
+                    }
+                }
+            )
+            .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
+
+            Divider()
+
+            SourceResultOverviewView(
+                backend: backend,
+                sources: $sources,
+                presets: backend.presets,
+                usesPerSourcePresets: usesPerSourcePresets,
+                resultGroups: resultGroups,
+                previewSelection: previewSelection,
+                previewSourceAction: previewSource,
+                previewStemAction: previewStem,
+                deleteStemAction: deleteStem
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

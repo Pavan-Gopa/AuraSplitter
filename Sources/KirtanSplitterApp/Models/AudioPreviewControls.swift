@@ -7,12 +7,19 @@ enum AudioPreviewVolume {
 }
 
 enum AudioPreviewLayout {
-    static let defaultBottomFraction: CGFloat = 0.35
+    static let minimumBottomFraction: CGFloat = 0.35
+    static let defaultBottomFraction: CGFloat = 0.50
     static let maximumBottomFraction: CGFloat = 0.50
 
     static func clampedBottomFraction(_ value: CGFloat) -> CGFloat {
-        min(maximumBottomFraction, max(defaultBottomFraction, value))
+        min(maximumBottomFraction, max(minimumBottomFraction, value))
     }
+}
+
+enum WorkspaceLayoutMetrics {
+    static let widgetRailWidth: CGFloat = 224
+    static let settingsDrawerWidth: CGFloat = 370
+    static let defaultPreviewFraction = AudioPreviewLayout.defaultBottomFraction
 }
 
 struct AudioPreviewLayerSettings: Equatable {

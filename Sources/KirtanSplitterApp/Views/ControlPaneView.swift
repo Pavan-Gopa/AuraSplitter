@@ -13,13 +13,16 @@ struct ControlPaneView: View {
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
+    var showsHeader = true
 
     private let outputFormats = ["WAV", "FLAC"]
     private let speedModes = ["latency_safe_v3", "latency_safe", "default"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            header
+            if showsHeader {
+                header
+            }
             dropZone
             presetSection
             modelSection
@@ -391,7 +394,7 @@ struct ControlPaneView: View {
     }
 }
 
-private struct AppLogoView: View {
+struct AppLogoView: View {
     var body: some View {
         Group {
             if let url = Bundle.main.url(forResource: "KirtanSplitter", withExtension: "svg"),

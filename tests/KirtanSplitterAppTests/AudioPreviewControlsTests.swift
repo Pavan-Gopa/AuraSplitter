@@ -8,8 +8,9 @@ final class AudioPreviewControlsTests: XCTestCase {
         XCTAssertEqual(AudioPreviewVolume.clamp(4.0), 3)
     }
 
-    func testPreviewHeightFractionStartsAtThirtyFivePercentAndStopsAtHalfWindow() {
-        XCTAssertEqual(AudioPreviewLayout.defaultBottomFraction, 0.35)
+    func testPreviewHeightFractionStartsAtHalfWindowAndCanShrinkToThirtyFivePercent() {
+        XCTAssertEqual(AudioPreviewLayout.minimumBottomFraction, 0.35)
+        XCTAssertEqual(AudioPreviewLayout.defaultBottomFraction, 0.50)
         XCTAssertEqual(AudioPreviewLayout.clampedBottomFraction(0.1), 0.35)
         XCTAssertEqual(AudioPreviewLayout.clampedBottomFraction(0.44), 0.44)
         XCTAssertEqual(AudioPreviewLayout.clampedBottomFraction(0.8), 0.5)
