@@ -14,7 +14,7 @@ struct ControlPaneView: View {
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
 
-    private let outputFormats = ["FLAC", "WAV"]
+    private let outputFormats = ["WAV", "FLAC"]
     private let speedModes = ["latency_safe_v3", "latency_safe", "default"]
 
     var body: some View {

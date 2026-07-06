@@ -7,6 +7,7 @@ struct AudioPreviewPane: View {
     let isAnalyzing: Bool
     @ObservedObject var player: AudioPreviewPlayer
     @State private var viewport = AudioPreviewViewport()
+    @State private var spectrogramImage: CGImage?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +20,10 @@ struct AudioPreviewPane: View {
         .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
         .onChange(of: analysis?.path) { _ in
             viewport.reset()
+            updateSpectrogramImage()
+        }
+        .onAppear {
+            updateSpectrogramImage()
         }
     }
 
@@ -78,7 +83,7 @@ struct AudioPreviewPane: View {
                     if let analysis {
                         drawAnalysis(context: &context, size: size, analysis: analysis)
                     } else {
-                        drawPlaceholder(context: &context, size: size)
+                        drawPlaceholder(context: &context, size: size, message: isAnalyzing ? nil : "No source loaded")
                     }
                 }
 
@@ -196,22 +201,56 @@ struct AudioPreviewPane: View {
         context.fill(Path(rect), with: .color(Color(red: 0.015, green: 0.018, blue: 0.026)))
     }
 
-    private func drawPlaceholder(context: inout GraphicsContext, size: CGSize) {
+    private func drawPlaceholder(context: inout GraphicsContext, size: CGSize, message: String?) {
         let plotRect = plotRect(for: size)
         drawGrid(context: &context, plotRect: plotRect, duration: 0)
-        let center = CGPoint(x: plotRect.midX, y: plotRect.midY)
-        drawText("No source loaded", font: .caption, color: .secondary, context: &context, at: center, anchor: .center)
+        if let message {
+            let center = CGPoint(x: plotRect.midX, y: plotRect.midY)
+            drawText(message, font: .caption, color: .secondary, context: &context, at: center, anchor: .center)
+        }
     }
 
     private func drawAnalysis(context: inout GraphicsContext, size: CGSize, analysis: AudioAnalysis) {
         let plotRect = plotRect(for: size)
         guard plotRect.width > 8, plotRect.height > 8 else { return }
 
-        drawSpectrogram(context: &context, plotRect: plotRect, spectrogram: analysis.spectrogram)
+        if let spectrogramImage {
+            drawSpectrogramImage(context: &context, plotRect: plotRect, image: spectrogramImage)
+        } else {
+            drawSpectrogram(context: &context, plotRect: plotRect, spectrogram: analysis.spectrogram)
+        }
         drawGrid(context: &context, plotRect: plotRect, duration: analysis.durationSeconds)
         drawWaveform(context: &context, plotRect: plotRect, peaks: analysis.waveformPeaks, clipped: analysis.clipped)
         drawAxisLabels(context: &context, size: size, plotRect: plotRect, analysis: analysis)
         drawPlayhead(context: &context, plotRect: plotRect, analysis: analysis)
+    }
+
+    private func updateSpectrogramImage() {
+        guard let analysis else {
+            spectrogramImage = nil
+            return
+        }
+        spectrogramImage = SpectrogramImageRenderer.makeImage(from: analysis.spectrogram)
+    }
+
+    private func drawSpectrogramImage(context: inout GraphicsContext, plotRect: CGRect, image: CGImage) {
+        let imageWidth = CGFloat(image.width)
+        let imageHeight = CGFloat(image.height)
+        let sourceRect = CGRect(
+            x: imageWidth * CGFloat(viewport.start),
+            y: 0,
+            width: max(1, imageWidth * CGFloat(viewport.span)),
+            height: imageHeight
+        )
+        .integral
+        .intersection(CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
+
+        guard sourceRect.width > 0,
+              sourceRect.height > 0,
+              let croppedImage = image.cropping(to: sourceRect)
+        else { return }
+
+        context.draw(Image(decorative: croppedImage, scale: 1), in: plotRect)
     }
 
     private func plotRect(for size: CGSize) -> CGRect {
@@ -232,32 +271,38 @@ struct AudioPreviewPane: View {
         let values = spectrogram.values
         guard !values.isEmpty else { return }
 
-        let binHeight = plotRect.height / CGFloat(bins)
-        let startColumn = max(0, Int(floor(viewport.start * Double(columns))))
-        let endColumn = min(columns - 1, Int(ceil(viewport.end * Double(columns))))
-        guard startColumn <= endColumn else { return }
+        let visibleSourceColumns = max(1, Int(ceil(Double(columns) * viewport.span)))
+        let drawColumns = min(max(96, Int(plotRect.width * 0.55)), max(1, visibleSourceColumns * 2))
+        let drawBins = min(bins, max(64, Int(plotRect.height * 0.85)))
+        let columnWidth = plotRect.width / CGFloat(max(1, drawColumns))
+        let binHeight = plotRect.height / CGFloat(max(1, drawBins))
 
-        for column in startColumn...endColumn {
-            let columnStart = Double(column) / Double(columns)
-            let columnEnd = Double(column + 1) / Double(columns)
-            let visibleStart = max(0, (columnStart - viewport.start) / viewport.span)
-            let visibleEnd = min(1, (columnEnd - viewport.start) / viewport.span)
-            let x = plotRect.minX + CGFloat(visibleStart) * plotRect.width
-            let columnWidth = max(1, CGFloat(visibleEnd - visibleStart) * plotRect.width)
-            for bin in 0..<bins {
-                let index = column * bins + bin
-                guard index < values.count else { continue }
-                let value = min(1, max(0, values[index]))
-                guard value > 0.008 else { continue }
+        for columnIndex in 0..<drawColumns {
+            let visibleFraction = (Double(columnIndex) + 0.5) / Double(drawColumns)
+            let sourceColumn = viewport.absoluteFraction(forVisibleFraction: visibleFraction) * Double(max(1, columns - 1))
+            let x = plotRect.minX + CGFloat(columnIndex) * columnWidth
 
-                let y = plotRect.maxY - CGFloat(bin + 1) * binHeight
-                let rect = CGRect(
-                    x: x,
-                    y: y,
-                    width: columnWidth + 0.35,
-                    height: max(1, binHeight + 0.35)
+            for binIndex in 0..<drawBins {
+                let sourceBin = (Double(binIndex) + 0.5) / Double(drawBins) * Double(max(1, bins - 1))
+                let value = sampleSpectrogram(
+                    values,
+                    columns: columns,
+                    bins: bins,
+                    column: sourceColumn,
+                    bin: sourceBin
                 )
-                context.fill(Path(rect), with: .color(spectrogramColor(value)))
+                guard value > 0.006 else { continue }
+
+                let y = plotRect.maxY - CGFloat(binIndex + 1) * binHeight
+                context.fill(
+                    Path(CGRect(
+                        x: x,
+                        y: y,
+                        width: columnWidth + 0.7,
+                        height: binHeight + 0.7
+                    )),
+                    with: .color(spectrogramColor(value))
+                )
             }
         }
     }
@@ -266,23 +311,54 @@ struct AudioPreviewPane: View {
         guard !peaks.isEmpty else { return }
         let centerY = plotRect.midY
         let maxAmplitude = plotRect.height * 0.23
-        var path = Path()
         let lastIndex = max(1, peaks.count - 1)
-        let startIndex = max(0, Int(floor(viewport.start * Double(peaks.count))))
-        let endIndex = min(peaks.count - 1, Int(ceil(viewport.end * Double(peaks.count))))
-        guard startIndex <= endIndex else { return }
+        let visibleSamples = max(1, Int(ceil(Double(peaks.count) * viewport.span)))
+        let drawPoints = min(max(96, Int(plotRect.width * 1.25)), max(1, visibleSamples * 2))
+        guard drawPoints > 1 else { return }
 
-        for index in startIndex...endIndex {
-            let absoluteFraction = Double(index) / Double(lastIndex)
-            guard let visibleFraction = viewport.visibleFraction(forAbsoluteFraction: absoluteFraction) else { continue }
+        var topPoints: [CGPoint] = []
+        var bottomPoints: [CGPoint] = []
+        topPoints.reserveCapacity(drawPoints)
+        bottomPoints.reserveCapacity(drawPoints)
+
+        for pointIndex in 0..<drawPoints {
+            let visibleFraction = Double(pointIndex) / Double(drawPoints - 1)
+            let absoluteFraction = viewport.absoluteFraction(forVisibleFraction: visibleFraction)
+            let sourceIndex = absoluteFraction * Double(lastIndex)
+            let amplitude = samplePeaks(peaks, index: sourceIndex) * maxAmplitude
             let x = plotRect.minX + CGFloat(visibleFraction) * plotRect.width
-            let amplitude = min(1, max(0, peaks[index])) * maxAmplitude
-            path.move(to: CGPoint(x: x, y: centerY - amplitude))
-            path.addLine(to: CGPoint(x: x, y: centerY + amplitude))
+            topPoints.append(CGPoint(x: x, y: centerY - amplitude))
+            bottomPoints.append(CGPoint(x: x, y: centerY + amplitude))
         }
 
         let color = clipped ? Color(red: 1.0, green: 0.22, blue: 0.20) : Color(red: 0.18, green: 0.55, blue: 1.0)
-        context.stroke(path, with: .color(color.opacity(0.90)), lineWidth: 1.2)
+        var envelope = Path()
+        if let first = topPoints.first {
+            envelope.move(to: first)
+            for point in topPoints.dropFirst() {
+                envelope.addLine(to: point)
+            }
+            for point in bottomPoints.reversed() {
+                envelope.addLine(to: point)
+            }
+            envelope.closeSubpath()
+            context.fill(envelope, with: .color(color.opacity(0.28)))
+        }
+
+        var crest = Path()
+        if let first = topPoints.first {
+            crest.move(to: first)
+            for point in topPoints.dropFirst() {
+                crest.addLine(to: point)
+            }
+        }
+        if let first = bottomPoints.first {
+            crest.move(to: first)
+            for point in bottomPoints.dropFirst() {
+                crest.addLine(to: point)
+            }
+        }
+        context.stroke(crest, with: .color(color.opacity(0.95)), lineWidth: 1.1)
 
         var centerLine = Path()
         centerLine.move(to: CGPoint(x: plotRect.minX, y: centerY))
@@ -368,16 +444,56 @@ struct AudioPreviewPane: View {
     }
 
     private func spectrogramColor(_ value: Double) -> Color {
-        if value < 0.28 {
-            let t = value / 0.28
-            return Color(red: 0.02 + 0.05 * t, green: 0.05 + 0.12 * t, blue: 0.17 + 0.38 * t)
+        let value = pow(min(1, max(0, value)), 0.82)
+        if value < 0.22 {
+            let t = value / 0.22
+            return Color(red: 0.01 + 0.03 * t, green: 0.018 + 0.07 * t, blue: 0.05 + 0.28 * t)
         }
-        if value < 0.68 {
-            let t = (value - 0.28) / 0.40
-            return Color(red: 0.08 + 0.75 * t, green: 0.18 + 0.26 * t, blue: 0.55 - 0.40 * t)
+        if value < 0.58 {
+            let t = (value - 0.22) / 0.36
+            return Color(red: 0.04 + 0.72 * t, green: 0.09 + 0.30 * t, blue: 0.33 - 0.20 * t)
         }
-        let t = (value - 0.68) / 0.32
-        return Color(red: 0.83 + 0.17 * t, green: 0.44 + 0.38 * t, blue: 0.15 + 0.05 * t)
+        let t = (value - 0.58) / 0.42
+        return Color(red: 0.76 + 0.24 * t, green: 0.39 + 0.40 * t, blue: 0.13 + 0.03 * t)
+    }
+
+    private func sampleSpectrogram(
+        _ values: [Double],
+        columns: Int,
+        bins: Int,
+        column: Double,
+        bin: Double
+    ) -> Double {
+        let leftColumn = min(columns - 1, max(0, Int(floor(column))))
+        let rightColumn = min(columns - 1, leftColumn + 1)
+        let lowerBin = min(bins - 1, max(0, Int(floor(bin))))
+        let upperBin = min(bins - 1, lowerBin + 1)
+        let columnMix = min(1, max(0, column - Double(leftColumn)))
+        let binMix = min(1, max(0, bin - Double(lowerBin)))
+
+        let lowerLeft = spectrogramValue(values, columns: columns, bins: bins, column: leftColumn, bin: lowerBin)
+        let lowerRight = spectrogramValue(values, columns: columns, bins: bins, column: rightColumn, bin: lowerBin)
+        let upperLeft = spectrogramValue(values, columns: columns, bins: bins, column: leftColumn, bin: upperBin)
+        let upperRight = spectrogramValue(values, columns: columns, bins: bins, column: rightColumn, bin: upperBin)
+
+        let lower = lowerLeft + (lowerRight - lowerLeft) * columnMix
+        let upper = upperLeft + (upperRight - upperLeft) * columnMix
+        return min(1, max(0, lower + (upper - lower) * binMix))
+    }
+
+    private func spectrogramValue(_ values: [Double], columns: Int, bins: Int, column: Int, bin: Int) -> Double {
+        let index = column * bins + bin
+        guard index >= 0, index < values.count else { return 0 }
+        return values[index]
+    }
+
+    private func samplePeaks(_ peaks: [Double], index: Double) -> CGFloat {
+        guard !peaks.isEmpty else { return 0 }
+        let left = min(peaks.count - 1, max(0, Int(floor(index))))
+        let right = min(peaks.count - 1, left + 1)
+        let mix = min(1, max(0, index - Double(left)))
+        let value = peaks[left] + (peaks[right] - peaks[left]) * mix
+        return CGFloat(min(1, max(0, value)))
     }
 
     private func drawText(

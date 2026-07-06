@@ -90,9 +90,9 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             audio_path = request.params.get("path") or request.params.get("inputPath")
             if not audio_path:
                 raise ValueError("Missing required parameter: path")
-            waveform_points = int(request.params.get("waveformPoints", 1200))
-            spectrogram_columns = int(request.params.get("spectrogramColumns", 520))
-            spectrogram_bins = int(request.params.get("spectrogramBins", 96))
+            waveform_points = int(request.params.get("waveformPoints", 8192))
+            spectrogram_columns = int(request.params.get("spectrogramColumns", 8192))
+            spectrogram_bins = int(request.params.get("spectrogramBins", 224))
             return response(
                 request.id,
                 engine.analyze_audio(

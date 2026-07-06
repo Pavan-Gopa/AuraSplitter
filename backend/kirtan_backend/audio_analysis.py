@@ -9,16 +9,17 @@ from pathlib import Path
 import numpy as np
 
 
-def analyze_audio(path: str, waveform_points: int = 1200, spectrogram_columns: int = 520, spectrogram_bins: int = 96) -> dict:
+def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
     audio_path = Path(path).expanduser()
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file does not exist: {audio_path}")
 
     info = _ffprobe_audio_info(audio_path)
     peak_db = _ffmpeg_peak_db(audio_path)
-    preview_samples = _decode_mono_float(audio_path, sample_rate=8000)
+    preview_sample_rate = 22050
+    preview_samples = _decode_mono_float(audio_path, sample_rate=preview_sample_rate)
     waveform = _waveform_peaks(preview_samples, waveform_points)
-    spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins)
+    spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins, sample_rate=preview_sample_rate)
 
     return {
         "path": str(audio_path),
@@ -137,34 +138,63 @@ def _waveform_peaks(samples: np.ndarray, points: int) -> list[float]:
     return peaks
 
 
-def _spectrogram(samples: np.ndarray, columns: int, bins: int) -> list[float]:
+def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int = 22050) -> list[float]:
     columns = max(1, int(columns))
     bins = max(1, int(bins))
     if samples.size == 0:
         return [0.0] * (columns * bins)
 
-    edges = np.linspace(0, samples.size, columns + 1, dtype=np.int64)
+    samples = np.asarray(samples, dtype=np.float32)
+    samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+    if np.max(np.abs(samples)) <= 1e-8:
+        return [0.0] * (columns * bins)
+
+    samples_per_column = max(1.0, samples.size / columns)
+    frame_length = _next_power_of_two(int(min(16384, max(512, samples_per_column * 2))))
+    half_window = frame_length // 2
+    window = np.hanning(frame_length).astype(np.float32)
+    padded = np.pad(samples, (half_window, half_window), mode="constant")
+    centers = np.linspace(0, samples.size - 1, columns)
+    target_frequencies = np.linspace(sample_rate / (2 * bins), sample_rate / 2, bins, dtype=np.float32)
+    spectrum_positions = target_frequencies / sample_rate * frame_length
     matrix = np.zeros((columns, bins), dtype=np.float32)
+
     for col in range(columns):
-        start, end = int(edges[col]), int(edges[col + 1])
-        segment = samples[start:end]
-        if segment.size < 8:
+        center = int(round(float(centers[col]))) + half_window
+        start = center - half_window
+        segment = padded[start:start + frame_length]
+        if segment.size != frame_length:
             continue
-        window = np.hanning(segment.size).astype(np.float32)
-        spectrum = np.abs(np.fft.rfft(segment * window))
-        if spectrum.size <= 1:
+
+        spectrum = np.abs(np.fft.rfft(segment * window)).astype(np.float32)
+        if spectrum.size <= 2:
             continue
-        spectrum = spectrum[1:]
-        source_edges = np.linspace(0, spectrum.size, bins + 1, dtype=np.int64)
-        for bin_idx in range(bins):
-            bin_start, bin_end = int(source_edges[bin_idx]), int(source_edges[bin_idx + 1])
-            band = spectrum[bin_start:bin_end]
-            if band.size:
-                matrix[col, bin_idx] = float(np.mean(band))
+
+        matrix[col] = np.interp(
+            spectrum_positions,
+            np.arange(spectrum.size, dtype=np.float32),
+            spectrum,
+            left=0.0,
+            right=0.0,
+        ).astype(np.float32)
 
     if np.max(matrix) <= 0:
         return [0.0] * (columns * bins)
-    matrix = np.log1p(matrix)
-    matrix /= max(float(np.max(matrix)), 1e-9)
+
+    matrix = 20.0 * np.log10(np.maximum(matrix, 1e-8))
+    finite_values = matrix[np.isfinite(matrix)]
+    if finite_values.size == 0:
+        return [0.0] * (columns * bins)
+
+    floor = float(np.percentile(finite_values, 35))
+    ceiling = float(np.percentile(finite_values, 99.7))
+    if ceiling <= floor:
+        ceiling = floor + 1.0
+    matrix = (matrix - floor) / (ceiling - floor)
     matrix = np.clip(matrix, 0, 1)
+    matrix = np.power(matrix, 0.72)
     return [round(float(value), 4) for value in matrix.reshape(-1)]
+
+
+def _next_power_of_two(value: int) -> int:
+    return 1 << max(1, int(value) - 1).bit_length()

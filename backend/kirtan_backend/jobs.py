@@ -19,7 +19,7 @@ class SeparationJob:
     output_dir: str
     model_filename: str
     preset: str
-    output_format: str = "FLAC"
+    output_format: str = "WAV"
     chunk_duration: float | None = None
     mdxc_segment_size: int = 256
     mdxc_overlap: int = 8
@@ -62,7 +62,7 @@ class SeparationJob:
             output_dir=str(output_dir),
             model_filename=model_filename,
             preset=str(params.get("preset", "kirtan_pro")),
-            output_format=str(params.get("outputFormat", "FLAC")).upper(),
+            output_format=str(params.get("outputFormat", "WAV")).upper(),
             chunk_duration=chunk_duration,
             mdxc_segment_size=mdxc_segment_size,
             mdxc_overlap=mdxc_overlap,

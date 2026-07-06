@@ -75,7 +75,7 @@ class MlxSeparatorEngine:
     def delete_model_group_source(self, group_id: str) -> dict:
         return delete_model_group_source(self.model_dir, group_id)
 
-    def analyze_audio(self, path: str, waveform_points: int = 1200, spectrogram_columns: int = 520, spectrogram_bins: int = 96) -> dict:
+    def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
         return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins)
 
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:

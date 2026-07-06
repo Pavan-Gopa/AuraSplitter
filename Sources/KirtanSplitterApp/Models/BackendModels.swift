@@ -42,7 +42,7 @@ struct StemFile: Identifiable, Hashable, Codable {
 struct SeparationSettings: Equatable {
     var presetID = "kirtan_pro"
     var modelOverride: String?
-    var outputFormat = "FLAC"
+    var outputFormat = "WAV"
     var speedMode = "latency_safe_v3"
     var chunkDuration: Double = 30
     var mdxcSegmentSize: Int = 256

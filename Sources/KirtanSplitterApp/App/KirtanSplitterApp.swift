@@ -3,6 +3,10 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let iconURL = Bundle.main.url(forResource: "KirtanSplitter", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }

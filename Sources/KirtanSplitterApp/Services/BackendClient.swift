@@ -227,9 +227,9 @@ final class BackendClient: ObservableObject {
             method: "analyze_audio",
             params: [
                 "path": url.path,
-                "waveformPoints": 1200,
-                "spectrogramColumns": 520,
-                "spectrogramBins": 96,
+                "waveformPoints": AudioPreviewAnalysisResolution.waveformPoints,
+                "spectrogramColumns": AudioPreviewAnalysisResolution.spectrogramColumns,
+                "spectrogramBins": AudioPreviewAnalysisResolution.spectrogramBins,
             ]
         )
         return try decodeObject(AudioAnalysis.self, from: result)
