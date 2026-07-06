@@ -280,7 +280,7 @@ struct AudioPreviewPane: View {
             clipped: analysis.clipped,
             intensity: layerSettings.waveformIntensity
         )
-        drawAxisLabels(context: &context, size: size, plotRect: plotRect, analysis: analysis)
+        drawAxisLabels(context: &context, plotRect: plotRect, analysis: analysis)
         drawPlayhead(context: &context, plotRect: plotRect, analysis: analysis)
     }
 
@@ -288,10 +288,11 @@ struct AudioPreviewPane: View {
         let horizontalInset: CGFloat = 34
         let topInset: CGFloat = 14
         let bottomInset: CGFloat = 24
+        let rightInset: CGFloat = 64
         return CGRect(
             x: horizontalInset,
             y: topInset,
-            width: max(1, size.width - horizontalInset - 42),
+            width: max(1, size.width - horizontalInset - rightInset),
             height: max(1, size.height - topInset - bottomInset)
         )
     }
@@ -395,7 +396,7 @@ struct AudioPreviewPane: View {
         context.stroke(grid, with: .color(Color.white.opacity(0.08)), lineWidth: 1)
     }
 
-    private func drawAxisLabels(context: inout GraphicsContext, size: CGSize, plotRect: CGRect, analysis: AudioAnalysis) {
+    private func drawAxisLabels(context: inout GraphicsContext, plotRect: CGRect, analysis: AudioAnalysis) {
         drawText(
             analysis.channels == 1 ? "M" : "L/R",
             font: .caption2.weight(.semibold),
@@ -405,20 +406,67 @@ struct AudioPreviewPane: View {
             anchor: .leading
         )
 
-        let dbLabels = ["0", "-6", "-12", "-24"]
-        for (index, label) in dbLabels.enumerated() {
-            let y = plotRect.minY + CGFloat(index) * plotRect.height / CGFloat(max(1, dbLabels.count - 1))
-            drawText(
-                label,
-                font: .caption2.monospacedDigit(),
-                color: .secondary,
-                context: &context,
-                at: CGPoint(x: size.width - 28, y: y),
-                anchor: .leading
-            )
+        drawWaveformDecibelAxis(context: &context, plotRect: plotRect)
+    }
+
+    private func drawWaveformDecibelAxis(context: inout GraphicsContext, plotRect: CGRect) {
+        let tickX = plotRect.maxX + 10
+        let labelX = plotRect.maxX + 22
+        let centerY = plotRect.midY
+        let halfHeight = plotRect.height / 2
+        let tickColor = Color(red: 1.0, green: 0.18, blue: 0.32)
+        var labelPositions = [centerY]
+
+        drawText("dB", font: .caption2, color: .secondary, context: &context, at: CGPoint(x: labelX, y: plotRect.minY - 5), anchor: .leading)
+
+        for tick in AudioPreviewAxisScale.decibelTicks {
+            let offset = CGFloat(tick.amplitudeFraction) * halfHeight
+            let upperY = centerY - offset
+            let lowerY = centerY + offset
+            let showUpperLabel = tick.isMajor && reserveAxisLabel(at: upperY, in: &labelPositions)
+            let showLowerLabel = tick.isMajor && reserveAxisLabel(at: lowerY, in: &labelPositions)
+            drawDecibelTick(tick, y: upperY, tickX: tickX, labelX: labelX, tickColor: tickColor, showLabel: showUpperLabel, context: &context)
+            drawDecibelTick(tick, y: lowerY, tickX: tickX, labelX: labelX, tickColor: tickColor, showLabel: showLowerLabel, context: &context)
         }
 
-        drawText("dB", font: .caption2, color: .secondary, context: &context, at: CGPoint(x: size.width - 28, y: plotRect.minY - 5), anchor: .leading)
+        var centerTick = Path()
+        centerTick.move(to: CGPoint(x: tickX - 10, y: centerY))
+        centerTick.addLine(to: CGPoint(x: tickX, y: centerY))
+        context.stroke(centerTick, with: .color(Color.white.opacity(0.22)), lineWidth: 1)
+        drawText("-inf", font: .caption2.monospacedDigit(), color: .secondary, context: &context, at: CGPoint(x: labelX, y: centerY), anchor: .leading)
+    }
+
+    private func reserveAxisLabel(at y: CGFloat, in positions: inout [CGFloat]) -> Bool {
+        let minimumDistance: CGFloat = 10
+        guard positions.allSatisfy({ abs($0 - y) >= minimumDistance }) else { return false }
+        positions.append(y)
+        return true
+    }
+
+    private func drawDecibelTick(
+        _ tick: AudioPreviewAxisTick,
+        y: CGFloat,
+        tickX: CGFloat,
+        labelX: CGFloat,
+        tickColor: Color,
+        showLabel: Bool,
+        context: inout GraphicsContext
+    ) {
+        let tickLength: CGFloat = tick.isMajor ? 14 : 7
+        var path = Path()
+        path.move(to: CGPoint(x: tickX - tickLength, y: y))
+        path.addLine(to: CGPoint(x: tickX, y: y))
+        context.stroke(path, with: .color(tickColor.opacity(tick.isMajor ? 0.95 : 0.58)), lineWidth: tick.isMajor ? 1.7 : 1.1)
+
+        guard showLabel else { return }
+        drawText(
+            tick.label,
+            font: .caption2.monospacedDigit(),
+            color: .secondary,
+            context: &context,
+            at: CGPoint(x: labelX, y: y),
+            anchor: .leading
+        )
     }
 
     private func drawPlayhead(context: inout GraphicsContext, plotRect: CGRect, analysis: AudioAnalysis) {

@@ -1,5 +1,6 @@
 import numpy as np
 
+from kirtan_backend import audio_analysis
 from kirtan_backend.audio_analysis import _spectrogram
 
 
@@ -28,3 +29,25 @@ def test_spectrogram_returns_requested_density():
 
     assert len(values) == 128 * 96
     assert max(values) > 0.2
+
+
+def test_spectrogram_batches_fft_work_for_preview_speed(monkeypatch):
+    calls = 0
+    real_rfft = audio_analysis.np.fft.rfft
+
+    def counted_rfft(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_rfft(*args, **kwargs)
+
+    monkeypatch.setattr(audio_analysis.np.fft, "rfft", counted_rfft)
+
+    values = _spectrogram(_sine(440, seconds=2.0), columns=96, bins=64, sample_rate=22_050)
+
+    assert len(values) == 96 * 64
+    assert calls <= 8
+
+
+def test_peak_db_is_computed_from_preview_samples_without_second_ffmpeg_pass():
+    assert audio_analysis._peak_db_from_samples(np.array([0.0, -0.5, 1.0], dtype=np.float32)) == 0.0
+    assert audio_analysis._peak_db_from_samples(np.zeros(32, dtype=np.float32)) == -120.0

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import subprocess
 from pathlib import Path
 
@@ -15,9 +14,9 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
         raise FileNotFoundError(f"Audio file does not exist: {audio_path}")
 
     info = _ffprobe_audio_info(audio_path)
-    peak_db = _ffmpeg_peak_db(audio_path)
     preview_sample_rate = 22050
     preview_samples = _decode_mono_float(audio_path, sample_rate=preview_sample_rate)
+    peak_db = _peak_db_from_samples(preview_samples)
     waveform = _waveform_peaks(preview_samples, waveform_points)
     spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins, sample_rate=preview_sample_rate)
 
@@ -68,36 +67,6 @@ def _ffprobe_audio_info(path: Path) -> dict:
     }
 
 
-def _ffmpeg_peak_db(path: Path) -> float:
-    try:
-        output = subprocess.check_output(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-nostats",
-                "-i",
-                str(path),
-                "-af",
-                "volumedetect",
-                "-f",
-                "null",
-                "-",
-            ],
-            text=True,
-            stderr=subprocess.STDOUT,
-            timeout=60,
-        )
-    except subprocess.CalledProcessError as exc:
-        output = exc.output or ""
-    match = re.search(r"max_volume:\s+(-?[0-9.]+)\s+dB", output)
-    if not match:
-        return -120.0
-    value = float(match.group(1))
-    if not math.isfinite(value):
-        return -120.0
-    return max(-120.0, min(24.0, value))
-
-
 def _decode_mono_float(path: Path, sample_rate: int) -> np.ndarray:
     output = subprocess.check_output(
         [
@@ -138,6 +107,20 @@ def _waveform_peaks(samples: np.ndarray, points: int) -> list[float]:
     return peaks
 
 
+def _peak_db_from_samples(samples: np.ndarray) -> float:
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.size == 0:
+        return -120.0
+    samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
+    peak = float(np.max(np.abs(samples)))
+    if peak <= 1e-8:
+        return -120.0
+    value = 20.0 * math.log10(peak)
+    if not math.isfinite(value):
+        return -120.0
+    return round(max(-120.0, min(24.0, value)), 2)
+
+
 def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int = 22050) -> list[float]:
     columns = max(1, int(columns))
     bins = max(1, int(bins))
@@ -157,26 +140,32 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
     centers = np.linspace(0, samples.size - 1, columns)
     target_frequencies = np.linspace(sample_rate / (2 * bins), sample_rate / 2, bins, dtype=np.float32)
     spectrum_positions = target_frequencies / sample_rate * frame_length
+    left_bins = np.floor(spectrum_positions).astype(np.int64)
+    right_bins = left_bins + 1
+    bin_mix = (spectrum_positions - left_bins).astype(np.float32)
     matrix = np.zeros((columns, bins), dtype=np.float32)
+    chunk_columns = _spectrogram_chunk_columns(columns=columns, frame_length=frame_length)
 
-    for col in range(columns):
-        center = int(round(float(centers[col]))) + half_window
-        start = center - half_window
-        segment = padded[start:start + frame_length]
-        if segment.size != frame_length:
+    for chunk_start in range(0, columns, chunk_columns):
+        chunk_end = min(columns, chunk_start + chunk_columns)
+        chunk_centers = centers[chunk_start:chunk_end]
+        frames = np.empty((chunk_end - chunk_start, frame_length), dtype=np.float32)
+        for local_index, center_value in enumerate(chunk_centers):
+            center = int(round(float(center_value))) + half_window
+            start = center - half_window
+            frames[local_index] = padded[start:start + frame_length]
+        frames *= window
+
+        spectrum = np.abs(np.fft.rfft(frames, axis=1)).astype(np.float32, copy=False)
+        if spectrum.shape[1] <= 2:
             continue
 
-        spectrum = np.abs(np.fft.rfft(segment * window)).astype(np.float32)
-        if spectrum.size <= 2:
-            continue
-
-        matrix[col] = np.interp(
-            spectrum_positions,
-            np.arange(spectrum.size, dtype=np.float32),
-            spectrum,
-            left=0.0,
-            right=0.0,
-        ).astype(np.float32)
+        max_bin = spectrum.shape[1] - 1
+        left = np.clip(left_bins, 0, max_bin)
+        right = np.clip(right_bins, 0, max_bin)
+        lower = spectrum[:, left]
+        upper = spectrum[:, right]
+        matrix[chunk_start:chunk_end] = lower + (upper - lower) * bin_mix
 
     if np.max(matrix) <= 0:
         return [0.0] * (columns * bins)
@@ -198,3 +187,9 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
 
 def _next_power_of_two(value: int) -> int:
     return 1 << max(1, int(value) - 1).bit_length()
+
+
+def _spectrogram_chunk_columns(columns: int, frame_length: int, target_frame_bytes: int = 64 * 1024 * 1024) -> int:
+    bytes_per_frame = max(1, frame_length) * np.dtype(np.float32).itemsize
+    by_memory = max(1, target_frame_bytes // bytes_per_frame)
+    return max(1, min(int(columns), int(by_memory)))
