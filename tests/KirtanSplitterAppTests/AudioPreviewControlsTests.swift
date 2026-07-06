@@ -14,4 +14,17 @@ final class AudioPreviewControlsTests: XCTestCase {
         XCTAssertEqual(AudioPreviewLayout.clampedBottomFraction(0.44), 0.44)
         XCTAssertEqual(AudioPreviewLayout.clampedBottomFraction(0.8), 0.5)
     }
+
+    func testLayerSettingsDefaultToFullSpectrumAndWaveformIntensity() {
+        let settings = AudioPreviewLayerSettings()
+
+        XCTAssertEqual(settings.spectrumIntensity, 1)
+        XCTAssertEqual(settings.waveformIntensity, 1)
+    }
+
+    func testLayerSettingsClampIntensityBetweenHiddenAndDouble() {
+        XCTAssertEqual(AudioPreviewLayerSettings.clampIntensity(-0.3), 0)
+        XCTAssertEqual(AudioPreviewLayerSettings.clampIntensity(1.4), 1.4)
+        XCTAssertEqual(AudioPreviewLayerSettings.clampIntensity(3.0), 2)
+    }
 }

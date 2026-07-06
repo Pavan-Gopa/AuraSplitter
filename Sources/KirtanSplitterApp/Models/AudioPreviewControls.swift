@@ -14,3 +14,12 @@ enum AudioPreviewLayout {
         min(maximumBottomFraction, max(defaultBottomFraction, value))
     }
 }
+
+struct AudioPreviewLayerSettings: Equatable {
+    var spectrumIntensity: Double = 1
+    var waveformIntensity: Double = 1
+
+    static func clampIntensity(_ value: Double) -> Double {
+        min(2, max(0, value))
+    }
+}

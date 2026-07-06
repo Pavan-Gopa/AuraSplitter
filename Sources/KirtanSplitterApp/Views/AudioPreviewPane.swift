@@ -7,7 +7,8 @@ struct AudioPreviewPane: View {
     let isAnalyzing: Bool
     @ObservedObject var player: AudioPreviewPlayer
     @State private var viewport = AudioPreviewViewport()
-    @State private var spectrogramImage: CGImage?
+    @State private var layerSettings = AudioPreviewLayerSettings()
+    @State private var showingLayerSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,10 +21,6 @@ struct AudioPreviewPane: View {
         .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
         .onChange(of: analysis?.path) { _ in
             viewport.reset()
-            updateSpectrogramImage()
-        }
-        .onAppear {
-            updateSpectrogramImage()
         }
     }
 
@@ -69,6 +66,7 @@ struct AudioPreviewPane: View {
                 .help("Fit full audio")
             }
 
+            layerSettingsControl
             volumeControl
         }
         .padding(.horizontal, 16)
@@ -77,11 +75,25 @@ struct AudioPreviewPane: View {
 
     private var previewCanvas: some View {
         GeometryReader { geometry in
+            let plotRect = plotRect(for: geometry.size)
             ZStack(alignment: .topLeading) {
+                Color(red: 0.015, green: 0.018, blue: 0.026)
+
+                if let analysis {
+                    MetalSpectrogramView(
+                        sourceID: analysis.path,
+                        spectrogram: analysis.spectrogram,
+                        viewport: viewport,
+                        intensity: layerSettings.spectrumIntensity
+                    )
+                    .frame(width: plotRect.width, height: plotRect.height)
+                    .position(x: plotRect.midX, y: plotRect.midY)
+                    .allowsHitTesting(false)
+                }
+
                 Canvas { context, size in
-                    drawBackground(context: &context, size: size)
                     if let analysis {
-                        drawAnalysis(context: &context, size: size, analysis: analysis)
+                        drawAnalysisOverlay(context: &context, size: size, analysis: analysis)
                     } else {
                         drawPlaceholder(context: &context, size: size, message: isAnalyzing ? nil : "No source loaded")
                     }
@@ -157,6 +169,57 @@ struct AudioPreviewPane: View {
         .help("Preview volume")
     }
 
+    private var layerSettingsControl: some View {
+        Button {
+            showingLayerSettings.toggle()
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .frame(width: 26, height: 26)
+        }
+        .buttonStyle(.borderless)
+        .help("Preview layer settings")
+        .popover(isPresented: $showingLayerSettings, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Preview Layers")
+                    .font(.headline)
+                layerSlider(
+                    title: "Spectrum",
+                    value: Binding(
+                        get: { layerSettings.spectrumIntensity },
+                        set: { layerSettings.spectrumIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
+                    )
+                )
+                layerSlider(
+                    title: "Waveform",
+                    value: Binding(
+                        get: { layerSettings.waveformIntensity },
+                        set: { layerSettings.waveformIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
+                    )
+                )
+                Button("Reset") {
+                    layerSettings = AudioPreviewLayerSettings()
+                }
+                .controlSize(.small)
+            }
+            .padding(14)
+            .frame(width: 260)
+        }
+    }
+
+    private func layerSlider(title: String, value: Binding<Double>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int((value.wrappedValue * 100).rounded()))%")
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            Slider(value: value, in: 0...2, step: 0.05)
+        }
+    }
+
     private func metricPill(_ text: String, systemImage: String, warning: Bool = false) -> some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
@@ -196,11 +259,6 @@ struct AudioPreviewPane: View {
         player.toggle(path: analysis.path)
     }
 
-    private func drawBackground(context: inout GraphicsContext, size: CGSize) {
-        let rect = CGRect(origin: .zero, size: size)
-        context.fill(Path(rect), with: .color(Color(red: 0.015, green: 0.018, blue: 0.026)))
-    }
-
     private func drawPlaceholder(context: inout GraphicsContext, size: CGSize, message: String?) {
         let plotRect = plotRect(for: size)
         drawGrid(context: &context, plotRect: plotRect, duration: 0)
@@ -210,47 +268,20 @@ struct AudioPreviewPane: View {
         }
     }
 
-    private func drawAnalysis(context: inout GraphicsContext, size: CGSize, analysis: AudioAnalysis) {
+    private func drawAnalysisOverlay(context: inout GraphicsContext, size: CGSize, analysis: AudioAnalysis) {
         let plotRect = plotRect(for: size)
         guard plotRect.width > 8, plotRect.height > 8 else { return }
 
-        if let spectrogramImage {
-            drawSpectrogramImage(context: &context, plotRect: plotRect, image: spectrogramImage)
-        } else {
-            drawSpectrogram(context: &context, plotRect: plotRect, spectrogram: analysis.spectrogram)
-        }
         drawGrid(context: &context, plotRect: plotRect, duration: analysis.durationSeconds)
-        drawWaveform(context: &context, plotRect: plotRect, peaks: analysis.waveformPeaks, clipped: analysis.clipped)
+        drawWaveform(
+            context: &context,
+            plotRect: plotRect,
+            peaks: analysis.waveformPeaks,
+            clipped: analysis.clipped,
+            intensity: layerSettings.waveformIntensity
+        )
         drawAxisLabels(context: &context, size: size, plotRect: plotRect, analysis: analysis)
         drawPlayhead(context: &context, plotRect: plotRect, analysis: analysis)
-    }
-
-    private func updateSpectrogramImage() {
-        guard let analysis else {
-            spectrogramImage = nil
-            return
-        }
-        spectrogramImage = SpectrogramImageRenderer.makeImage(from: analysis.spectrogram)
-    }
-
-    private func drawSpectrogramImage(context: inout GraphicsContext, plotRect: CGRect, image: CGImage) {
-        let imageWidth = CGFloat(image.width)
-        let imageHeight = CGFloat(image.height)
-        let sourceRect = CGRect(
-            x: imageWidth * CGFloat(viewport.start),
-            y: 0,
-            width: max(1, imageWidth * CGFloat(viewport.span)),
-            height: imageHeight
-        )
-        .integral
-        .intersection(CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight))
-
-        guard sourceRect.width > 0,
-              sourceRect.height > 0,
-              let croppedImage = image.cropping(to: sourceRect)
-        else { return }
-
-        context.draw(Image(decorative: croppedImage, scale: 1), in: plotRect)
     }
 
     private func plotRect(for size: CGSize) -> CGRect {
@@ -265,50 +296,9 @@ struct AudioPreviewPane: View {
         )
     }
 
-    private func drawSpectrogram(context: inout GraphicsContext, plotRect: CGRect, spectrogram: SpectrogramData) {
-        let columns = max(1, spectrogram.columns)
-        let bins = max(1, spectrogram.bins)
-        let values = spectrogram.values
-        guard !values.isEmpty else { return }
-
-        let visibleSourceColumns = max(1, Int(ceil(Double(columns) * viewport.span)))
-        let drawColumns = min(max(96, Int(plotRect.width * 0.55)), max(1, visibleSourceColumns * 2))
-        let drawBins = min(bins, max(64, Int(plotRect.height * 0.85)))
-        let columnWidth = plotRect.width / CGFloat(max(1, drawColumns))
-        let binHeight = plotRect.height / CGFloat(max(1, drawBins))
-
-        for columnIndex in 0..<drawColumns {
-            let visibleFraction = (Double(columnIndex) + 0.5) / Double(drawColumns)
-            let sourceColumn = viewport.absoluteFraction(forVisibleFraction: visibleFraction) * Double(max(1, columns - 1))
-            let x = plotRect.minX + CGFloat(columnIndex) * columnWidth
-
-            for binIndex in 0..<drawBins {
-                let sourceBin = (Double(binIndex) + 0.5) / Double(drawBins) * Double(max(1, bins - 1))
-                let value = sampleSpectrogram(
-                    values,
-                    columns: columns,
-                    bins: bins,
-                    column: sourceColumn,
-                    bin: sourceBin
-                )
-                guard value > 0.006 else { continue }
-
-                let y = plotRect.maxY - CGFloat(binIndex + 1) * binHeight
-                context.fill(
-                    Path(CGRect(
-                        x: x,
-                        y: y,
-                        width: columnWidth + 0.7,
-                        height: binHeight + 0.7
-                    )),
-                    with: .color(spectrogramColor(value))
-                )
-            }
-        }
-    }
-
-    private func drawWaveform(context: inout GraphicsContext, plotRect: CGRect, peaks: [Double], clipped: Bool) {
-        guard !peaks.isEmpty else { return }
+    private func drawWaveform(context: inout GraphicsContext, plotRect: CGRect, peaks: [Double], clipped: Bool, intensity: Double) {
+        let intensity = AudioPreviewLayerSettings.clampIntensity(intensity)
+        guard !peaks.isEmpty, intensity > 0.001 else { return }
         let centerY = plotRect.midY
         let maxAmplitude = plotRect.height * 0.23
         let lastIndex = max(1, peaks.count - 1)
@@ -332,6 +322,9 @@ struct AudioPreviewPane: View {
         }
 
         let color = clipped ? Color(red: 1.0, green: 0.22, blue: 0.20) : Color(red: 0.18, green: 0.55, blue: 1.0)
+        let fillOpacity = min(0.55, 0.28 * intensity)
+        let lineOpacity = min(1.0, 0.95 * intensity)
+        let lineWidth = 0.8 + min(1.2, intensity) * 0.35
         var envelope = Path()
         if let first = topPoints.first {
             envelope.move(to: first)
@@ -342,7 +335,7 @@ struct AudioPreviewPane: View {
                 envelope.addLine(to: point)
             }
             envelope.closeSubpath()
-            context.fill(envelope, with: .color(color.opacity(0.28)))
+            context.fill(envelope, with: .color(color.opacity(fillOpacity)))
         }
 
         var crest = Path()
@@ -358,7 +351,7 @@ struct AudioPreviewPane: View {
                 crest.addLine(to: point)
             }
         }
-        context.stroke(crest, with: .color(color.opacity(0.95)), lineWidth: 1.1)
+        context.stroke(crest, with: .color(color.opacity(lineOpacity)), lineWidth: lineWidth)
 
         var centerLine = Path()
         centerLine.move(to: CGPoint(x: plotRect.minX, y: centerY))
@@ -441,50 +434,6 @@ struct AudioPreviewPane: View {
 
         let knobRect = CGRect(x: x - 5, y: plotRect.minY - 11, width: 10, height: 10)
         context.fill(Path(ellipseIn: knobRect), with: .color(Color(red: 1.0, green: 0.74, blue: 0.18)))
-    }
-
-    private func spectrogramColor(_ value: Double) -> Color {
-        let value = pow(min(1, max(0, value)), 0.82)
-        if value < 0.22 {
-            let t = value / 0.22
-            return Color(red: 0.01 + 0.03 * t, green: 0.018 + 0.07 * t, blue: 0.05 + 0.28 * t)
-        }
-        if value < 0.58 {
-            let t = (value - 0.22) / 0.36
-            return Color(red: 0.04 + 0.72 * t, green: 0.09 + 0.30 * t, blue: 0.33 - 0.20 * t)
-        }
-        let t = (value - 0.58) / 0.42
-        return Color(red: 0.76 + 0.24 * t, green: 0.39 + 0.40 * t, blue: 0.13 + 0.03 * t)
-    }
-
-    private func sampleSpectrogram(
-        _ values: [Double],
-        columns: Int,
-        bins: Int,
-        column: Double,
-        bin: Double
-    ) -> Double {
-        let leftColumn = min(columns - 1, max(0, Int(floor(column))))
-        let rightColumn = min(columns - 1, leftColumn + 1)
-        let lowerBin = min(bins - 1, max(0, Int(floor(bin))))
-        let upperBin = min(bins - 1, lowerBin + 1)
-        let columnMix = min(1, max(0, column - Double(leftColumn)))
-        let binMix = min(1, max(0, bin - Double(lowerBin)))
-
-        let lowerLeft = spectrogramValue(values, columns: columns, bins: bins, column: leftColumn, bin: lowerBin)
-        let lowerRight = spectrogramValue(values, columns: columns, bins: bins, column: rightColumn, bin: lowerBin)
-        let upperLeft = spectrogramValue(values, columns: columns, bins: bins, column: leftColumn, bin: upperBin)
-        let upperRight = spectrogramValue(values, columns: columns, bins: bins, column: rightColumn, bin: upperBin)
-
-        let lower = lowerLeft + (lowerRight - lowerLeft) * columnMix
-        let upper = upperLeft + (upperRight - upperLeft) * columnMix
-        return min(1, max(0, lower + (upper - lower) * binMix))
-    }
-
-    private func spectrogramValue(_ values: [Double], columns: Int, bins: Int, column: Int, bin: Int) -> Double {
-        let index = column * bins + bin
-        guard index >= 0, index < values.count else { return 0 }
-        return values[index]
     }
 
     private func samplePeaks(_ peaks: [Double], index: Double) -> CGFloat {
