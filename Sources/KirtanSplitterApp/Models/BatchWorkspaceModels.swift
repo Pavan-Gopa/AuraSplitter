@@ -86,6 +86,14 @@ enum BatchWorkspace {
         }
     }
 
+    static func effectivePresetID(
+        for source: BatchSourceItem,
+        sourceCount: Int,
+        globalPresetID: String
+    ) -> String {
+        sourceCount > 1 ? source.presetID : globalPresetID
+    }
+
     static func isSupportedAudioFile(_ url: URL) -> Bool {
         supportedAudioExtensions.contains(url.pathExtension.lowercased())
     }

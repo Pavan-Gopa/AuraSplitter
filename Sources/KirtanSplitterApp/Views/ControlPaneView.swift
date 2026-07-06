@@ -35,9 +35,7 @@ struct ControlPaneView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
-                Image(systemName: "waveform.badge.magnifyingglass")
-                    .font(.title2)
-                    .foregroundStyle(.orange)
+                AppLogoView()
                 Text("KirtanSplitter")
                     .font(.title2.weight(.semibold))
                 Spacer()
@@ -390,5 +388,24 @@ struct ControlPaneView: View {
             return true
         }
         return false
+    }
+}
+
+private struct AppLogoView: View {
+    var body: some View {
+        Group {
+            if let url = Bundle.main.url(forResource: "KirtanSplitter", withExtension: "svg"),
+               let image = NSImage(contentsOf: url) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: "waveform.badge.magnifyingglass")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .frame(width: 25, height: 25)
+        .accessibilityHidden(true)
     }
 }

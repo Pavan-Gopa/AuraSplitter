@@ -13,6 +13,8 @@ struct ContentView: View {
     @State private var previewAnalysisError: String?
     @State private var isAnalyzingPreview = false
     @State private var isDropTargeted = false
+    @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
+    @State private var previewResizeStartFraction: CGFloat?
 
     var body: some View {
         ZStack {
@@ -61,13 +63,17 @@ struct ContentView: View {
 
     private var centerWorkspace: some View {
         GeometryReader { geometry in
-            let topHeight = min(max(300, geometry.size.height * 0.62), max(260, geometry.size.height - 230))
+            let handleHeight: CGFloat = 8
+            let bottomFraction = AudioPreviewLayout.clampedBottomFraction(previewHeightFraction)
+            let bottomHeight = max(220, (geometry.size.height - handleHeight) * bottomFraction)
+            let topHeight = max(260, geometry.size.height - bottomHeight - handleHeight)
 
             VStack(spacing: 0) {
                 SourceResultOverviewView(
                     backend: backend,
                     sources: $sources,
                     presets: backend.presets,
+                    usesPerSourcePresets: usesPerSourcePresets,
                     resultGroups: resultGroups,
                     previewSelection: previewSelection,
                     previewSourceAction: previewSource,
@@ -76,7 +82,22 @@ struct ContentView: View {
                 )
                 .frame(height: topHeight)
 
-                Divider()
+                PreviewResizeHandle()
+                    .frame(height: handleHeight)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if previewResizeStartFraction == nil {
+                                    previewResizeStartFraction = previewHeightFraction
+                                }
+                                let startFraction = previewResizeStartFraction ?? previewHeightFraction
+                                let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
+                                previewHeightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
+                            }
+                            .onEnded { _ in
+                                previewResizeStartFraction = nil
+                            }
+                    )
 
                 AudioPreviewPane(
                     analysis: previewAnalysis,
@@ -228,7 +249,11 @@ struct ContentView: View {
         Task {
             for source in selectedSources {
                 var sourceSettings = settings
-                sourceSettings.presetID = source.presetID
+                sourceSettings.presetID = BatchWorkspace.effectivePresetID(
+                    for: source,
+                    sourceCount: sources.count,
+                    globalPresetID: settings.presetID
+                )
                 let outputDir = resolvedOutputDirectory(for: source.url)
 
                 do {
@@ -289,6 +314,10 @@ struct ContentView: View {
             .appendingPathComponent(input.deletingPathExtension().lastPathComponent + "_stems")
     }
 
+    private var usesPerSourcePresets: Bool {
+        sources.count > 1
+    }
+
     private func isDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -316,5 +345,19 @@ private struct ModelSetupOverlay: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(radius: 18)
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct PreviewResizeHandle: View {
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.08))
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.secondary.opacity(0.38))
+                .frame(width: 42, height: 3)
+        }
+        .contentShape(Rectangle())
+        .help("Resize audio preview")
     }
 }

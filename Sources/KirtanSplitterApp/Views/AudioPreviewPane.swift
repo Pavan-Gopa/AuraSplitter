@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AudioPreviewPane: View {
@@ -5,6 +6,7 @@ struct AudioPreviewPane: View {
     let analysisError: String?
     let isAnalyzing: Bool
     @ObservedObject var player: AudioPreviewPlayer
+    @State private var viewport = AudioPreviewViewport()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,19 +17,20 @@ struct AudioPreviewPane: View {
                 .background(Color(red: 0.015, green: 0.018, blue: 0.026))
         }
         .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
+        .onChange(of: analysis?.path) { _ in
+            viewport.reset()
+        }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button {
-                guard let analysis else { return }
-                player.toggle(path: analysis.path)
-            } label: {
+            Button(action: togglePlayback) {
                 Image(systemName: isPlayingCurrentSource ? "pause.fill" : "play.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.borderless)
+            .keyboardShortcut(.space, modifiers: [])
             .disabled(analysis == nil)
             .help(isPlayingCurrentSource ? "Pause source preview" : "Play source preview")
 
@@ -48,6 +51,20 @@ struct AudioPreviewPane: View {
                 metricPill(FileHelpers.formattedDuration(analysis.durationSeconds), systemImage: "timer")
                 metricPill(analysis.peakLabel, systemImage: "meter.waveform", warning: analysis.clipped || analysis.peakDb >= -0.25)
             }
+
+            if viewport.isZoomed {
+                metricPill("\(String(format: "%.1fx", viewport.zoomFactor))", systemImage: "plus.magnifyingglass")
+                Button {
+                    viewport.reset()
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .frame(width: 24, height: 24)
+                }
+                .buttonStyle(.borderless)
+                .help("Fit full audio")
+            }
+
+            volumeControl
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -55,21 +72,30 @@ struct AudioPreviewPane: View {
 
     private var previewCanvas: some View {
         GeometryReader { geometry in
-            Canvas { context, size in
-                drawBackground(context: &context, size: size)
-                if let analysis {
-                    drawAnalysis(context: &context, size: size, analysis: analysis)
-                } else {
-                    drawPlaceholder(context: &context, size: size)
-                }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        seek(at: value.location, in: geometry.size)
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    drawBackground(context: &context, size: size)
+                    if let analysis {
+                        drawAnalysis(context: &context, size: size, analysis: analysis)
+                    } else {
+                        drawPlaceholder(context: &context, size: size)
                     }
-            )
-            .overlay(alignment: .topLeading) {
+                }
+
+                AudioPreviewInteractionView(
+                    onSeek: { location, size in
+                        seek(at: location, in: size)
+                    },
+                    onScroll: { deltaY, location, size in
+                        zoom(deltaY: deltaY, at: location, in: size)
+                    },
+                    onMiddleDrag: { deltaX, size in
+                        pan(deltaX: deltaX, in: size)
+                    },
+                    onSpacebar: togglePlayback
+                )
+                .allowsHitTesting(analysis != nil)
+
                 if let analysisError {
                     Label(analysisError, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -105,6 +131,27 @@ struct AudioPreviewPane: View {
         return "\(FileHelpers.formattedTimestamp(currentPreviewTime)) / \(FileHelpers.formattedTimestamp(analysis.durationSeconds))"
     }
 
+    private var volumeControl: some View {
+        HStack(spacing: 7) {
+            Image(systemName: player.volume <= 0.01 ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .foregroundStyle(.secondary)
+            Slider(
+                value: Binding(
+                    get: { player.volume },
+                    set: { player.setVolume($0) }
+                ),
+                in: 0...3,
+                step: 0.05
+            )
+            .frame(width: 118)
+            Text("\(Int((player.volume * 100).rounded()))%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .trailing)
+        }
+        .help("Preview volume")
+    }
+
     private func metricPill(_ text: String, systemImage: String, warning: Bool = false) -> some View {
         HStack(spacing: 5) {
             Image(systemName: systemImage)
@@ -122,8 +169,26 @@ struct AudioPreviewPane: View {
         guard let analysis else { return }
         let plotRect = plotRect(for: size)
         guard plotRect.contains(location) || (location.x >= plotRect.minX && location.x <= plotRect.maxX) else { return }
-        let fraction = min(1, max(0, (location.x - plotRect.minX) / max(1, plotRect.width)))
-        player.seek(path: analysis.path, time: analysis.durationSeconds * Double(fraction))
+        let visibleFraction = min(1, max(0, (location.x - plotRect.minX) / max(1, plotRect.width)))
+        let absoluteFraction = viewport.absoluteFraction(forVisibleFraction: Double(visibleFraction))
+        player.seek(path: analysis.path, time: analysis.durationSeconds * absoluteFraction)
+    }
+
+    private func zoom(deltaY: CGFloat, at location: CGPoint, in size: CGSize) {
+        let plotRect = plotRect(for: size)
+        guard plotRect.contains(location) || (location.x >= plotRect.minX && location.x <= plotRect.maxX) else { return }
+        let anchor = min(1, max(0, (location.x - plotRect.minX) / max(1, plotRect.width)))
+        viewport.zoom(deltaY: Double(deltaY), anchorFraction: Double(anchor))
+    }
+
+    private func pan(deltaX: CGFloat, in size: CGSize) {
+        let plotRect = plotRect(for: size)
+        viewport.pan(deltaX: Double(deltaX), canvasWidth: Double(plotRect.width))
+    }
+
+    private func togglePlayback() {
+        guard let analysis else { return }
+        player.toggle(path: analysis.path)
     }
 
     private func drawBackground(context: inout GraphicsContext, size: CGSize) {
@@ -167,11 +232,18 @@ struct AudioPreviewPane: View {
         let values = spectrogram.values
         guard !values.isEmpty else { return }
 
-        let columnWidth = plotRect.width / CGFloat(columns)
         let binHeight = plotRect.height / CGFloat(bins)
+        let startColumn = max(0, Int(floor(viewport.start * Double(columns))))
+        let endColumn = min(columns - 1, Int(ceil(viewport.end * Double(columns))))
+        guard startColumn <= endColumn else { return }
 
-        for column in 0..<columns {
-            let x = plotRect.minX + CGFloat(column) * columnWidth
+        for column in startColumn...endColumn {
+            let columnStart = Double(column) / Double(columns)
+            let columnEnd = Double(column + 1) / Double(columns)
+            let visibleStart = max(0, (columnStart - viewport.start) / viewport.span)
+            let visibleEnd = min(1, (columnEnd - viewport.start) / viewport.span)
+            let x = plotRect.minX + CGFloat(visibleStart) * plotRect.width
+            let columnWidth = max(1, CGFloat(visibleEnd - visibleStart) * plotRect.width)
             for bin in 0..<bins {
                 let index = column * bins + bin
                 guard index < values.count else { continue }
@@ -182,7 +254,7 @@ struct AudioPreviewPane: View {
                 let rect = CGRect(
                     x: x,
                     y: y,
-                    width: max(1, columnWidth + 0.35),
+                    width: columnWidth + 0.35,
                     height: max(1, binHeight + 0.35)
                 )
                 context.fill(Path(rect), with: .color(spectrogramColor(value)))
@@ -194,18 +266,23 @@ struct AudioPreviewPane: View {
         guard !peaks.isEmpty else { return }
         let centerY = plotRect.midY
         let maxAmplitude = plotRect.height * 0.23
-        let step = plotRect.width / CGFloat(max(1, peaks.count - 1))
         var path = Path()
+        let lastIndex = max(1, peaks.count - 1)
+        let startIndex = max(0, Int(floor(viewport.start * Double(peaks.count))))
+        let endIndex = min(peaks.count - 1, Int(ceil(viewport.end * Double(peaks.count))))
+        guard startIndex <= endIndex else { return }
 
-        for index in peaks.indices {
-            let x = plotRect.minX + CGFloat(index) * step
+        for index in startIndex...endIndex {
+            let absoluteFraction = Double(index) / Double(lastIndex)
+            guard let visibleFraction = viewport.visibleFraction(forAbsoluteFraction: absoluteFraction) else { continue }
+            let x = plotRect.minX + CGFloat(visibleFraction) * plotRect.width
             let amplitude = min(1, max(0, peaks[index])) * maxAmplitude
             path.move(to: CGPoint(x: x, y: centerY - amplitude))
             path.addLine(to: CGPoint(x: x, y: centerY + amplitude))
         }
 
         let color = clipped ? Color(red: 1.0, green: 0.22, blue: 0.20) : Color(red: 0.18, green: 0.55, blue: 1.0)
-        context.stroke(path, with: .color(color.opacity(0.90)), lineWidth: max(1, min(2, step)))
+        context.stroke(path, with: .color(color.opacity(0.90)), lineWidth: 1.2)
 
         var centerLine = Path()
         centerLine.move(to: CGPoint(x: plotRect.minX, y: centerY))
@@ -226,7 +303,9 @@ struct AudioPreviewPane: View {
             grid.addLine(to: CGPoint(x: x, y: plotRect.maxY))
 
             if duration > 0 {
-                let label = FileHelpers.formattedTimestamp(duration * Double(fraction))
+                let visibleFraction = Double(fraction)
+                let absoluteFraction = viewport.absoluteFraction(forVisibleFraction: visibleFraction)
+                let label = FileHelpers.formattedTimestamp(duration * absoluteFraction)
                 drawText(
                     label,
                     font: .caption2.monospacedDigit(),
@@ -275,8 +354,9 @@ struct AudioPreviewPane: View {
 
     private func drawPlayhead(context: inout GraphicsContext, plotRect: CGRect, analysis: AudioAnalysis) {
         guard analysis.durationSeconds > 0 else { return }
-        let fraction = CGFloat(min(1, max(0, currentPreviewTime / analysis.durationSeconds)))
-        let x = plotRect.minX + plotRect.width * fraction
+        let absoluteFraction = min(1, max(0, currentPreviewTime / analysis.durationSeconds))
+        guard let visibleFraction = viewport.visibleFraction(forAbsoluteFraction: absoluteFraction) else { return }
+        let x = plotRect.minX + plotRect.width * CGFloat(visibleFraction)
 
         var line = Path()
         line.move(to: CGPoint(x: x, y: plotRect.minY - 7))
@@ -311,5 +391,105 @@ struct AudioPreviewPane: View {
         var resolved = context.resolve(Text(value).font(font))
         resolved.shading = .color(color)
         context.draw(resolved, at: point, anchor: anchor)
+    }
+}
+
+private struct AudioPreviewInteractionView: NSViewRepresentable {
+    let onSeek: (CGPoint, CGSize) -> Void
+    let onScroll: (CGFloat, CGPoint, CGSize) -> Void
+    let onMiddleDrag: (CGFloat, CGSize) -> Void
+    let onSpacebar: () -> Void
+
+    func makeNSView(context: Context) -> AudioPreviewInteractionNSView {
+        let view = AudioPreviewInteractionNSView()
+        view.onSeek = onSeek
+        view.onScroll = onScroll
+        view.onMiddleDrag = onMiddleDrag
+        view.onSpacebar = onSpacebar
+        return view
+    }
+
+    func updateNSView(_ nsView: AudioPreviewInteractionNSView, context: Context) {
+        nsView.onSeek = onSeek
+        nsView.onScroll = onScroll
+        nsView.onMiddleDrag = onMiddleDrag
+        nsView.onSpacebar = onSpacebar
+    }
+}
+
+private final class AudioPreviewInteractionNSView: NSView {
+    var onSeek: ((CGPoint, CGSize) -> Void)?
+    var onScroll: ((CGFloat, CGPoint, CGSize) -> Void)?
+    var onMiddleDrag: ((CGFloat, CGSize) -> Void)?
+    var onSpacebar: (() -> Void)?
+
+    private var lastMiddleDragLocation: CGPoint?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        onSeek?(location(for: event), bounds.size)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        onSeek?(location(for: event), bounds.size)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        lastMiddleDragLocation = location(for: event)
+        NSCursor.closedHand.push()
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDragged(with: event)
+            return
+        }
+        let current = location(for: event)
+        if let previous = lastMiddleDragLocation {
+            onMiddleDrag?(current.x - previous.x, bounds.size)
+        }
+        lastMiddleDragLocation = current
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        lastMiddleDragLocation = nil
+        NSCursor.pop()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        onScroll?(event.scrollingDeltaY, location(for: event), bounds.size)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 {
+            onSpacebar?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    private func location(for event: NSEvent) -> CGPoint {
+        convert(event.locationInWindow, from: nil)
     }
 }

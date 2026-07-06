@@ -4,6 +4,7 @@ struct SourceResultOverviewView: View {
     @ObservedObject var backend: BackendClient
     @Binding var sources: [BatchSourceItem]
     let presets: [SeparationPreset]
+    let usesPerSourcePresets: Bool
     let resultGroups: [BatchResultGroup]
     let previewSelection: AudioPreviewSelection
     let previewSourceAction: (BatchSourceItem) -> Void
@@ -35,6 +36,7 @@ struct SourceResultOverviewView: View {
                             BatchSourceRow(
                                 source: $source,
                                 presets: presets,
+                                usesPerSourcePresets: usesPerSourcePresets,
                                 isActive: previewSelection == .source(source.id),
                                 isDisabled: backend.isProcessing,
                                 previewAction: { previewSourceAction(source) }
@@ -111,6 +113,7 @@ struct SourceResultOverviewView: View {
 private struct BatchSourceRow: View {
     @Binding var source: BatchSourceItem
     let presets: [SeparationPreset]
+    let usesPerSourcePresets: Bool
     let isActive: Bool
     let isDisabled: Bool
     let previewAction: () -> Void
@@ -155,15 +158,24 @@ private struct BatchSourceRow: View {
             }
             .buttonStyle(.plain)
 
-            Picker("Preset", selection: $source.presetID) {
-                ForEach(presets) { preset in
-                    Text(preset.title).tag(preset.id)
+            if usesPerSourcePresets {
+                Picker("Preset", selection: $source.presetID) {
+                    ForEach(presets) { preset in
+                        Text(preset.title).tag(preset.id)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 170)
+                .disabled(presets.isEmpty || isDisabled)
+            } else {
+                Label("Global", systemImage: "slider.horizontal.3")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 170)
-            .disabled(presets.isEmpty || isDisabled)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)

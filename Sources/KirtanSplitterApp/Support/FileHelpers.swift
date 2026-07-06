@@ -83,29 +83,41 @@ final class StemPreviewPlayer: ObservableObject {
     }
 }
 
-final class AudioPreviewPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class AudioPreviewPlayer: NSObject, ObservableObject {
     @Published var playingPath: String?
     @Published var currentTime: Double = 0
     @Published var duration: Double = 0
     @Published var isPlaying = false
+    @Published var volume: Double = 1
 
-    private var player: AVAudioPlayer?
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private let gainNode = AVAudioUnitEQ(numberOfBands: 0)
+    private var audioFile: AVAudioFile?
     private var timer: Timer?
+    private var playbackStartDate: Date?
+    private var playbackStartTime: Double = 0
+    private var completionToken = UUID()
+
+    override init() {
+        super.init()
+        engine.attach(playerNode)
+        engine.attach(gainNode)
+        engine.connect(playerNode, to: gainNode, format: nil)
+        engine.connect(gainNode, to: engine.mainMixerNode, format: nil)
+        applyVolume()
+    }
 
     func toggle(path: String) {
         if playingPath != path {
             load(path: path)
         }
 
-        guard let player else { return }
-        if player.isPlaying {
-            player.pause()
-            isPlaying = false
-            stopTimer()
+        guard audioFile != nil else { return }
+        if isPlaying {
+            pause()
         } else {
-            player.play()
-            isPlaying = true
-            startTimer()
+            playFromCurrentTime()
         }
     }
 
@@ -113,46 +125,120 @@ final class AudioPreviewPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         if playingPath != path {
             load(path: path)
         }
-        guard let player else { return }
-        let clamped = min(max(0, time), player.duration)
-        player.currentTime = clamped
+        guard audioFile != nil else { return }
+        let wasPlaying = isPlaying
+        let clamped = min(max(0, time), duration)
         currentTime = clamped
+        playbackStartTime = clamped
+        if wasPlaying {
+            playFromCurrentTime()
+        }
+    }
+
+    func setVolume(_ nextVolume: Double) {
+        volume = AudioPreviewVolume.clamp(nextVolume)
+        applyVolume()
     }
 
     func stop() {
-        player?.stop()
-        player = nil
+        completionToken = UUID()
+        playerNode.stop()
+        audioFile = nil
         playingPath = nil
         currentTime = 0
         duration = 0
         isPlaying = false
+        playbackStartDate = nil
+        playbackStartTime = 0
         stopTimer()
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    private func pause() {
+        currentTime = currentPlaybackTime()
+        playbackStartTime = currentTime
+        playbackStartDate = nil
+        playerNode.pause()
         isPlaying = false
-        currentTime = player.duration
         stopTimer()
     }
 
     private func load(path: String) {
         stop()
         let url = URL(fileURLWithPath: path)
-        guard let nextPlayer = try? AVAudioPlayer(contentsOf: url) else { return }
-        nextPlayer.delegate = self
-        player = nextPlayer
+        guard let nextFile = try? AVAudioFile(forReading: url) else { return }
+        audioFile = nextFile
         playingPath = path
-        duration = nextPlayer.duration
+        duration = Double(nextFile.length) / nextFile.processingFormat.sampleRate
         currentTime = 0
+        playbackStartTime = 0
+    }
+
+    private func playFromCurrentTime() {
+        guard let audioFile else { return }
+        completionToken = UUID()
+        let token = completionToken
+        let sampleRate = audioFile.processingFormat.sampleRate
+        let startFrame = AVAudioFramePosition(min(max(0, playbackStartTime), duration) * sampleRate)
+        let remainingFrames = max(0, audioFile.length - startFrame)
+        guard remainingFrames > 0 else {
+            currentTime = duration
+            isPlaying = false
+            return
+        }
+
+        playerNode.stop()
+        playerNode.scheduleSegment(
+            audioFile,
+            startingFrame: startFrame,
+            frameCount: AVAudioFrameCount(remainingFrames),
+            at: nil
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                guard let self, self.completionToken == token, self.isPlaying else { return }
+                self.currentTime = self.duration
+                self.playbackStartTime = self.duration
+                self.playbackStartDate = nil
+                self.isPlaying = false
+                self.stopTimer()
+            }
+        }
+
+        do {
+            if !engine.isRunning {
+                try engine.start()
+            }
+            playbackStartDate = Date()
+            playerNode.play()
+            isPlaying = true
+            startTimer()
+        } catch {
+            isPlaying = false
+            stopTimer()
+        }
+    }
+
+    private func currentPlaybackTime() -> Double {
+        guard isPlaying, let playbackStartDate else { return currentTime }
+        return min(duration, playbackStartTime + Date().timeIntervalSince(playbackStartDate))
+    }
+
+    private func applyVolume() {
+        if volume <= 0.001 {
+            gainNode.globalGain = -96
+        } else {
+            gainNode.globalGain = Float(20 * log10(volume))
+        }
     }
 
     private func startTimer() {
         stopTimer()
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            guard let self, let player = self.player else { return }
-            self.currentTime = player.currentTime
-            self.duration = player.duration
-            self.isPlaying = player.isPlaying
+            guard let self else { return }
+            self.currentTime = self.currentPlaybackTime()
+            if self.currentTime >= self.duration {
+                self.isPlaying = false
+                self.stopTimer()
+            }
         }
     }
 

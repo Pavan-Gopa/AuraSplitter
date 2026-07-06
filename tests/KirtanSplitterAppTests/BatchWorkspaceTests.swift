@@ -53,6 +53,40 @@ final class BatchWorkspaceTests: XCTestCase {
         XCTAssertEqual(groups[0].files.map(\.stem), ["instrumental"])
     }
 
+    func testEffectivePresetForSingleSourceUsesGlobalPreset() throws {
+        let folder = try makeTemporaryDirectory()
+        let source = BatchSourceItem(
+            url: folder.appendingPathComponent("one.wav"),
+            isSelectedForProcessing: true,
+            presetID: "stale_per_file"
+        )
+
+        let presetID = BatchWorkspace.effectivePresetID(
+            for: source,
+            sourceCount: 1,
+            globalPresetID: "global_current"
+        )
+
+        XCTAssertEqual(presetID, "global_current")
+    }
+
+    func testEffectivePresetForBatchUsesPerSourcePreset() throws {
+        let folder = try makeTemporaryDirectory()
+        let source = BatchSourceItem(
+            url: folder.appendingPathComponent("one.wav"),
+            isSelectedForProcessing: true,
+            presetID: "per_file"
+        )
+
+        let presetID = BatchWorkspace.effectivePresetID(
+            for: source,
+            sourceCount: 3,
+            globalPresetID: "global_current"
+        )
+
+        XCTAssertEqual(presetID, "per_file")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
