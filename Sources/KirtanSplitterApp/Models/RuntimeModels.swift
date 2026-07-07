@@ -66,6 +66,12 @@ struct ModelCacheItem: Identifiable, Codable, Equatable {
 struct ModelCacheGroup: Identifiable, Codable, Equatable {
     let id: String
     let displayName: String
+    let technicalName: String?
+    let architecture: String?
+    let backend: String?
+    let license: String?
+    let sourceURL: String?
+    let summary: String?
     let converted: Bool
     let hasSource: Bool
     let sourceRemoved: Bool

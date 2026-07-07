@@ -26,9 +26,11 @@ class ModelCatalogEntry:
     expected_stems: tuple[str, ...]
     license: str
     source_url: str
-    checkpoint_url: str
+    checkpoint_url: str | None = None
     config_filename: str | None = None
     config_url: str | None = None
+    technical_title: str | None = None
+    runner_model: str | None = None
     target_stem: str | None = None
     scores: dict[str, float] | None = None
     enabled: bool = True
@@ -36,10 +38,24 @@ class ModelCatalogEntry:
 
     @property
     def assets(self) -> tuple[ModelAsset, ...]:
-        assets = [ModelAsset(self.filename, self.checkpoint_url)]
+        assets = []
+        if self.checkpoint_url:
+            assets.append(ModelAsset(self.filename, self.checkpoint_url))
         if self.config_filename and self.config_url:
             assets.append(ModelAsset(self.config_filename, self.config_url))
         return tuple(assets)
+
+    @property
+    def technical_name(self) -> str:
+        return self.technical_title or self.title
+
+    @property
+    def backend_label(self) -> str:
+        if self.backend == "mlx":
+            return "MLX"
+        if self.backend == "demucs_onnx":
+            return "ONNX/CoreML"
+        return self.backend
 
     @property
     def download_files(self) -> tuple[str, ...]:
@@ -68,7 +84,8 @@ def hf_resolve(repo: str, path: str) -> str:
 MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ModelCatalogEntry(
         id="hyperace_v2_vocal",
-        title="HyperACE v2 Vocal",
+        title="Kirtan Vocal Pro",
+        technical_title="HyperACE v2 Vocal",
         filename="bs_roformer_voc_hyperacev2.ckpt",
         config_filename="bs_roformer_voc_hyperacev2.yaml",
         model_type="MDXC",
@@ -85,7 +102,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="hyperace_v2_instrumental",
-        title="HyperACE v2 Instrumental",
+        title="Kirtan Instrument Pro",
+        technical_title="HyperACE v2 Instrumental",
         filename="bs_roformer_inst_hyperacev2.ckpt",
         config_filename="bs_roformer_inst_hyperacev2.yaml",
         model_type="MDXC",
@@ -102,7 +120,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="leap_xe_vocal",
-        title="Leap Xe Vocal",
+        title="Kirtan Vocal Elite",
+        technical_title="Leap Xe Vocal",
         filename="bs_leap_xe_voc.ckpt",
         config_filename="bs_roformer_leap_xe_voc.yaml",
         model_type="MDXC",
@@ -119,7 +138,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="leap_xe_instrumental",
-        title="Leap Xe Instrumental",
+        title="Kirtan Instrument Elite",
+        technical_title="Leap Xe Instrumental",
         filename="bs_leap_xe_inst.ckpt",
         config_filename="bs_roformer_leap_xe_inst.yaml",
         model_type="MDXC",
@@ -136,7 +156,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="becruily_deux",
-        title="Becruily Deux Vocal / Instrumental",
+        title="Kirtan Vocal / Instrumental",
+        technical_title="Becruily Deux",
         filename="becruily_deux.ckpt",
         config_filename="mel_band_roformer_becruily_deux.yaml",
         model_type="MDXC",
@@ -151,7 +172,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="lead_back_bve_gonza",
-        title="Lead / Back BVE Gonza",
+        title="Kirtan Lead / Back",
+        technical_title="Lead / Back BVE Gonza",
         filename="mel_band_roformer_bve_gonza.ckpt",
         config_filename="mel_band_roformer_bve_gonza.yaml",
         model_type="MDXC",
@@ -167,7 +189,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="lead_back_karaoke_anvuew",
-        title="Lead / Back Karaoke Anvuew",
+        title="Kirtan Lead / Back 2",
+        technical_title="Lead / Back Karaoke Anvuew",
         filename="karaoke_bs_roformer_anvuew.ckpt",
         config_filename="karaoke_bs_roformer_anvuew.yaml",
         model_type="MDXC",
@@ -183,7 +206,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="drumsep_mdx23c_5stem",
-        title="DrumSep MDX23C 5-Stem",
+        title="Kirtan Drum Split",
+        technical_title="DrumSep MDX23C 5-Stem",
         filename="drumsep_5stems_mdx23c_jarredou.ckpt",
         config_filename="config_mdx23c_drumsep2025.yaml",
         model_type="MDXC",
@@ -198,7 +222,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_lead_vocal",
-        title="Mega 53 Lead Vocal",
+        title="Kirtan Lead Vocal",
+        technical_title="Mega 53 Lead Vocal",
         filename="bs_mega_53stem_lead-vocal_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_lead-vocal_mvsep.yaml",
         model_type="MDXC",
@@ -214,7 +239,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_back_vocal",
-        title="Mega 53 Back Vocal",
+        title="Kirtan Back Vocal",
+        technical_title="Mega 53 Back Vocal",
         filename="bs_mega_53stem_back-vocal_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_back-vocal_mvsep.yaml",
         model_type="MDXC",
@@ -230,7 +256,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_drums",
-        title="Mega 53 Drums",
+        title="Kirtan Drum Focus",
+        technical_title="Mega 53 Drums",
         filename="bs_mega_53stem_drums_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_drums_mvsep.yaml",
         model_type="MDXC",
@@ -246,7 +273,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_sitar",
-        title="Mega 53 Sitar",
+        title="Kirtan Sitar Focus",
+        technical_title="Mega 53 Sitar",
         filename="bs_mega_53stem_sitar_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_sitar_mvsep.yaml",
         model_type="MDXC",
@@ -262,7 +290,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_piano",
-        title="Mega 53 Piano",
+        title="Kirtan Piano Focus",
+        technical_title="Mega 53 Piano",
         filename="bs_mega_53stem_piano_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_piano_mvsep.yaml",
         model_type="MDXC",
@@ -275,6 +304,34 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         source_url="https://huggingface.co/noblebarkrr/BS-Roformer-MVSep-Mega-53-stems",
         checkpoint_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep.ckpt"),
         config_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep_config.yaml"),
+    ),
+    ModelCatalogEntry(
+        id="demucs_onnx_stems",
+        title="Kirtan Stems Pro",
+        technical_title="HT-Demucs FT ONNX",
+        filename="htdemucs_ft.onnx",
+        model_type="ONNX/CoreML",
+        architecture="HT-Demucs",
+        backend="demucs_onnx",
+        runner_model="htdemucs_ft",
+        summary="ONNX/CoreML 4-stem split for vocals, drums, bass, and other instruments.",
+        expected_stems=("vocals", "drums", "bass", "other"),
+        license="MIT",
+        source_url="https://huggingface.co/StemSplitio/htdemucs-ft-onnx",
+    ),
+    ModelCatalogEntry(
+        id="demucs_onnx_six_stems",
+        title="Kirtan Stems Max",
+        technical_title="HT-Demucs 6S ONNX",
+        filename="htdemucs_6s.onnx",
+        model_type="ONNX/CoreML",
+        architecture="HT-Demucs 6-stem",
+        backend="demucs_onnx",
+        runner_model="htdemucs_6s",
+        summary="ONNX/CoreML 6-stem split for vocals, drums, bass, guitar, piano, and other instruments.",
+        expected_stems=("vocals", "drums", "bass", "guitar", "piano", "other"),
+        license="MIT",
+        source_url="https://huggingface.co/StemSplitio/htdemucs-6s-onnx",
     ),
 )
 
@@ -317,6 +374,52 @@ EXPERIMENTAL_MODEL_CANDIDATES: tuple[ModelCatalogEntry, ...] = (
 MODEL_PACK_BY_FILENAME = {entry.filename: entry for entry in MODEL_PACK_ENTRIES}
 MODEL_PACK_BY_ID = {entry.id: entry for entry in MODEL_PACK_ENTRIES}
 EXPERIMENTAL_BY_FILENAME = {entry.filename: entry for entry in EXPERIMENTAL_MODEL_CANDIDATES}
+MODEL_PACK_BY_STEM = {Path(entry.filename).stem: entry for entry in MODEL_PACK_ENTRIES}
+MODEL_PACK_BY_STEM.update(
+    {
+        Path(entry.config_filename).stem: entry
+        for entry in MODEL_PACK_ENTRIES
+        if entry.config_filename
+    }
+)
+
+BUILTIN_MODEL_METADATA = {
+    "BS-Roformer-SW": {
+        "displayName": "Kirtan Pro",
+        "technicalName": "BS-Roformer-SW",
+        "architecture": "BS-RoFormer",
+        "backend": "MLX",
+        "summary": "6-stem split for vocals, drums, bass, guitar, piano, and other instruments.",
+    },
+    "model_bs_roformer_ep_368_sdr_12.9628": {
+        "displayName": "Kirtan Vocal Classic",
+        "technicalName": "BS-Roformer-Viperx-1296",
+        "architecture": "BS-RoFormer",
+        "backend": "MLX",
+        "summary": "Vocal / instrumental split from the classic ViperX 1296 checkpoint.",
+    },
+    "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956": {
+        "displayName": "Kirtan Karaoke Classic",
+        "technicalName": "MB-Ro-Kara-AuFR33-Viperx",
+        "architecture": "MelBand RoFormer",
+        "backend": "MLX",
+        "summary": "Karaoke-style split for lead vocal and backing bed cleanup.",
+    },
+    "mel_band_roformer_instrumental_instv7n_gabox": {
+        "displayName": "Kirtan Instrument Clean",
+        "technicalName": "Gabox Instrumental InstV7N",
+        "architecture": "MelBand RoFormer",
+        "backend": "MLX",
+        "summary": "Instrumental-focused model useful when vocal bleed remains in the backing track.",
+    },
+    "kuielab_a_drums": {
+        "displayName": "Kirtan Drum Classic",
+        "technicalName": "kuielab_a_drums.onnx",
+        "architecture": "MDX ONNX",
+        "backend": "MLX",
+        "summary": "Classic drum / no-drum split.",
+    },
+}
 
 
 def get_model_pack_entry(filename: str) -> ModelCatalogEntry | None:
@@ -326,6 +429,21 @@ def get_model_pack_entry(filename: str) -> ModelCatalogEntry | None:
 def display_name_for_model(filename: str) -> str | None:
     entry = MODEL_PACK_BY_FILENAME.get(filename) or EXPERIMENTAL_BY_FILENAME.get(filename)
     return entry.title if entry else None
+
+
+def metadata_for_model_stem(stem: str) -> dict | None:
+    entry = MODEL_PACK_BY_STEM.get(stem)
+    if entry:
+        return {
+            "displayName": entry.title,
+            "technicalName": entry.technical_name,
+            "architecture": entry.architecture,
+            "backend": entry.backend_label,
+            "license": entry.license,
+            "sourceURL": entry.source_url,
+            "summary": entry.summary,
+        }
+    return BUILTIN_MODEL_METADATA.get(stem)
 
 
 def merge_model_pack(grouped: dict) -> dict:
@@ -365,7 +483,9 @@ def ensure_model_pack_assets(
                 f"{experimental.title} is cataloged but not runnable yet: {experimental.summary}"
             )
         return None
-    if entry.backend != "mlx" or not entry.enabled:
+    if entry.backend != "mlx":
+        return entry
+    if not entry.enabled:
         raise ValueError(f"{entry.title} is not enabled for the MLX backend")
 
     destination_dir = Path(model_dir).expanduser()

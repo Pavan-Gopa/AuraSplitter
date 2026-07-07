@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .model_catalog import metadata_for_model_stem
+
 
 MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth", ".yaml", ".safetensors"}
 SOURCE_MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth"}
@@ -284,6 +286,7 @@ def model_cache_groups(model_dir: str) -> list[dict]:
 
     groups = []
     for stem, paths in sorted(grouped.items(), key=lambda item: item[0].lower()):
+        metadata = metadata_for_model_stem(stem) or {}
         source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
         converted = _first_path_with_suffix(paths, {".safetensors"})
         config = _first_path_with_suffix(paths, {".yaml"})
@@ -302,7 +305,13 @@ def model_cache_groups(model_dir: str) -> list[dict]:
         groups.append(
             {
                 "id": stem,
-                "displayName": stem,
+                "displayName": metadata.get("displayName", stem),
+                "technicalName": metadata.get("technicalName"),
+                "architecture": metadata.get("architecture"),
+                "backend": metadata.get("backend"),
+                "license": metadata.get("license"),
+                "sourceURL": metadata.get("sourceURL"),
+                "summary": metadata.get("summary"),
                 "converted": converted is not None,
                 "hasSource": source is not None and not source_removed,
                 "sourceRemoved": source_removed,

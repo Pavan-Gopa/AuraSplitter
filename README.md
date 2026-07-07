@@ -12,19 +12,23 @@ MLX/Metal.
 - MLX/Metal acceleration through `mlx-audio-separator`.
 - Presets for:
   - `Kirtan Pro`: `BS-Roformer-SW.ckpt` 6-stem split.
-  - `Clean Vocal / Instrumental`: `model_bs_roformer_ep_368_sdr_12.9628.ckpt`.
-  - `ViperX Vocal 1296`: `BS-Roformer-Viperx-1296` alias for `model_bs_roformer_ep_368_sdr_12.9628.ckpt`.
-  - `ViperX Karaoke Aufr33`: `MB-Ro-Kara-AuFR33-Viperx` alias for `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`.
-  - `Instrument Bleed Control`: `mel_band_roformer_instrumental_instv7n_gabox.ckpt`.
-  - `Drums / No Drums`: `kuielab_a_drums.onnx`.
+  - `Kirtan Clean Split`: classic vocal / instrumental split.
+  - `Kirtan Vocal Classic`: ViperX 1296 vocal / instrumental split.
+  - `Kirtan Karaoke Classic`: ViperX karaoke-style split.
+  - `Kirtan Instrument Clean`: instrumental cleanup when vocal bleed remains.
+  - `Kirtan Drum Classic`: classic drums / no-drums split.
   - Model Pack V1 presets that download public checkpoints on first use:
-    `HyperACE v2 Vocal`, `HyperACE v2 Instrumental`, `Leap Xe Vocal`,
-    `Leap Xe Instrumental`, `Becruily Deux Vocal / Instrumental`,
-    `Lead / Back BVE Gonza`, `Lead / Back Karaoke Anvuew`,
-    `DrumSep MDX23C 5-Stem`, and selected MVSep Mega 53 single-target
+    `Kirtan Vocal Pro`, `Kirtan Instrument Pro`, `Kirtan Vocal Elite`,
+    `Kirtan Instrument Elite`, `Kirtan Vocal / Instrumental`,
+    `Kirtan Lead / Back`, `Kirtan Lead / Back 2`, `Kirtan Drum Split`,
+    and selected MVSep Mega 53 single-target
     models for lead vocal, back vocal, drums, sitar, and piano.
+  - ONNX/CoreML presets:
+    `Kirtan Stems Pro` for vocals, drums, bass, and other, and
+    `Kirtan Stems Max` for vocals, drums, bass, guitar, piano, and other.
 - Model picker with the full live model catalog exposed by the backend, using
-  UVR-friendly aliases for known ViperX names.
+  simple Kirtan-facing names. Technical checkpoint names are kept in the
+  diagnostics sidebar metadata instead of the header picker.
 - Kirtan model-pack catalog layered over `mlx-audio-separator` without patching
   site-packages. The backend downloads a preset's checkpoint plus YAML config
   into the local model cache before first MLX conversion.
@@ -67,6 +71,9 @@ MLX/Metal.
 - `ffmpeg` for audio decoding/encoding.
 - `torch` is installed into `.venv` only so `.ckpt` RoFormer models can be
   converted to MLX safetensors on first use. Inference is still MLX/Metal.
+- `demucs-onnx` and `onnxruntime` are installed for the optional ONNX/CoreML
+  presets. They use their own local cache under the KirtanSplitter model folder
+  and do not replace the MLX path.
 
 Install external tools:
 
@@ -156,16 +163,14 @@ MDX, VR, and Demucs models on MLX.
 
 ## Model Architecture Notes
 
-Model Pack V1 only exposes models that can run through the current MLX backend:
+Model Pack V1 exposes MLX-compatible models through `mlx-audio-separator`:
 BS-RoFormer, MelBand RoFormer, and MDX23C/MDXC-style checkpoints with YAML
-configs. Experimental candidates such as BS PolarFormer and generic DrumSep ONNX
-are cataloged in code but are intentionally not exposed as runnable presets yet.
-They need one of two future backends:
+configs. It also adds a separate ONNX/CoreML backend for Demucs ONNX models via
+`demucs-onnx`; those presets are routed outside MLX and use ONNX Runtime's
+automatic provider selection, which can choose CoreML on Apple Silicon when the
+runtime supports it.
 
-- ONNX Runtime with CoreML Execution Provider for model-specific ONNX pipelines.
-  This is the fastest route to support generic ONNX files, but performance and
-  GPU/CoreML coverage depend on the model ops.
-- A native MLX implementation for each architecture, such as PolarFormer/PoPE or
-  newer DrumSep variants. This is the best long-term path for speed and a single
-  MLX runtime, but it requires implementing each architecture's preprocessing,
-  model graph, and postprocessing.
+Experimental candidates such as BS PolarFormer and generic DrumSep ONNX are
+still cataloged in code but are not exposed as runnable presets until they have
+a model-specific adapter. Generic ONNX files are not interchangeable: each one
+can require different audio windowing, spectrogram inputs, and postprocessing.

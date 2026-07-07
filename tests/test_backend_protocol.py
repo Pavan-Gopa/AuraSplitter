@@ -184,11 +184,36 @@ def test_list_presets_exposes_kirtan_focused_defaults():
         "lead_back_bve_gonza",
         "drumsep_mdx23c_5stem",
         "mega_lead_vocal",
+        "demucs_onnx_stems",
     }.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
     assert PRESETS["viperx_vocal"].model_filename == "model_bs_roformer_ep_368_sdr_12.9628.ckpt"
     assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
     assert PRESETS["hyperace_v2_vocal"].model_filename == "bs_roformer_voc_hyperacev2.ckpt"
+
+
+def test_model_pack_presets_use_user_friendly_kirtan_titles():
+    technical_tokens = {
+        "HyperACE",
+        "Leap",
+        "Becruily",
+        "BVE",
+        "Anvuew",
+        "MDX23C",
+        "Mega 53",
+        "ViperX",
+    }
+
+    assert PRESETS["hyperace_v2_vocal"].title == "Kirtan Vocal Pro"
+    assert PRESETS["hyperace_v2_instrumental"].title == "Kirtan Instrument Pro"
+    assert PRESETS["lead_back_bve_gonza"].title == "Kirtan Lead / Back"
+    assert PRESETS["drumsep_mdx23c_5stem"].title == "Kirtan Drum Split"
+    assert PRESETS["mega_back_vocal"].title == "Kirtan Back Vocal"
+    assert PRESETS["demucs_onnx_stems"].title == "Kirtan Stems Pro"
+
+    for preset in PRESETS.values():
+        for token in technical_tokens:
+            assert token not in preset.title
 
 
 def test_list_models_defaults_to_full_catalog_limit():
@@ -648,8 +673,8 @@ def test_engine_list_models_applies_uvr_favorite_aliases(tmp_path, monkeypatch):
     models = engine.list_models(limit=20)
 
     names = {model["filename"]: model["name"] for model in models}
-    assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "BS-Roformer-Viperx-1296"
-    assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "MB-Ro-Kara-AuFR33-Viperx"
+    assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "Kirtan Vocal Classic"
+    assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "Kirtan Karaoke Classic"
 
 
 def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
@@ -678,8 +703,9 @@ def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
     models = engine.list_models(limit=500)
 
     names = {model["filename"]: model["name"] for model in models}
-    assert names["bs_roformer_voc_hyperacev2.ckpt"] == "HyperACE v2 Vocal"
-    assert names["mel_band_roformer_bve_gonza.ckpt"] == "Lead / Back BVE Gonza"
+    assert names["bs_roformer_voc_hyperacev2.ckpt"] == "Kirtan Vocal Pro"
+    assert names["mel_band_roformer_bve_gonza.ckpt"] == "Kirtan Lead / Back"
+    assert names["htdemucs_ft.onnx"] == "Kirtan Stems Pro"
     assert "model_bs_polarformer_float16.ckpt" not in names
 
 
@@ -738,6 +764,45 @@ def test_engine_downloads_model_pack_assets_before_loading(tmp_path, monkeypatch
         "bs_roformer_voc_hyperacev2.ckpt",
         "bs_roformer_voc_hyperacev2.yaml",
     }
+
+
+def test_engine_routes_demucs_onnx_presets_to_onnx_backend(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    output_dir = tmp_path / "out"
+    model_dir = tmp_path / "models"
+    calls = []
+
+    class FakeOnnxBackend:
+        def __init__(self, model_dir, logger=None):
+            calls.append(("init", model_dir))
+
+        def separate(self, input_path, output_dir, output_format, model):
+            calls.append(("separate", Path(input_path), Path(output_dir), output_format, model))
+            output = Path(output_dir) / "vocals.wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    monkeypatch.setattr(engine_module, "DemucsOnnxBackend", FakeOnnxBackend)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="htdemucs_ft.onnx",
+            preset="demucs_onnx_stems",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    assert calls[0] == ("init", str(model_dir))
+    assert calls[1] == ("separate", input_path, output_dir, "WAV", "htdemucs_ft")
+    assert result["model"] == "htdemucs_ft.onnx"
+    assert result["files"][0]["stem"] == "vocals"
 
 
 def test_engine_reports_model_load_state_for_converted_and_first_run_models(tmp_path):

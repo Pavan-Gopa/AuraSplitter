@@ -20,6 +20,7 @@ from .model_catalog import (
     ensure_model_pack_assets,
     get_model_pack_entry,
 )
+from .onnx_backend import DemucsOnnxBackend, onnx_runtime_status
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
@@ -68,9 +69,9 @@ def _heartbeat_progress_value(
     return start + (end - start) * fraction
 
 UVR_MODEL_ALIASES = {
-    "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "BS-Roformer-Viperx-1297",
-    "model_bs_roformer_ep_368_sdr_12.9628.ckpt": "BS-Roformer-Viperx-1296",
-    "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": "MB-Ro-Kara-AuFR33-Viperx",
+    "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "Kirtan Vocal Classic 2",
+    "model_bs_roformer_ep_368_sdr_12.9628.ckpt": "Kirtan Vocal Classic",
+    "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": "Kirtan Karaoke Classic",
 }
 
 
@@ -96,6 +97,7 @@ class MlxSeparatorEngine:
             "mlxDevice": str(mx.default_device()),
             "packageVersion": getattr(mlx_audio_separator, "__version__", "unknown"),
             "modelDir": self.model_dir,
+            "onnxRuntime": onnx_runtime_status(),
         }
 
     def list_models(self, limit: int = 500) -> list[dict]:
@@ -155,6 +157,16 @@ class MlxSeparatorEngine:
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
         source_channels = self._audio_channel_count(input_path)
+        catalog_entry = get_model_pack_entry(job.model_filename)
+        if catalog_entry and catalog_entry.backend == "demucs_onnx":
+            return self._separate_with_demucs_onnx(
+                job=job,
+                progress=progress,
+                input_path=input_path,
+                output_dir=output_dir,
+                source_channels=source_channels,
+                catalog_entry=catalog_entry,
+            )
 
         progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
@@ -451,6 +463,71 @@ class MlxSeparatorEngine:
         attach_model_pack_to_separator(separator)
         ensure_model_pack_assets(filename, self.model_dir, self.logger)
         return separator.load_model(model_filename=filename)
+
+    def _separate_with_demucs_onnx(
+        self,
+        job: SeparationJob,
+        progress: ProgressCallback,
+        input_path: Path,
+        output_dir: Path,
+        source_channels: int | None,
+        catalog_entry,
+    ) -> dict:
+        started = time.perf_counter()
+        progress(
+            "loading",
+            f"Preparing {catalog_entry.title} ONNX/CoreML backend",
+            0.05,
+            self.runtime_stats(),
+        )
+        backend = DemucsOnnxBackend(self.model_dir, logger=self.logger)
+        self._raise_if_cancelled()
+        output_files = self._with_heartbeat(
+            start=0.08,
+            end=0.92,
+            stage="separating",
+            message=f"Running {catalog_entry.title} ONNX/CoreML separation",
+            progress=progress,
+            work=lambda: backend.separate(
+                input_path=str(input_path),
+                output_dir=str(output_dir),
+                output_format=job.output_format,
+                model=catalog_entry.runner_model or Path(catalog_entry.filename).stem,
+            ),
+        )
+        self._raise_if_cancelled()
+        if source_channels == 1:
+            progress("postprocessing", "Restoring mono channel layout", 0.94, self.runtime_stats())
+            output_files = self._restore_mono_outputs(output_files)
+        if not output_files:
+            raise RuntimeError("ONNX/CoreML backend completed but did not create any output stems.")
+
+        elapsed = time.perf_counter() - started
+        files = [self._file_result(path) for path in output_files]
+        missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
+        if missing_files:
+            raise RuntimeError(
+                "ONNX/CoreML backend returned output paths, but no audio data was written: "
+                + ", ".join(missing_files)
+            )
+
+        progress("complete", "Done", 1.0, self.runtime_stats())
+        return {
+            "model": job.model_filename,
+            "preset": job.preset,
+            "elapsedSeconds": round(elapsed, 2),
+            "files": files,
+            "metrics": {"backend": 1.0},
+            "modelCache": self.model_cache(),
+            "settings": {
+                "chunkDuration": job.chunk_duration,
+                "mdxcSegmentSize": job.mdxc_segment_size,
+                "mdxcOverlap": job.mdxc_overlap,
+                "mdxcBatchSize": job.mdxc_batch_size,
+                "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
+                "speedMode": job.speed_mode,
+            },
+        }
 
     def _file_result(self, path_value: str) -> dict:
         path = Path(path_value)

@@ -169,6 +169,18 @@ struct DiagnosticsInspectorView: View {
                                 Text(group.displayName)
                                     .font(.caption2.weight(.semibold))
                                     .lineLimit(1)
+                                if let technicalLine = modelGroupTechnicalLine(group) {
+                                    Text(technicalLine)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                if let summary = group.summary, !summary.isEmpty {
+                                    Text(summary)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
                                 Text(modelGroupDetail(group))
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
@@ -347,6 +359,15 @@ struct DiagnosticsInspectorView: View {
             parts.append("config kept")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private func modelGroupTechnicalLine(_ group: ModelCacheGroup) -> String? {
+        let parts = [group.technicalName, group.architecture, group.backend]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private var gpuDetail: String? {

@@ -80,6 +80,28 @@ def test_model_cache_groups_hide_config_files_and_report_installed_model(tmp_pat
     assert [file["kind"] for file in result["groups"][0]["files"]] == ["checkpoint", "converted"]
 
 
+def test_model_cache_groups_attach_catalog_metadata_for_sidebar_details(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    checkpoint = model_dir / "bs_roformer_voc_hyperacev2.ckpt"
+    converted = model_dir / "bs_roformer_voc_hyperacev2.safetensors"
+    config = model_dir / "bs_roformer_voc_hyperacev2.yaml"
+    checkpoint.write_bytes(b"source-checkpoint")
+    converted.write_bytes(b"converted-weights")
+    config.write_text("audio:\n  sample_rate: 44100\n", encoding="utf-8")
+
+    result = runtime.model_cache(str(model_dir))
+
+    group = result["groups"][0]
+    assert group["displayName"] == "Kirtan Vocal Pro"
+    assert group["technicalName"] == "HyperACE v2 Vocal"
+    assert group["architecture"] == "BS-RoFormer"
+    assert group["backend"] == "MLX"
+    assert group["license"]
+    assert group["sourceURL"] == "https://huggingface.co/pcunwa/BS-Roformer-HyperACE"
+    assert group["summary"]
+
+
 def test_model_cache_groups_ignore_config_only_files(tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()
