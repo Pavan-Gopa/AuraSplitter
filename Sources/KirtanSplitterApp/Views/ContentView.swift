@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var previewSelection: AudioPreviewSelection = .none
     @State private var previewAnalysis: AudioAnalysis?
     @State private var previewAnalysisError: String?
+    @State private var resultPreviewCache = AudioPreviewAnalysisCache()
     @State private var isAnalyzingPreview = false
     @State private var isDropTargeted = false
     @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
@@ -179,6 +180,7 @@ struct ContentView: View {
         audioPreviewPlayer.stop()
         sources = nextSources
         resultGroups = []
+        resultPreviewCache.removeAll()
         previewSelection = .none
         previewAnalysis = nil
         previewAnalysisError = nil
@@ -216,17 +218,19 @@ struct ContentView: View {
 
     private func previewStem(_ stem: StemFile) {
         audioPreviewPlayer.stop()
-        let selection = AudioPreviewSelection.result(stem.path)
+        let path = stem.path
+        let selection = AudioPreviewSelection.result(path)
         previewSelection = selection
         previewAnalysis = nil
         previewAnalysisError = nil
-        isAnalyzingPreview = true
+        isAnalyzingPreview = false
+
+        if applyCachedResultPreview(for: path) {
+            return
+        }
 
         Task {
-            await analyzePreviewFile(
-                url: URL(fileURLWithPath: stem.path),
-                selection: selection
-            )
+            await analyzeResultStem(path: path)
         }
     }
 
@@ -263,15 +267,78 @@ struct ContentView: View {
         }
     }
 
+    @discardableResult
+    private func applyCachedResultPreview(for path: String) -> Bool {
+        if let analysis = resultPreviewCache.analysis(for: path) {
+            previewAnalysis = analysis
+            previewAnalysisError = nil
+            isAnalyzingPreview = false
+            return true
+        }
+
+        if let error = resultPreviewCache.error(for: path) {
+            previewAnalysis = nil
+            previewAnalysisError = error
+            isAnalyzingPreview = false
+            return true
+        }
+
+        if resultPreviewCache.isAnalyzing(path) {
+            previewAnalysis = nil
+            previewAnalysisError = nil
+            isAnalyzingPreview = true
+            return true
+        }
+
+        return false
+    }
+
     @MainActor
-    private func analyzePreviewFile(url: URL, selection: AudioPreviewSelection) async {
+    private func analyzeResultStem(path: String) async {
+        let selection = AudioPreviewSelection.result(path)
+        guard resultPreviewCache.shouldStartAnalysis(for: path) else {
+            if previewSelection == selection {
+                applyCachedResultPreview(for: path)
+            }
+            return
+        }
+
+        if previewSelection == selection {
+            previewAnalysis = nil
+            previewAnalysisError = nil
+            isAnalyzingPreview = true
+        }
+
         do {
+            let url = URL(fileURLWithPath: path)
             let analysis = try await backend.analyzeAudio(url: url)
+            guard FileManager.default.fileExists(atPath: path) else {
+                resultPreviewCache.remove(path)
+                if previewSelection == selection {
+                    previewSelection = .none
+                    previewAnalysis = nil
+                    previewAnalysisError = nil
+                    isAnalyzingPreview = false
+                }
+                return
+            }
+            resultPreviewCache.store(analysis, for: path)
             guard previewSelection == selection else { return }
             previewAnalysis = analysis
             previewAnalysisError = nil
             isAnalyzingPreview = false
         } catch {
+            if !FileManager.default.fileExists(atPath: path) {
+                resultPreviewCache.remove(path)
+                if previewSelection == selection {
+                    previewSelection = .none
+                    previewAnalysis = nil
+                    previewAnalysisError = nil
+                    isAnalyzingPreview = false
+                }
+                return
+            }
+            resultPreviewCache.storeError(error.localizedDescription, for: path)
             guard previewSelection == selection else { return }
             previewAnalysis = nil
             previewAnalysisError = error.localizedDescription
@@ -301,6 +368,7 @@ struct ContentView: View {
                     )
                     await MainActor.run {
                         upsertResultGroup(sourceURL: source.url, summary: nextSummary)
+                        prewarmResultPreviews(for: nextSummary.files)
                     }
                 } catch {
                     await MainActor.run {
@@ -325,12 +393,21 @@ struct ContentView: View {
         }
     }
 
+    private func prewarmResultPreviews(for stems: [StemFile]) {
+        for stem in stems {
+            Task {
+                await analyzeResultStem(path: stem.path)
+            }
+        }
+    }
+
     private func deleteStem(_ stem: StemFile) {
         do {
             if audioPreviewPlayer.playingPath == stem.path {
                 audioPreviewPlayer.stop()
             }
             try BatchWorkspace.deleteStem(at: stem.path, from: &resultGroups)
+            resultPreviewCache.remove(stem.path)
             if previewSelection == .result(stem.path) {
                 previewSelection = .none
                 previewAnalysis = nil
