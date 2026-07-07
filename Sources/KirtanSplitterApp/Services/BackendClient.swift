@@ -277,7 +277,7 @@ final class BackendClient: ObservableObject {
             "mdxcSegmentSize": settings.mdxcSegmentSize,
             "mdxcOverlap": settings.mdxcOverlap,
             "mdxcBatchSize": settings.mdxcBatchSize,
-            "mdxcOverrideModelSegmentSize": settings.mdxcOverrideModelSegmentSize,
+            "mdxcOverrideModelSegmentSize": settings.effectiveMDXCOverrideModelSegmentSize,
             "saveConvertedSafetensors": settings.saveConvertedSafetensors,
         ]
         if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {

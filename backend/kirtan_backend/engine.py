@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import subprocess
@@ -16,6 +17,49 @@ from .jobs import SeparationJob
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
+
+HEARTBEAT_EXPECTED_STAGE_SECONDS = 30 * 60
+HEARTBEAT_FRACTION_CAP = 0.92
+HEARTBEAT_CURVE_SECONDS = 10
+
+
+def _format_elapsed_duration(seconds: float) -> str:
+    total_seconds = max(0, int(round(seconds)))
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    remaining_seconds = total_seconds % 60
+
+    if hours > 0:
+        return f"{hours}h {minutes}m {remaining_seconds}s"
+    if minutes > 0:
+        return f"{minutes}m {remaining_seconds}s"
+    return f"{remaining_seconds}s"
+
+
+def _progress_message(message: str, elapsed_seconds: float) -> str:
+    if elapsed_seconds < 1:
+        return message
+    return f"{message} - elapsed {_format_elapsed_duration(elapsed_seconds)}"
+
+
+def _heartbeat_progress_value(
+    start: float,
+    end: float,
+    elapsed_seconds: float,
+    expected_seconds: float = HEARTBEAT_EXPECTED_STAGE_SECONDS,
+) -> float:
+    if end <= start:
+        return end
+
+    elapsed = max(0.0, float(elapsed_seconds))
+    expected = max(1.0, float(expected_seconds))
+    denominator = math.log1p(expected / HEARTBEAT_CURVE_SECONDS)
+    if denominator <= 0:
+        fraction = 0.0
+    else:
+        fraction = math.log1p(elapsed / HEARTBEAT_CURVE_SECONDS) / denominator
+    fraction = min(HEARTBEAT_FRACTION_CAP, max(0.0, fraction))
+    return start + (end - start) * fraction
 
 UVR_MODEL_ALIASES = {
     "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "BS-Roformer-Viperx-1297",
@@ -109,6 +153,26 @@ class MlxSeparatorEngine:
             "overlap": job.mdxc_overlap,
             "pitch_shift": 0,
         }
+        self.logger.info(
+            "Starting separation input=%s output_dir=%s model=%s preset=%s "
+            "output_format=%s chunk_duration=%s mdxc_segment_size=%s "
+            "mdxc_overlap=%s mdxc_batch_size=%s mdxc_override_model_segment_size=%s "
+            "speed_mode=%s cache_clear_policy=%s write_workers=%s source_channels=%s",
+            input_path,
+            output_dir,
+            job.model_filename,
+            job.preset,
+            job.output_format,
+            job.chunk_duration,
+            job.mdxc_segment_size,
+            job.mdxc_overlap,
+            job.mdxc_batch_size,
+            job.mdxc_override_model_segment_size,
+            job.speed_mode,
+            job.cache_clear_policy,
+            job.write_workers,
+            source_channels,
+        )
 
         separator = Separator(
             model_file_dir=self.model_dir,
@@ -182,14 +246,13 @@ class MlxSeparatorEngine:
         stop = threading.Event()
         result = {}
         error = {}
+        stage_started = time.perf_counter()
 
         def heartbeat():
-            started = time.perf_counter()
             while not stop.wait(2.0):
-                elapsed = time.perf_counter() - started
-                fraction = min(0.95, elapsed / 120.0)
-                value = start + (end - start) * fraction
-                progress(stage, message, value, self.runtime_stats())
+                elapsed = time.perf_counter() - stage_started
+                value = _heartbeat_progress_value(start, end, elapsed)
+                progress(stage, _progress_message(message, elapsed), value, self.runtime_stats())
 
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
@@ -203,7 +266,8 @@ class MlxSeparatorEngine:
 
         if "error" in error:
             raise error["error"]
-        progress(stage, message, end, self.runtime_stats())
+        elapsed = time.perf_counter() - stage_started
+        progress(stage, _progress_message(message, elapsed), end, self.runtime_stats())
         return result.get("value")
 
     @contextmanager

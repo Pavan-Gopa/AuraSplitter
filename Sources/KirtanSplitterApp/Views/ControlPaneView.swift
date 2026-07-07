@@ -215,7 +215,7 @@ struct ControlPaneView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .help("MDXC/RoFormer segment size passed to mlx-audio-separator. Values above the model default require Override Model Segment and use more memory.")
+                .help("MDXC/RoFormer segment size passed to mlx-audio-separator. Changing it from 256 automatically overrides the model segment size and uses more memory.")
 
                 Stepper(value: $settings.mdxcOverlap, in: 1...16, step: 1) {
                     HStack {
@@ -241,7 +241,12 @@ struct ControlPaneView: View {
 
                 Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
                     .toggleStyle(.checkbox)
-                    .help("When off, models may keep their own embedded segment size.")
+                    .help("Forces model segment override even when Segment Size is still the default.")
+                if settings.effectiveMDXCOverrideModelSegmentSize && !settings.mdxcOverrideModelSegmentSize {
+                    Text("Segment override will be enabled for this run.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .disabled(backend.isProcessing)
         }

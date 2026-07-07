@@ -40,12 +40,14 @@ struct StemFile: Identifiable, Hashable, Codable {
 }
 
 struct SeparationSettings: Equatable {
+    static let defaultMDXCSegmentSize = 256
+
     var presetID = "kirtan_pro"
     var modelOverride: String?
     var outputFormat = "WAV"
     var speedMode = "latency_safe_v3"
     var chunkDuration: Double = 30
-    var mdxcSegmentSize: Int = 256
+    var mdxcSegmentSize: Int = defaultMDXCSegmentSize
     var mdxcOverlap: Int = 8
     var mdxcBatchSize: Int = 1
     var mdxcOverrideModelSegmentSize = false
@@ -53,6 +55,10 @@ struct SeparationSettings: Equatable {
 
     var chunkDurationForBackend: Double? {
         chunkDuration > 0 ? chunkDuration : nil
+    }
+
+    var effectiveMDXCOverrideModelSegmentSize: Bool {
+        mdxcOverrideModelSegmentSize || mdxcSegmentSize != Self.defaultMDXCSegmentSize
     }
 }
 

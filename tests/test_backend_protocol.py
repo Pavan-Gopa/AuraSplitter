@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import kirtan_backend.engine as engine_module
 from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
@@ -135,6 +136,22 @@ def test_ping_returns_backend_capabilities():
     assert response["result"]["status"] == "ok"
     assert response["result"]["backend"] == "mlx-audio-separator"
     assert response["result"]["gpu"] == "MLX/Metal"
+
+
+def test_heartbeat_progress_does_not_pin_near_stage_end_after_two_minutes():
+    assert hasattr(engine_module, "_heartbeat_progress_value")
+
+    value = engine_module._heartbeat_progress_value(start=0.35, end=0.92, elapsed_seconds=120)
+
+    assert 0.35 < value < 0.78
+
+
+def test_progress_message_reports_elapsed_time_for_long_running_stages():
+    assert hasattr(engine_module, "_progress_message")
+
+    message = engine_module._progress_message("Running MLX separation", elapsed_seconds=125)
+
+    assert message == "Running MLX separation - elapsed 2m 5s"
 
 
 def test_list_presets_exposes_kirtan_focused_defaults():
