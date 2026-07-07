@@ -10,6 +10,7 @@ struct WorkspaceWidgetRailView: View {
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
+    let cancelAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -51,7 +52,7 @@ struct WorkspaceWidgetRailView: View {
                     }
                 }
                 .controlSize(.small)
-                .disabled(backend.isProcessing)
+                .disabled(backend.isBusy)
             }
             .padding(9)
             .background(dropBackground, in: RoundedRectangle(cornerRadius: 8))
@@ -68,10 +69,15 @@ struct WorkspaceWidgetRailView: View {
     }
 
     private var processWidget: some View {
-        WidgetPanel(title: "Process", systemImage: "wand.and.stars") {
+        let presentation = ProcessingControlPresentation(
+            isProcessing: backend.isProcessing,
+            isCancelling: backend.isCancelling
+        )
+
+        return WidgetPanel(title: "Process", systemImage: "wand.and.stars") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text(backend.isProcessing ? "Running" : "Idle")
+                    Text(backend.isBusy ? presentation.primaryTitle : "Idle")
                         .font(.callout.weight(.semibold))
                     Spacer()
                     Text("\(Int(backend.progress * 100))%")
@@ -82,15 +88,29 @@ struct WorkspaceWidgetRailView: View {
                     .tint(.orange)
                 Button(action: startAction) {
                     HStack {
-                        Image(systemName: backend.isProcessing ? "hourglass" : "play.fill")
-                        Text(backend.isProcessing ? "Separating" : "Start")
+                        Image(systemName: presentation.primarySystemImage)
+                        Text(presentation.primaryTitle)
                         Spacer()
                     }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.orange)
                 .controlSize(.small)
-                .disabled(!backend.isReady || !hasSelectedSources || backend.isProcessing)
+                .disabled(presentation.isStartDisabled(isReady: backend.isReady, hasSelectedSources: hasSelectedSources))
+
+                if presentation.showsCancelAction {
+                    Button(role: .cancel, action: cancelAction) {
+                        HStack {
+                            Image(systemName: "xmark.circle.fill")
+                            Text("Cancel")
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                    .controlSize(.small)
+                    .help("Cancel the current separation and stop the backend worker.")
+                }
             }
         }
     }

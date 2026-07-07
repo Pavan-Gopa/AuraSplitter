@@ -134,7 +134,8 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             return response(request.id, result), events
 
         if request.method == "cancel":
-            return response(request.id, {"cancelled": False, "reason": "Current MLX job cannot be interrupted safely yet."}), events
+            reason = str(request.params.get("reason") or "User cancelled current operation")
+            return response(request.id, engine.cancel_current(reason)), events
 
         return error_response(request.id, f"Unknown method: {request.method}"), events
 

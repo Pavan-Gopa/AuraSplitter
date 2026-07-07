@@ -7,6 +7,7 @@ import os
 import socketserver
 import sys
 import threading
+import time
 from pathlib import Path
 
 from .engine import MlxSeparatorEngine
@@ -89,6 +90,23 @@ def ready_payload(args, log_path: Path) -> dict:
     return payload
 
 
+def schedule_backend_restart_after_cancel(request: BackendRequest, result: dict, logger: logging.Logger):
+    if request.method != "cancel":
+        return
+    if result.get("type") != "response":
+        return
+    response_result = result.get("result") or {}
+    if not response_result.get("backendRestartRequired"):
+        return
+
+    def exit_backend():
+        time.sleep(0.15)
+        logger.warning("Backend exiting after cancellation request so the app can start a clean worker.")
+        os._exit(130)
+
+    threading.Thread(target=exit_backend, daemon=True).start()
+
+
 def run_stdio(args, engine, log_path: Path, logger: logging.Logger) -> int:
     send(ready_payload(args, log_path))
     for raw in sys.stdin:
@@ -100,6 +118,7 @@ def run_stdio(args, engine, log_path: Path, logger: logging.Logger) -> int:
             logger.info("request id=%s method=%s", request.id, request.method)
             result, _events = handle_request(request, engine=engine, emit_event=send)
             send(result)
+            schedule_backend_restart_after_cancel(request, result, logger)
         except json.JSONDecodeError as exc:
             send(error_response("", f"JSONDecodeError: {exc}"))
         except Exception as exc:
@@ -132,6 +151,7 @@ class BackendTCPHandler(socketserver.StreamRequestHandler):
                     logger.info("request id=%s method=%s", request.id, request.method)
                     result, _events = handle_request(request, engine=self.server.engine, emit_event=self.send_message)
                     self.send_message(result)
+                    schedule_backend_restart_after_cancel(request, result, logger)
                 except json.JSONDecodeError as exc:
                     self.send_message(error_response("", f"JSONDecodeError: {exc}"))
                 except Exception as exc:

@@ -68,10 +68,16 @@ UVR_MODEL_ALIASES = {
 }
 
 
+class BackendOperationCancelled(RuntimeError):
+    pass
+
+
 class MlxSeparatorEngine:
     def __init__(self, model_dir: str, logger: logging.Logger | None = None):
         self.model_dir = str(Path(model_dir).expanduser())
         self.logger = logger or logging.getLogger("kirtan_backend.engine")
+        self._cancel_event = threading.Event()
+        self._cancel_reason = "User cancelled current operation"
         Path(self.model_dir).mkdir(parents=True, exist_ok=True)
 
     def health(self) -> dict:
@@ -122,9 +128,20 @@ class MlxSeparatorEngine:
     def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
         return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins)
 
+    def cancel_current(self, reason: str = "User cancelled current operation") -> dict:
+        self._cancel_reason = reason
+        self._cancel_event.set()
+        self.logger.info("Cancellation requested: %s", reason)
+        return {
+            "cancelled": True,
+            "reason": reason,
+            "backendRestartRequired": True,
+        }
+
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator
 
+        self._cancel_event.clear()
         input_path = Path(job.input_path).expanduser()
         output_dir = Path(job.output_dir).expanduser()
         if not input_path.exists():
@@ -174,6 +191,7 @@ class MlxSeparatorEngine:
             source_channels,
         )
 
+        self._raise_if_cancelled()
         separator = Separator(
             model_file_dir=self.model_dir,
             output_dir=str(output_dir),
@@ -197,8 +215,10 @@ class MlxSeparatorEngine:
             work=lambda: separator.load_model(model_filename=job.model_filename),
         )
 
+        self._raise_if_cancelled()
         progress("model_ready", "Model ready", 0.30, self.runtime_stats())
         with self._stereo_input_path(input_path, progress, channels=source_channels) as separator_input_path:
+            self._raise_if_cancelled()
             output_files = self._with_heartbeat(
                 start=0.35,
                 end=0.92,
@@ -207,6 +227,7 @@ class MlxSeparatorEngine:
                 progress=progress,
                 work=lambda: separator.separate(str(separator_input_path)),
             )
+        self._raise_if_cancelled()
         if source_channels == 1:
             progress("postprocessing", "Restoring mono channel layout", 0.94, self.runtime_stats())
             output_files = self._restore_mono_outputs(output_files)
@@ -242,6 +263,10 @@ class MlxSeparatorEngine:
             },
         }
 
+    def _raise_if_cancelled(self):
+        if self._cancel_event.is_set():
+            raise BackendOperationCancelled(self._cancel_reason)
+
     def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):
         stop = threading.Event()
         result = {}
@@ -252,11 +277,15 @@ class MlxSeparatorEngine:
             while not stop.wait(2.0):
                 elapsed = time.perf_counter() - stage_started
                 value = _heartbeat_progress_value(start, end, elapsed)
+                if self._cancel_event.is_set():
+                    progress(stage, f"Cancelling - {_format_elapsed_duration(elapsed)} elapsed", value, self.runtime_stats())
+                    return
                 progress(stage, _progress_message(message, elapsed), value, self.runtime_stats())
 
         thread = threading.Thread(target=heartbeat, daemon=True)
         thread.start()
         try:
+            self._raise_if_cancelled()
             result["value"] = work()
         except Exception as exc:
             error["error"] = exc
@@ -266,6 +295,7 @@ class MlxSeparatorEngine:
 
         if "error" in error:
             raise error["error"]
+        self._raise_if_cancelled()
         elapsed = time.perf_counter() - stage_started
         progress(stage, _progress_message(message, elapsed), end, self.runtime_stats())
         return result.get("value")
@@ -292,6 +322,7 @@ class MlxSeparatorEngine:
                 self.runtime_stats(),
             )
             self._convert_to_stereo(input_path, prepared_path)
+            self._raise_if_cancelled()
             yield prepared_path
 
     def _restore_mono_outputs(self, output_files) -> list[str]:

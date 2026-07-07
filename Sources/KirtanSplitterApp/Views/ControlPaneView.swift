@@ -13,6 +13,7 @@ struct ControlPaneView: View {
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
+    let cancelAction: () -> Void
     var showsHeader = true
 
     private let outputFormats = ["WAV", "FLAC"]
@@ -91,7 +92,7 @@ struct ControlPaneView: View {
                     Label("Choose Folder", systemImage: "folder")
                 }
                 .controlSize(.small)
-                .disabled(backend.isProcessing)
+                .disabled(backend.isBusy)
 
                 Spacer()
 
@@ -114,7 +115,7 @@ struct ControlPaneView: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .disabled(backend.presets.isEmpty || backend.isProcessing)
+            .disabled(backend.presets.isEmpty || backend.isBusy)
 
             if let preset = backend.presets.first(where: { $0.id == settings.presetID }) {
                 Text(preset.summary)
@@ -139,7 +140,7 @@ struct ControlPaneView: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .disabled(backend.models.isEmpty || backend.isProcessing)
+            .disabled(backend.models.isEmpty || backend.isBusy)
 
             HStack(spacing: 6) {
                 Image(systemName: selectedModelDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
@@ -187,7 +188,7 @@ struct ControlPaneView: View {
                         .foregroundStyle(.secondary)
                 }
                 Slider(value: $settings.chunkDuration, in: 0...90, step: 15)
-                    .disabled(backend.isProcessing)
+                    .disabled(backend.isBusy)
             }
 
             Picker("Speed", selection: $settings.speedMode) {
@@ -196,7 +197,7 @@ struct ControlPaneView: View {
                 }
             }
             .pickerStyle(.menu)
-            .disabled(backend.isProcessing)
+            .disabled(backend.isBusy)
             .help("default leaves mlx-audio-separator settings unchanged; latency_safe uses conservative batch sizes; latency_safe_v3 also defers cache clearing and uses two write workers.")
 
             Divider()
@@ -248,21 +249,26 @@ struct ControlPaneView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .disabled(backend.isProcessing)
+            .disabled(backend.isBusy)
         }
     }
 
     private var runSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let presentation = ProcessingControlPresentation(
+            isProcessing: backend.isProcessing,
+            isCancelling: backend.isCancelling
+        )
+
+        return VStack(alignment: .leading, spacing: 8) {
             Button(action: startAction) {
                 HStack {
                     if backend.isProcessing {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: "wand.and.stars")
+                        Image(systemName: presentation.primarySystemImage)
                     }
-                    Text(backend.isProcessing ? "Separating..." : "Separate Selected")
+                    Text(backend.isBusy ? "\(presentation.primaryTitle)..." : "Separate Selected")
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
@@ -270,9 +276,20 @@ struct ControlPaneView: View {
             .buttonStyle(.borderedProminent)
             .tint(.orange)
             .controlSize(.large)
-            .disabled(!backend.isReady || !hasSelectedSources || backend.isProcessing)
+            .disabled(presentation.isStartDisabled(isReady: backend.isReady, hasSelectedSources: hasSelectedSources))
 
-            if backend.isProcessing {
+            if presentation.showsCancelAction {
+                Button(role: .cancel, action: cancelAction) {
+                    Label("Cancel Current Process", systemImage: "xmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .controlSize(.large)
+                .help("Cancel the current separation and stop the backend worker.")
+            }
+
+            if backend.isBusy {
                 ProgressView(value: backend.progress)
                     .tint(.orange)
                 Text("\(Int(backend.progress * 100))% · \(backend.currentStage)")

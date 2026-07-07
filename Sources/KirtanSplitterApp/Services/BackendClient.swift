@@ -7,6 +7,7 @@ enum BackendClientError: Error, LocalizedError {
     case invalidResponse(String)
     case backend(String)
     case timeout
+    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ enum BackendClientError: Error, LocalizedError {
             return message
         case .timeout:
             return "Backend startup timed out."
+        case .cancelled:
+            return "Operation cancelled."
         }
     }
 }
@@ -28,6 +31,7 @@ enum BackendClientError: Error, LocalizedError {
 final class BackendClient: ObservableObject {
     @Published var isReady = false
     @Published var isProcessing = false
+    @Published var isCancelling = false
     @Published var progress: Double = 0
     @Published var currentStage = "Backend stopped"
     @Published var statusLine = "Not started"
@@ -48,7 +52,12 @@ final class BackendClient: ObservableObject {
     private var requestCounter = 0
     private var telemetryTask: Task<Void, Never>?
     private var isTelemetryRequestInFlight = false
+    private var backendPaths: BackendPaths?
     private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
+
+    var isBusy: Bool {
+        isProcessing || isCancelling
+    }
 
     var modelSetupMessage: String? {
         guard isProcessing else { return nil }
@@ -63,6 +72,7 @@ final class BackendClient: ObservableObject {
         if isReady { return }
 
         let paths = resolveBackendPaths()
+        backendPaths = paths
         if let tcpPort = paths.tcpPort {
             try await startTCPBackend(paths: paths, port: tcpPort)
             return
@@ -182,9 +192,10 @@ final class BackendClient: ObservableObject {
         process = nil
         connection = nil
         inputPipe = nil
-        pendingRequests.removeAll()
+        cancelPendingRequests(throwing: BackendClientError.cancelled)
         isReady = false
         isProcessing = false
+        isCancelling = false
         statusLine = "Backend stopped"
         currentStage = "Backend stopped"
         telemetryTask?.cancel()
@@ -262,11 +273,18 @@ final class BackendClient: ObservableObject {
     }
 
     func separate(inputURL: URL, outputDirectory: URL, settings: SeparationSettings) async throws -> SeparationSummary {
+        guard !isCancelling else {
+            throw BackendClientError.cancelled
+        }
+
         isProcessing = true
+        isCancelling = false
         progress = 0
         currentStage = "Preparing"
         statusLine = "Starting separation"
-        defer { isProcessing = false }
+        defer {
+            isProcessing = false
+        }
 
         var params: [String: Any] = [
             "inputPath": inputURL.path,
@@ -287,7 +305,15 @@ final class BackendClient: ObservableObject {
             params["chunkDuration"] = chunkDuration
         }
 
-        let result = try await sendRequest(method: "separate", params: params)
+        let requestID = nextRequestID()
+        let result: [String: Any]
+        do {
+            result = try await sendRequest(method: "separate", params: params, requestID: requestID)
+        } catch BackendClientError.cancelled {
+            currentStage = "Cancelled"
+            statusLine = "Cancelled by user"
+            throw BackendClientError.cancelled
+        }
         let summary = try decodeObject(SeparationSummary.self, from: result)
         progress = 1
         currentStage = "Complete"
@@ -301,12 +327,60 @@ final class BackendClient: ObservableObject {
         return summary
     }
 
-    private func sendRequest(method: String, params: [String: Any]) async throws -> [String: Any] {
+    func cancelCurrentOperation() async {
+        guard isProcessing || !pendingRequests.isEmpty else { return }
+
+        let paths = backendPaths ?? resolveBackendPaths()
+        isCancelling = true
+        currentStage = "Cancelling"
+        statusLine = "Cancelling current operation"
+
+        if paths.tcpPort != nil {
+            do {
+                try await sendOutOfBandCancel(paths: paths)
+            } catch {
+                appendLog("Backend cancel request failed: \(error.localizedDescription)\n")
+            }
+        } else {
+            process?.terminate()
+            process = nil
+            inputPipe = nil
+        }
+
+        cancelPendingRequests(throwing: BackendClientError.cancelled)
+        connection?.cancel()
+        connection = nil
+        inputPipe = nil
+        outputBuffer = ""
+        isReady = false
+        isProcessing = false
+
+        do {
+            try await Task.sleep(nanoseconds: 600_000_000)
+            if let port = paths.tcpPort {
+                try launchDetachedTCPBackend(paths: paths, port: port)
+                try await startTCPBackend(paths: paths, port: port)
+            } else {
+                try await start()
+            }
+            await loadInitialData()
+            currentStage = "Ready"
+            statusLine = "Cancelled. Backend restarted."
+        } catch {
+            errorMessage = "Cancelled, but backend restart failed: \(error.localizedDescription)"
+            currentStage = "Backend stopped"
+            statusLine = "Backend restart failed"
+        }
+
+        isCancelling = false
+    }
+
+    private func sendRequest(method: String, params: [String: Any], requestID explicitRequestID: String? = nil) async throws -> [String: Any] {
         guard isReady, inputPipe != nil || connection != nil else {
             throw BackendClientError.notRunning
         }
 
-        let requestID = nextRequestID()
+        let requestID = explicitRequestID ?? nextRequestID()
         let request: [String: Any] = ["id": requestID, "method": method, "params": params]
         let data = try JSONSerialization.data(withJSONObject: request)
 
@@ -326,6 +400,113 @@ final class BackendClient: ObservableObject {
                     }
                 })
             }
+        }
+    }
+
+    private func sendOutOfBandCancel(paths: BackendPaths) async throws {
+        guard let port = paths.tcpPort,
+              let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            return
+        }
+
+        let requestID = nextRequestID()
+        let request: [String: Any] = [
+            "id": requestID,
+            "method": "cancel",
+            "params": ["reason": "User cancelled batch"],
+        ]
+        var line = try JSONSerialization.data(withJSONObject: request)
+        line.append(contentsOf: "\n".utf8)
+        let requestLine = line
+
+        let host = NWEndpoint.Host(paths.tcpHost ?? "127.0.0.1")
+        let controlConnection = NWConnection(host: host, port: endpointPort, using: .tcp)
+        let controlQueue = networkQueue
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            var didFinish = false
+
+            func finish(_ result: Result<Void, Error>) {
+                guard !didFinish else { return }
+                didFinish = true
+                controlConnection.cancel()
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            controlConnection.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    controlConnection.send(content: requestLine, completion: .contentProcessed { error in
+                        if let error {
+                            finish(.failure(BackendClientError.backend(error.localizedDescription)))
+                        } else {
+                            controlQueue.asyncAfter(deadline: .now() + 0.35) {
+                                finish(.success(()))
+                            }
+                        }
+                    })
+                case .failed(let error):
+                    finish(.failure(BackendClientError.backend(error.localizedDescription)))
+                default:
+                    break
+                }
+            }
+
+            controlConnection.start(queue: controlQueue)
+            controlQueue.asyncAfter(deadline: .now() + 1.0) {
+                finish(.success(()))
+            }
+        }
+    }
+
+    private func launchDetachedTCPBackend(paths: BackendPaths, port: Int) throws {
+        guard FileManager.default.fileExists(atPath: paths.python) else {
+            throw BackendClientError.launchFailed("Python not found at \(paths.python).")
+        }
+        guard FileManager.default.fileExists(atPath: paths.server) else {
+            throw BackendClientError.launchFailed("Backend server not found at \(paths.server).")
+        }
+
+        let logURL = URL(fileURLWithPath: paths.logFile)
+        try? FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        proc.arguments = [
+            "-MPOSIX=setsid",
+            "-e",
+            "exit 0 if fork; setsid(); exec @ARGV or die $!",
+            "/usr/bin/env",
+            "PYTHONUNBUFFERED=1",
+            "PYTHONPATH=\(paths.pythonPath)",
+            "KIRTAN_SPLITTER_MODEL_DIR=\(paths.modelDir)",
+            "KIRTAN_SPLITTER_LOG_FILE=\(paths.logFile)",
+            "MLX_USE_FAST_SDP=1",
+            paths.python,
+            paths.server,
+            "--model-dir",
+            paths.modelDir,
+            "--log-file",
+            paths.logFile,
+            "--tcp-host",
+            paths.tcpHost ?? "127.0.0.1",
+            "--tcp-port",
+            "\(port)",
+        ]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try proc.run()
+        proc.waitUntilExit()
+        if proc.terminationStatus != 0 {
+            throw BackendClientError.launchFailed("Backend launcher exited with status \(proc.terminationStatus).")
         }
     }
 
@@ -404,6 +585,14 @@ final class BackendClient: ObservableObject {
 
         default:
             appendLog("Unknown backend message: \(line)\n")
+        }
+    }
+
+    private func cancelPendingRequests(throwing error: Error) {
+        let continuations = pendingRequests.values
+        pendingRequests.removeAll()
+        for continuation in continuations {
+            continuation.resume(throwing: error)
         }
     }
 

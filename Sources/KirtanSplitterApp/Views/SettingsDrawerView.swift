@@ -25,6 +25,7 @@ struct SettingsDrawerView: View {
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
+    let cancelAction: () -> Void
     let closeAction: () -> Void
     @State private var selectedSection: Section = .process
 
@@ -60,6 +61,7 @@ struct SettingsDrawerView: View {
             chooseFolderAction: chooseFolderAction,
             droppedURLAction: droppedURLAction,
             startAction: startAction,
+            cancelAction: cancelAction,
             showsHeader: false
         )
     }

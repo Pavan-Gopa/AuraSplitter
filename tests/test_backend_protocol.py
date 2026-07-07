@@ -18,6 +18,7 @@ class FakeEngine:
     def __init__(self):
         self.calls = []
         self.last_model_limit = None
+        self.cancel_reason = None
 
     def list_models(self, limit=80):
         self.last_model_limit = limit
@@ -121,6 +122,14 @@ class FakeEngine:
             ],
             "elapsedSeconds": 1.25,
             "model": job.model_filename,
+        }
+
+    def cancel_current(self, reason):
+        self.cancel_reason = reason
+        return {
+            "cancelled": True,
+            "reason": reason,
+            "backendRestartRequired": True,
         }
 
 
@@ -261,6 +270,26 @@ def test_separate_streams_progress_when_emit_callback_is_provided(tmp_path):
     assert events == streamed
     assert streamed[0]["type"] == "progress"
     assert streamed[0]["stage"] == "loading"
+
+
+def test_cancel_requests_current_backend_job_restart():
+    engine = FakeEngine()
+
+    response, events = handle_request(
+        BackendRequest(
+            id="r-cancel",
+            method="cancel",
+            params={"reason": "User cancelled batch"},
+        ),
+        engine=engine,
+    )
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["id"] == "r-cancel"
+    assert response["result"]["cancelled"] is True
+    assert response["result"]["backendRestartRequired"] is True
+    assert engine.cancel_reason == "User cancelled batch"
 
 
 def test_runtime_stats_returns_process_memory_cpu_and_gpu_status():

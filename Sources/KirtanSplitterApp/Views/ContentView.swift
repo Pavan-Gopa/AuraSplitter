@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var previewResizeStartFraction: CGFloat?
     @State private var isSettingsSidebarOpen = false
     @State private var didInitializeLayout = false
+    @State private var batchProcessingTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -47,6 +48,7 @@ struct ContentView: View {
                             chooseFolderAction: loadInputFolder,
                             droppedURLAction: handleDroppedURL,
                             startAction: startBatchSeparation,
+                            cancelAction: cancelBatchSeparation,
                             closeAction: closeSettingsSidebar
                         )
                         .frame(width: WorkspaceLayoutMetrics.settingsDrawerWidth)
@@ -129,7 +131,8 @@ struct ContentView: View {
                 chooseFilesAction: loadInputFiles,
                 chooseFolderAction: loadInputFolder,
                 droppedURLAction: handleDroppedURL,
-                startAction: startBatchSeparation
+                startAction: startBatchSeparation,
+                cancelAction: cancelBatchSeparation
             )
             .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
 
@@ -362,10 +365,12 @@ struct ContentView: View {
 
     private func startBatchSeparation() {
         let selectedSources = sources.filter(\.isSelectedForProcessing)
-        guard !selectedSources.isEmpty else { return }
+        guard !selectedSources.isEmpty, batchProcessingTask == nil else { return }
 
-        Task {
+        batchProcessingTask = Task {
             for source in selectedSources {
+                if Task.isCancelled { break }
+
                 var sourceSettings = settings
                 sourceSettings.presetID = BatchWorkspace.effectivePresetID(
                     for: source,
@@ -384,12 +389,30 @@ struct ContentView: View {
                         upsertResultGroup(sourceURL: source.url, summary: nextSummary)
                         prewarmResultPreviews(for: nextSummary.files)
                     }
+                } catch BackendClientError.cancelled {
+                    break
+                } catch is CancellationError {
+                    break
                 } catch {
                     await MainActor.run {
                         backend.errorMessage = "Failed \(source.fileName): \(error.localizedDescription)"
                     }
                     break
                 }
+            }
+
+            await MainActor.run {
+                batchProcessingTask = nil
+            }
+        }
+    }
+
+    private func cancelBatchSeparation() {
+        batchProcessingTask?.cancel()
+        Task {
+            await backend.cancelCurrentOperation()
+            await MainActor.run {
+                batchProcessingTask = nil
             }
         }
     }
@@ -492,6 +515,9 @@ private struct AppHeaderView: View {
     }
 
     private var statusText: String {
+        if backend.isCancelling {
+            return "Cancelling current process"
+        }
         if backend.isProcessing {
             return "\(Int(backend.progress * 100))% - \(backend.currentStage)"
         }
@@ -499,6 +525,9 @@ private struct AppHeaderView: View {
     }
 
     private var statusColor: Color {
+        if backend.isCancelling {
+            return .red
+        }
         if backend.isProcessing {
             return .orange
         }
