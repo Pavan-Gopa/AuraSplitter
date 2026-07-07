@@ -5,15 +5,18 @@ struct ProcessingControlPresentation: Equatable {
         case idle
         case running
         case cancelling
+        case backendUnavailable
     }
 
     private let state: State
 
-    init(isProcessing: Bool, isCancelling: Bool) {
+    init(isReady: Bool, isProcessing: Bool, isCancelling: Bool) {
         if isCancelling {
             state = .cancelling
         } else if isProcessing {
             state = .running
+        } else if !isReady {
+            state = .backendUnavailable
         } else {
             state = .idle
         }
@@ -22,28 +25,43 @@ struct ProcessingControlPresentation: Equatable {
     var primaryTitle: String {
         switch state {
         case .idle: return "Start"
-        case .running: return "Separating"
+        case .running: return "Cancel"
         case .cancelling: return "Cancelling"
+        case .backendUnavailable: return "Restart"
         }
     }
 
     var primarySystemImage: String {
         switch state {
         case .idle: return "play.fill"
-        case .running: return "hourglass"
+        case .running: return "xmark.circle.fill"
         case .cancelling: return "xmark.circle"
+        case .backendUnavailable: return "arrow.clockwise"
         }
     }
 
-    var showsCancelAction: Bool {
+    var isDestructive: Bool {
         state == .running
     }
 
-    var isBusy: Bool {
-        state != .idle
+    var usesSeparateCancelButton: Bool {
+        false
     }
 
-    func isStartDisabled(isReady: Bool, hasSelectedSources: Bool) -> Bool {
-        !isReady || !hasSelectedSources || isBusy
+    var isBusy: Bool {
+        state == .running || state == .cancelling
+    }
+
+    func isPrimaryDisabled(hasSelectedSources: Bool) -> Bool {
+        switch state {
+        case .idle:
+            return !hasSelectedSources
+        case .running:
+            return false
+        case .cancelling:
+            return true
+        case .backendUnavailable:
+            return false
+        }
     }
 }

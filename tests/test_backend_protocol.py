@@ -12,6 +12,7 @@ from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
 from kirtan_backend.presets import PRESETS
+from kirtan_backend.server import should_restart_after_cancel
 
 
 class FakeEngine:
@@ -290,6 +291,17 @@ def test_cancel_requests_current_backend_job_restart():
     assert response["result"]["cancelled"] is True
     assert response["result"]["backendRestartRequired"] is True
     assert engine.cancel_reason == "User cancelled batch"
+
+
+def test_cancel_restart_is_detected_before_response_write_can_fail():
+    request = BackendRequest(id="r-cancel", method="cancel", params={})
+    response = {
+        "type": "response",
+        "id": "r-cancel",
+        "result": {"cancelled": True, "backendRestartRequired": True},
+    }
+
+    assert should_restart_after_cancel(request, response) is True
 
 
 def test_runtime_stats_returns_process_memory_cpu_and_gpu_status():

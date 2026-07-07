@@ -1,114 +1,72 @@
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ControlPaneView: View {
     @ObservedObject var backend: BackendClient
-    @Binding var outputDirectory: URL?
+    @ObservedObject var processPresetStore: ProcessSettingsPresetStore
     @Binding var settings: SeparationSettings
-    @Binding var isDropTargeted: Bool
+    @Binding var selectedProcessPresetID: String
 
-    let sources: [BatchSourceItem]
-    let chooseFilesAction: ([URL]) -> Void
-    let chooseFolderAction: (URL) -> Void
-    let droppedURLAction: (URL) -> Void
-    let startAction: () -> Void
-    let cancelAction: () -> Void
-    var showsHeader = true
+    let applyProcessPresetAction: (String) -> Void
+
+    @State private var newPresetName = ""
 
     private let outputFormats = ["WAV", "FLAC"]
     private let speedModes = ["latency_safe_v3", "latency_safe", "default"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if showsHeader {
-                header
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                settingsPresetSection
+                Divider()
+                presetSection
+                modelSection
+                Divider()
+                processSection
             }
-            dropZone
-            presetSection
-            modelSection
-            outputSection
-            runSection
-            Spacer(minLength: 0)
-            statusSection
+            .padding(18)
         }
-        .padding(22)
         .background(.regularMaterial)
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                AppLogoView()
-                Text("KirtanSplitter")
-                    .font(.title2.weight(.semibold))
-                Spacer()
-                Circle()
-                    .fill(backend.isReady ? .green : .orange)
-                    .frame(width: 9, height: 9)
-            }
-            Text("UVR models through MLX/Metal on Apple Silicon")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
+    private var settingsPresetSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Settings Presets")
+                .font(.callout.weight(.semibold))
 
-    private var dropZone: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(
-                    isDropTargeted ? Color.orange : Color.secondary.opacity(0.35),
-                    style: StrokeStyle(lineWidth: 2, dash: [7])
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isDropTargeted ? Color.orange.opacity(0.08) : Color.clear)
-                )
-                .frame(height: 116)
-                .overlay {
-                    VStack(spacing: 8) {
-                        Image(systemName: dropIconName)
-                            .font(.system(size: 30))
-                            .foregroundStyle(dropIconColor)
-                        Text(dropTitle)
-                            .font(.callout.weight(dropTitleWeight))
-                            .lineLimit(1)
-                        Text("WAV, FLAC, AIFF, M4A, MP3")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 14)
+            Picker("Settings Preset", selection: processPresetSelectionBinding) {
+                ForEach(processPresetStore.presets) { preset in
+                    Text(preset.title).tag(preset.id)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture(perform: pickInputFiles)
-                .onDrop(of: [.fileURL, .audio], isTargeted: $isDropTargeted) { providers in
-                    handleDrop(providers)
-                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(processPresetStore.presets.isEmpty || backend.isBusy)
 
             HStack(spacing: 8) {
-                Button {
-                    pickInputFolder()
-                } label: {
-                    Label("Choose Folder", systemImage: "folder")
-                }
-                .controlSize(.small)
-                .disabled(backend.isBusy)
+                TextField("Preset name", text: $newPresetName)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(backend.isBusy)
 
-                Spacer()
-
-                Text(batchCountText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button("Save", action: saveCurrentProcessPreset)
+                    .disabled(backend.isBusy)
             }
+
+            Button(role: .destructive, action: deleteSelectedProcessPreset) {
+                Label("Delete Selected Preset", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(selectedProcessPreset?.isBuiltIn != false || backend.isBusy)
         }
     }
 
     private var presetSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Preset")
+            Text("Model Preset")
                 .font(.callout.weight(.semibold))
 
-            Picker("Preset", selection: $settings.presetID) {
+            Picker("Model Preset", selection: $settings.presetID) {
                 ForEach(backend.presets) { preset in
                     Text(preset.title).tag(preset.id)
                 }
@@ -128,7 +86,7 @@ struct ControlPaneView: View {
 
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Model")
+            Text("Model Override")
                 .font(.callout.weight(.semibold))
 
             Picker("Model", selection: modelOverrideBinding) {
@@ -150,7 +108,7 @@ struct ControlPaneView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let selectedModel = selectedModel {
+            if let selectedModel {
                 Text(selectedModel.filename)
                     .font(.caption2.monospaced())
                     .foregroundStyle(.tertiary)
@@ -159,19 +117,10 @@ struct ControlPaneView: View {
         }
     }
 
-    private var outputSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Output")
+    private var processSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Process Settings")
                 .font(.callout.weight(.semibold))
-
-            HStack {
-                Text(outputDirectory?.lastPathComponent ?? "Next to source")
-                    .font(.callout)
-                    .lineLimit(1)
-                Spacer()
-                Button("Choose", action: pickOutputDirectory)
-                    .controlSize(.small)
-            }
 
             Picker("Format", selection: $settings.outputFormat) {
                 ForEach(outputFormats, id: \.self) { format in
@@ -179,6 +128,7 @@ struct ControlPaneView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(backend.isBusy)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -200,119 +150,64 @@ struct ControlPaneView: View {
             .disabled(backend.isBusy)
             .help("default leaves mlx-audio-separator settings unchanged; latency_safe uses conservative batch sizes; latency_safe_v3 also defers cache clearing and uses two write workers.")
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("UVR Params")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Stepper(value: $settings.mdxcSegmentSize, in: 64...4096, step: 64) {
-                    HStack {
-                        Text("Segment Size")
-                        Spacer()
-                        Text("\(settings.mdxcSegmentSize)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help("MDXC/RoFormer segment size passed to mlx-audio-separator. Changing it from 256 automatically overrides the model segment size and uses more memory.")
-
-                Stepper(value: $settings.mdxcOverlap, in: 1...16, step: 1) {
-                    HStack {
-                        Text("Overlap")
-                        Spacer()
-                        Text("\(settings.mdxcOverlap)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help("MDXC/RoFormer overlap between inference windows.")
-
-                Stepper(value: $settings.mdxcBatchSize, in: 1...4, step: 1) {
-                    HStack {
-                        Text("Batch")
-                        Spacer()
-                        Text("\(settings.mdxcBatchSize)")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .help("Higher batch values can be faster but use more memory.")
-
-                Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
-                    .toggleStyle(.checkbox)
-                    .help("Forces model segment override even when Segment Size is still the default.")
-                if settings.effectiveMDXCOverrideModelSegmentSize && !settings.mdxcOverrideModelSegmentSize {
-                    Text("Segment override will be enabled for this run.")
-                        .font(.caption2)
+            Stepper(value: $settings.mdxcSegmentSize, in: 64...4096, step: 64) {
+                HStack {
+                    Text("Segment Size")
+                    Spacer()
+                    Text("\(settings.mdxcSegmentSize)")
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
             }
             .disabled(backend.isBusy)
-        }
-    }
+            .help("MDXC/RoFormer segment size passed to mlx-audio-separator.")
 
-    private var runSection: some View {
-        let presentation = ProcessingControlPresentation(
-            isProcessing: backend.isProcessing,
-            isCancelling: backend.isCancelling
-        )
-
-        return VStack(alignment: .leading, spacing: 8) {
-            Button(action: startAction) {
+            Stepper(value: $settings.mdxcOverlap, in: 1...16, step: 1) {
                 HStack {
-                    if backend.isProcessing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: presentation.primarySystemImage)
-                    }
-                    Text(backend.isBusy ? "\(presentation.primaryTitle)..." : "Separate Selected")
+                    Text("Overlap")
                     Spacer()
+                    Text("\(settings.mdxcOverlap)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .controlSize(.large)
-            .disabled(presentation.isStartDisabled(isReady: backend.isReady, hasSelectedSources: hasSelectedSources))
+            .disabled(backend.isBusy)
 
-            if presentation.showsCancelAction {
-                Button(role: .cancel, action: cancelAction) {
-                    Label("Cancel Current Process", systemImage: "xmark.circle.fill")
-                        .frame(maxWidth: .infinity)
+            Stepper(value: $settings.mdxcBatchSize, in: 1...4, step: 1) {
+                HStack {
+                    Text("Batch")
+                    Spacer()
+                    Text("\(settings.mdxcBatchSize)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .controlSize(.large)
-                .help("Cancel the current separation and stop the backend worker.")
             }
+            .disabled(backend.isBusy)
 
-            if backend.isBusy {
-                ProgressView(value: backend.progress)
-                    .tint(.orange)
-                Text("\(Int(backend.progress * 100))% · \(backend.currentStage)")
-                    .font(.caption)
+            Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
+                .toggleStyle(.checkbox)
+                .disabled(backend.isBusy)
+            if settings.effectiveMDXCOverrideModelSegmentSize && !settings.mdxcOverrideModelSegmentSize {
+                Text("Segment override will be enabled for this run.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
+
+            Toggle("Keep Converted MLX Model", isOn: $settings.saveConvertedSafetensors)
+                .toggleStyle(.checkbox)
+                .disabled(backend.isBusy)
+                .help("Keeps converted safetensors so the model does not convert again on the next run.")
         }
     }
 
-    private var statusSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(backend.statusLine)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            if !backend.backendLog.isEmpty {
-                Text(backend.backendLog.split(separator: "\n").suffix(1).joined())
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
+    private var processPresetSelectionBinding: Binding<String> {
+        Binding(
+            get: { selectedProcessPresetID },
+            set: { presetID in
+                selectedProcessPresetID = presetID
+                applyProcessPresetAction(presetID)
             }
-        }
+        )
     }
 
     private var modelOverrideBinding: Binding<String> {
@@ -322,36 +217,8 @@ struct ControlPaneView: View {
         )
     }
 
-    private var dropIconName: String {
-        sources.isEmpty ? "square.and.arrow.down" : "waveform"
-    }
-
-    private var dropIconColor: Color {
-        sources.isEmpty ? .secondary : .orange
-    }
-
-    private var dropTitle: String {
-        if sources.count == 1 {
-            return sources[0].fileName
-        }
-        if !sources.isEmpty {
-            return "\(sources.count) source files loaded"
-        }
-        return "Drop audio files or click to choose"
-    }
-
-    private var dropTitleWeight: Font.Weight {
-        sources.isEmpty ? .regular : .semibold
-    }
-
-    private var batchCountText: String {
-        guard !sources.isEmpty else { return "Batch ready" }
-        let selectedCount = sources.filter(\.isSelectedForProcessing).count
-        return "\(selectedCount)/\(sources.count) selected"
-    }
-
-    private var hasSelectedSources: Bool {
-        sources.contains { $0.isSelectedForProcessing }
+    private var selectedProcessPreset: ProcessSettingsPreset? {
+        processPresetStore.preset(id: selectedProcessPresetID)
     }
 
     private var selectedModelDownloaded: Bool {
@@ -370,49 +237,17 @@ struct ControlPaneView: View {
         return backend.presets.first(where: { $0.id == settings.presetID })?.modelFilename
     }
 
-    private func pickInputFiles() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audio]
-        panel.allowsMultipleSelection = true
-        if panel.runModal() == .OK {
-            chooseFilesAction(panel.urls)
-        }
+    private func saveCurrentProcessPreset() {
+        let saved = processPresetStore.saveCustomPreset(named: newPresetName, settings: settings)
+        selectedProcessPresetID = saved.id
+        newPresetName = ""
     }
 
-    private func pickInputFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            chooseFolderAction(url)
-        }
-    }
-
-    private func pickOutputDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        if panel.runModal() == .OK {
-            outputDirectory = panel.url
-        }
-    }
-
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                guard
-                    let data = item as? Data,
-                    let url = URL(dataRepresentation: data, relativeTo: nil)
-                else { return }
-                DispatchQueue.main.async {
-                    droppedURLAction(url)
-                }
-            }
-            return true
-        }
-        return false
+    private func deleteSelectedProcessPreset() {
+        guard selectedProcessPreset?.isBuiltIn == false else { return }
+        processPresetStore.deleteCustomPreset(id: selectedProcessPresetID)
+        selectedProcessPresetID = ProcessSettingsPreset.defaultPresetID
+        applyProcessPresetAction(selectedProcessPresetID)
     }
 }
 

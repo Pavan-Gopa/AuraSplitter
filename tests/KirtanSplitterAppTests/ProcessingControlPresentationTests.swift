@@ -3,27 +3,36 @@ import XCTest
 
 final class ProcessingControlPresentationTests: XCTestCase {
     func testIdleStateShowsStartActionWhenBackendAndSourcesAreReady() {
-        let presentation = ProcessingControlPresentation(isProcessing: false, isCancelling: false)
+        let presentation = ProcessingControlPresentation(isReady: true, isProcessing: false, isCancelling: false)
 
         XCTAssertEqual(presentation.primaryTitle, "Start")
         XCTAssertEqual(presentation.primarySystemImage, "play.fill")
-        XCTAssertFalse(presentation.showsCancelAction)
-        XCTAssertFalse(presentation.isStartDisabled(isReady: true, hasSelectedSources: true))
+        XCTAssertFalse(presentation.isDestructive)
+        XCTAssertFalse(presentation.isPrimaryDisabled(hasSelectedSources: true))
     }
 
-    func testRunningStateShowsCancelActionAndDisablesStart() {
-        let presentation = ProcessingControlPresentation(isProcessing: true, isCancelling: false)
+    func testRunningStateTurnsPrimaryActionIntoCancelWithoutAddingASecondButton() {
+        let presentation = ProcessingControlPresentation(isReady: true, isProcessing: true, isCancelling: false)
 
-        XCTAssertEqual(presentation.primaryTitle, "Separating")
-        XCTAssertTrue(presentation.showsCancelAction)
-        XCTAssertTrue(presentation.isStartDisabled(isReady: true, hasSelectedSources: true))
+        XCTAssertEqual(presentation.primaryTitle, "Cancel")
+        XCTAssertEqual(presentation.primarySystemImage, "xmark.circle.fill")
+        XCTAssertTrue(presentation.isDestructive)
+        XCTAssertFalse(presentation.usesSeparateCancelButton)
+        XCTAssertFalse(presentation.isPrimaryDisabled(hasSelectedSources: true))
     }
 
     func testCancellingStateKeepsControlsBlockedUntilBackendRestarts() {
-        let presentation = ProcessingControlPresentation(isProcessing: false, isCancelling: true)
+        let presentation = ProcessingControlPresentation(isReady: true, isProcessing: false, isCancelling: true)
 
         XCTAssertEqual(presentation.primaryTitle, "Cancelling")
-        XCTAssertFalse(presentation.showsCancelAction)
-        XCTAssertTrue(presentation.isStartDisabled(isReady: true, hasSelectedSources: true))
+        XCTAssertTrue(presentation.isPrimaryDisabled(hasSelectedSources: true))
+    }
+
+    func testBackendUnavailableStateOffersRestartAction() {
+        let presentation = ProcessingControlPresentation(isReady: false, isProcessing: false, isCancelling: false)
+
+        XCTAssertEqual(presentation.primaryTitle, "Restart")
+        XCTAssertEqual(presentation.primarySystemImage, "arrow.clockwise")
+        XCTAssertFalse(presentation.isPrimaryDisabled(hasSelectedSources: false))
     }
 }

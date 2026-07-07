@@ -160,6 +160,7 @@ final class BackendClient: ObservableObject {
             throw BackendClientError.launchFailed("Invalid backend TCP port: \(port)")
         }
 
+        isReady = false
         currentStage = "Connecting backend"
         statusLine = "Connecting to local backend"
 
@@ -356,10 +357,8 @@ final class BackendClient: ObservableObject {
         isProcessing = false
 
         do {
-            try await Task.sleep(nanoseconds: 600_000_000)
             if let port = paths.tcpPort {
-                try launchDetachedTCPBackend(paths: paths, port: port)
-                try await startTCPBackend(paths: paths, port: port)
+                try await restartTCPBackend(paths: paths, port: port, forceTerminateExisting: true)
             } else {
                 try await start()
             }
@@ -373,6 +372,40 @@ final class BackendClient: ObservableObject {
         }
 
         isCancelling = false
+    }
+
+    func restartBackend() async {
+        guard !isBusy else { return }
+
+        let paths = backendPaths ?? resolveBackendPaths()
+        backendPaths = paths
+        errorMessage = nil
+        currentStage = "Restarting backend"
+        statusLine = "Restarting backend"
+        isReady = false
+
+        cancelPendingRequests(throwing: BackendClientError.cancelled)
+        connection?.cancel()
+        connection = nil
+        inputPipe = nil
+        outputBuffer = ""
+
+        do {
+            if let port = paths.tcpPort {
+                try await restartTCPBackend(paths: paths, port: port, forceTerminateExisting: true)
+            } else {
+                process?.terminate()
+                process = nil
+                try await start()
+            }
+            await loadInitialData()
+            currentStage = "Ready"
+            statusLine = "Backend restarted."
+        } catch {
+            errorMessage = "Backend restart failed: \(error.localizedDescription)"
+            currentStage = "Backend stopped"
+            statusLine = "Backend restart failed"
+        }
     }
 
     private func sendRequest(method: String, params: [String: Any], requestID explicitRequestID: String? = nil) async throws -> [String: Any] {
@@ -508,6 +541,53 @@ final class BackendClient: ObservableObject {
         if proc.terminationStatus != 0 {
             throw BackendClientError.launchFailed("Backend launcher exited with status \(proc.terminationStatus).")
         }
+    }
+
+    private func restartTCPBackend(paths: BackendPaths, port: Int, forceTerminateExisting: Bool) async throws {
+        let host = paths.tcpHost ?? "127.0.0.1"
+        try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 1.2)
+        if forceTerminateExisting, isTCPPortOpen(host: host, port: port) {
+            terminateRuntimeBackendProcesses(paths: paths, port: port)
+            try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 2.5)
+        }
+        try launchDetachedTCPBackend(paths: paths, port: port)
+        try await startTCPBackend(paths: paths, port: port)
+    }
+
+    private func waitForTCPPortToClose(host: String, port: Int, timeoutSeconds: Double) async throws {
+        let startedAt = Date()
+        while isTCPPortOpen(host: host, port: port) {
+            if Date().timeIntervalSince(startedAt) >= timeoutSeconds {
+                return
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private func isTCPPortOpen(host: String, port: Int) -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/nc")
+        proc.arguments = ["-z", host, "\(port)"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            return proc.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    private func terminateRuntimeBackendProcesses(paths: BackendPaths, port: Int) {
+        let pattern = "\(paths.server).*--tcp-port \(port)"
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        proc.arguments = ["-f", pattern]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
     }
 
     private func receiveFromConnection(_ connection: NWConnection) {

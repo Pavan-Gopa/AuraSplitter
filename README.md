@@ -21,11 +21,16 @@ MLX/Metal.
   UVR-friendly aliases for known ViperX names.
 - Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
 - Output stems in FLAC or WAV.
+- Header-level run controls with a fixed Start / Cancel / Restart button,
+  model preset picker, process-settings preset picker, and long progress meter.
 - UVR/MDXC controls for RoFormer models:
   - segment size up to 4096,
   - overlap,
   - batch size,
   - model segment override.
+- Custom process-settings presets for output format, speed profile, chunk size,
+  segment size, overlap, batch size, model segment override, and converted-model
+  retention.
 - Finder reveal, path copy, and audio preview for generated stems.
 - Source preview with channel count, duration, peak dBFS, clipping warning,
   waveform, spectrogram, playhead, and click/drag seeking.
@@ -37,14 +42,12 @@ MLX/Metal.
   compatibility input, but stems are restored to mono when the source file is
   mono. Stereo sources stay stereo.
 - Right-side diagnostics inspector:
-  - live process stage and progress,
   - persistent backend log path,
-  - system CPU and memory,
-  - backend PID / CPU / RSS memory,
-  - MLX GPU device and GPU telemetry status,
   - installed model groups backed by converted `.safetensors`,
   - confirmable source-checkpoint deletion after conversion,
   - last-run UVR parameters and decode / inference / write timings.
+- Compact left widgets show input count plus backend, CPU, memory, GPU, and model
+  cache status while processing controls stay in the header.
 
 ## Requirements
 

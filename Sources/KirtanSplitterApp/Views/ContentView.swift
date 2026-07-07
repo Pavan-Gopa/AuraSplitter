@@ -3,10 +3,12 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var backend = BackendClient()
     @StateObject private var audioPreviewPlayer = AudioPreviewPlayer()
+    @StateObject private var processPresetStore = ProcessSettingsPresetStore()
 
     @State private var sources: [BatchSourceItem] = []
     @State private var outputDirectory: URL?
     @State private var settings = SeparationSettings()
+    @State private var selectedProcessPresetID = ProcessSettingsPreset.defaultPresetID
     @State private var resultGroups: [BatchResultGroup] = []
     @State private var previewSelection: AudioPreviewSelection = .none
     @State private var previewAnalysis: AudioAnalysis?
@@ -25,7 +27,13 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 AppHeaderView(
                     backend: backend,
+                    modelPresetID: modelPresetIDBinding,
+                    processPresetID: processPresetIDBinding,
+                    modelPresets: backend.presets,
+                    processPresets: processPresetStore.presets,
+                    hasSelectedSources: hasSelectedSources,
                     isSettingsSidebarOpen: isSettingsSidebarOpen,
+                    primaryAction: performPrimaryProcessAction,
                     settingsAction: toggleSettingsSidebar
                 )
                 .frame(height: WorkspaceLayoutMetrics.appHeaderHeight)
@@ -40,15 +48,10 @@ struct ContentView: View {
                         Divider()
                         SettingsDrawerView(
                             backend: backend,
-                            outputDirectory: $outputDirectory,
+                            processPresetStore: processPresetStore,
                             settings: $settings,
-                            isDropTargeted: $isDropTargeted,
-                            sources: sources,
-                            chooseFilesAction: loadInputFiles,
-                            chooseFolderAction: loadInputFolder,
-                            droppedURLAction: handleDroppedURL,
-                            startAction: startBatchSeparation,
-                            cancelAction: cancelBatchSeparation,
+                            selectedProcessPresetID: processPresetIDBinding,
+                            applyProcessPresetAction: applyProcessPreset,
                             closeAction: closeSettingsSidebar
                         )
                         .frame(width: WorkspaceLayoutMetrics.settingsDrawerWidth)
@@ -130,9 +133,7 @@ struct ContentView: View {
                 isDropTargeted: $isDropTargeted,
                 chooseFilesAction: loadInputFiles,
                 chooseFolderAction: loadInputFolder,
-                droppedURLAction: handleDroppedURL,
-                startAction: startBatchSeparation,
-                cancelAction: cancelBatchSeparation
+                droppedURLAction: handleDroppedURL
             )
             .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
 
@@ -173,6 +174,39 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             isSettingsSidebarOpen = false
         }
+    }
+
+    private var modelPresetIDBinding: Binding<String> {
+        Binding(
+            get: { settings.presetID },
+            set: { presetID in
+                settings.presetID = presetID
+                if usesPerSourcePresets {
+                    for index in sources.indices where sources[index].isSelectedForProcessing {
+                        sources[index].presetID = presetID
+                    }
+                }
+            }
+        )
+    }
+
+    private var processPresetIDBinding: Binding<String> {
+        Binding(
+            get: { selectedProcessPresetID },
+            set: { presetID in
+                selectedProcessPresetID = presetID
+                applyProcessPreset(presetID)
+            }
+        )
+    }
+
+    private var hasSelectedSources: Bool {
+        sources.contains { $0.isSelectedForProcessing }
+    }
+
+    private func applyProcessPreset(_ presetID: String) {
+        guard let preset = processPresetStore.preset(id: presetID) else { return }
+        preset.snapshot.apply(to: &settings)
     }
 
     private func loadInputFiles(_ urls: [URL]) {
@@ -407,6 +441,25 @@ struct ContentView: View {
         }
     }
 
+    private func performPrimaryProcessAction() {
+        let presentation = ProcessingControlPresentation(
+            isReady: backend.isReady,
+            isProcessing: backend.isProcessing,
+            isCancelling: backend.isCancelling
+        )
+        guard !presentation.isPrimaryDisabled(hasSelectedSources: hasSelectedSources) else { return }
+
+        if backend.isProcessing {
+            cancelBatchSeparation()
+        } else if !backend.isReady {
+            Task {
+                await backend.restartBackend()
+            }
+        } else {
+            startBatchSeparation()
+        }
+    }
+
     private func cancelBatchSeparation() {
         batchProcessingTask?.cancel()
         Task {
@@ -478,11 +531,23 @@ struct ContentView: View {
 
 private struct AppHeaderView: View {
     @ObservedObject var backend: BackendClient
+    @Binding var modelPresetID: String
+    @Binding var processPresetID: String
+    let modelPresets: [SeparationPreset]
+    let processPresets: [ProcessSettingsPreset]
+    let hasSelectedSources: Bool
     let isSettingsSidebarOpen: Bool
+    let primaryAction: () -> Void
     let settingsAction: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        let presentation = ProcessingControlPresentation(
+            isReady: backend.isReady,
+            isProcessing: backend.isProcessing,
+            isCancelling: backend.isCancelling
+        )
+
+        return HStack(spacing: 14) {
             AppLogoView()
                 .frame(width: 28, height: 28)
 
@@ -495,8 +560,54 @@ private struct AppHeaderView: View {
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
             }
+            .frame(width: 154, alignment: .leading)
 
-            Spacer(minLength: 16)
+            Picker("Model Preset", selection: $modelPresetID) {
+                ForEach(modelPresets) { preset in
+                    Text(preset.title).tag(preset.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 172)
+            .disabled(modelPresets.isEmpty || backend.isBusy)
+            .help("Model preset")
+
+            Picker("Process Preset", selection: $processPresetID) {
+                ForEach(processPresets) { preset in
+                    Text(preset.title).tag(preset.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 144)
+            .disabled(processPresets.isEmpty || backend.isBusy)
+            .help("Process settings preset")
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(progressTitle)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text("\(Int(backend.progress * 100))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: backend.progress)
+                    .tint(progressTint)
+            }
+            .frame(minWidth: 260, maxWidth: .infinity)
+
+            Button(action: primaryAction) {
+                Label(presentation.primaryTitle, systemImage: presentation.primarySystemImage)
+                    .frame(width: 112)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(presentation.isDestructive ? .red : .orange)
+            .controlSize(.large)
+            .disabled(presentation.isPrimaryDisabled(hasSelectedSources: hasSelectedSources))
+            .help(primaryActionHelp)
 
             Button(action: settingsAction) {
                 Image(systemName: "sidebar.trailing")
@@ -512,6 +623,30 @@ private struct AppHeaderView: View {
         }
         .padding(.horizontal, 18)
         .background(.thinMaterial)
+    }
+
+    private var progressTitle: String {
+        if backend.isBusy {
+            return backend.currentStage
+        }
+        return backend.isReady ? "Idle" : "Backend not ready"
+    }
+
+    private var progressTint: Color {
+        if backend.isCancelling {
+            return .red
+        }
+        return backend.isProcessing ? .orange : .secondary
+    }
+
+    private var primaryActionHelp: String {
+        if backend.isProcessing {
+            return "Cancel the current separation"
+        }
+        if !backend.isReady {
+            return "Restart backend"
+        }
+        return "Start selected separation"
     }
 
     private var statusText: String {

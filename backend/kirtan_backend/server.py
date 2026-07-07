@@ -90,13 +90,17 @@ def ready_payload(args, log_path: Path) -> dict:
     return payload
 
 
-def schedule_backend_restart_after_cancel(request: BackendRequest, result: dict, logger: logging.Logger):
+def should_restart_after_cancel(request: BackendRequest, result: dict) -> bool:
     if request.method != "cancel":
-        return
+        return False
     if result.get("type") != "response":
-        return
+        return False
     response_result = result.get("result") or {}
-    if not response_result.get("backendRestartRequired"):
+    return bool(response_result.get("backendRestartRequired"))
+
+
+def schedule_backend_restart_after_cancel(request: BackendRequest, result: dict, logger: logging.Logger):
+    if not should_restart_after_cancel(request, result):
         return
 
     def exit_backend():
@@ -117,8 +121,8 @@ def run_stdio(args, engine, log_path: Path, logger: logging.Logger) -> int:
             request = BackendRequest.from_json(raw)
             logger.info("request id=%s method=%s", request.id, request.method)
             result, _events = handle_request(request, engine=engine, emit_event=send)
-            send(result)
             schedule_backend_restart_after_cancel(request, result, logger)
+            send(result)
         except json.JSONDecodeError as exc:
             send(error_response("", f"JSONDecodeError: {exc}"))
         except Exception as exc:
@@ -150,10 +154,13 @@ class BackendTCPHandler(socketserver.StreamRequestHandler):
                     request = BackendRequest.from_json(raw_text)
                     logger.info("request id=%s method=%s", request.id, request.method)
                     result, _events = handle_request(request, engine=self.server.engine, emit_event=self.send_message)
-                    self.send_message(result)
                     schedule_backend_restart_after_cancel(request, result, logger)
+                    self.send_message(result)
                 except json.JSONDecodeError as exc:
                     self.send_message(error_response("", f"JSONDecodeError: {exc}"))
+                except BrokenPipeError:
+                    logger.debug("TCP client disconnected before backend response was written")
+                    break
                 except Exception as exc:
                     logger.exception("Unhandled backend error")
                     self.send_message(error_response("", f"{type(exc).__name__}: {exc}"))

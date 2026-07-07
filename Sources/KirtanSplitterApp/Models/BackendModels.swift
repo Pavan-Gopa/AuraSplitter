@@ -39,7 +39,7 @@ struct StemFile: Identifiable, Hashable, Codable {
     }
 }
 
-struct SeparationSettings: Equatable {
+struct SeparationSettings: Equatable, Codable {
     static let defaultMDXCSegmentSize = 256
 
     var presetID = "kirtan_pro"

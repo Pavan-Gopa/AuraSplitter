@@ -9,13 +9,10 @@ struct WorkspaceWidgetRailView: View {
     let chooseFilesAction: ([URL]) -> Void
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
-    let startAction: () -> Void
-    let cancelAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             importWidget
-            processWidget
             systemWidget
             Spacer(minLength: 0)
         }
@@ -68,66 +65,14 @@ struct WorkspaceWidgetRailView: View {
         }
     }
 
-    private var processWidget: some View {
-        let presentation = ProcessingControlPresentation(
-            isProcessing: backend.isProcessing,
-            isCancelling: backend.isCancelling
-        )
-
-        return WidgetPanel(title: "Process", systemImage: "wand.and.stars") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(backend.isBusy ? presentation.primaryTitle : "Idle")
-                        .font(.callout.weight(.semibold))
-                    Spacer()
-                    Text("\(Int(backend.progress * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                ProgressView(value: backend.progress)
-                    .tint(.orange)
-                Button(action: startAction) {
-                    HStack {
-                        Image(systemName: presentation.primarySystemImage)
-                        Text(presentation.primaryTitle)
-                        Spacer()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .controlSize(.small)
-                .disabled(presentation.isStartDisabled(isReady: backend.isReady, hasSelectedSources: hasSelectedSources))
-
-                if presentation.showsCancelAction {
-                    Button(role: .cancel, action: cancelAction) {
-                        HStack {
-                            Image(systemName: "xmark.circle.fill")
-                            Text("Cancel")
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-                    .controlSize(.small)
-                    .help("Cancel the current separation and stop the backend worker.")
-                }
-            }
-        }
-    }
-
     private var systemWidget: some View {
         WidgetPanel(title: "System", systemImage: "gauge") {
             VStack(alignment: .leading, spacing: 8) {
-                MiniGauge(title: "CPU", value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
-                MiniGauge(title: "GPU", value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
-                HStack {
-                    Text("Models")
-                    Spacer()
-                    Text("\(modelCount)")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                .font(.caption)
+                StatusLine(title: "Backend", value: backend.isReady ? "Ready" : "Starting", tint: backend.isReady ? .green : .orange)
+                MiniGauge(title: "CPU", detail: cpuDetail, value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
+                MiniGauge(title: "Memory", detail: memoryDetail, value: backend.runtimeStats?.memory.usedPercent ?? 0, tint: .purple)
+                MiniGauge(title: "GPU", detail: gpuDetail, value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
+                StatusLine(title: "Models", value: "\(modelCount)", tint: .secondary)
             }
         }
     }
@@ -151,6 +96,27 @@ struct WorkspaceWidgetRailView: View {
 
     private var modelCount: Int {
         backend.modelCache?.groups?.count ?? backend.runtimeStats?.modelCache?.groupCount ?? backend.models.count
+    }
+
+    private var cpuDetail: String {
+        guard let cpu = backend.runtimeStats?.cpu else { return "waiting" }
+        return "\(Int(cpu.systemPercent))% / \(cpu.coreCount)c"
+    }
+
+    private var memoryDetail: String {
+        guard let memory = backend.runtimeStats?.memory else { return "waiting" }
+        return "\(Int(memory.usedPercent))%"
+    }
+
+    private var gpuDetail: String {
+        guard let gpu = backend.runtimeStats?.gpu else { return "waiting" }
+        if let utilization = gpu.utilizationPercent {
+            if let cores = gpu.gpuCoreCount {
+                return "\(Int(utilization))% / \(cores)c"
+            }
+            return "\(Int(utilization))%"
+        }
+        return gpu.status
     }
 
     private var dropBackground: Color {
@@ -220,6 +186,7 @@ private struct WidgetPanel<Content: View>: View {
 
 private struct MiniGauge: View {
     let title: String
+    let detail: String
     let value: Double
     let tint: Color
 
@@ -228,7 +195,7 @@ private struct MiniGauge: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text("\(value, specifier: "%.0f")%")
+                Text(detail)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
@@ -236,5 +203,23 @@ private struct MiniGauge: View {
             ProgressView(value: min(100, max(0, value)), total: 100)
                 .tint(tint)
         }
+    }
+}
+
+private struct StatusLine: View {
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .lineLimit(1)
+        }
+        .font(.caption)
     }
 }

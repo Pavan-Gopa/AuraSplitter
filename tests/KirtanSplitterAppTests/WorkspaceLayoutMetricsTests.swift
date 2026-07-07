@@ -8,7 +8,7 @@ final class WorkspaceLayoutMetricsTests: XCTestCase {
     }
 
     func testWorkspaceUsesSeparatedHeaderWithProminentSettingsToggle() {
-        XCTAssertEqual(WorkspaceLayoutMetrics.appHeaderHeight, 56)
+        XCTAssertEqual(WorkspaceLayoutMetrics.appHeaderHeight, 72)
         XCTAssertGreaterThanOrEqual(WorkspaceLayoutMetrics.settingsToggleButtonSize, 36)
     }
 

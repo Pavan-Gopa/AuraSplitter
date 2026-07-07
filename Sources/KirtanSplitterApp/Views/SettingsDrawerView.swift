@@ -16,16 +16,10 @@ struct SettingsDrawerView: View {
     }
 
     @ObservedObject var backend: BackendClient
-    @Binding var outputDirectory: URL?
+    @ObservedObject var processPresetStore: ProcessSettingsPresetStore
     @Binding var settings: SeparationSettings
-    @Binding var isDropTargeted: Bool
-
-    let sources: [BatchSourceItem]
-    let chooseFilesAction: ([URL]) -> Void
-    let chooseFolderAction: (URL) -> Void
-    let droppedURLAction: (URL) -> Void
-    let startAction: () -> Void
-    let cancelAction: () -> Void
+    @Binding var selectedProcessPresetID: String
+    let applyProcessPresetAction: (String) -> Void
     let closeAction: () -> Void
     @State private var selectedSection: Section = .process
 
@@ -53,16 +47,10 @@ struct SettingsDrawerView: View {
     private var processSection: some View {
         ControlPaneView(
             backend: backend,
-            outputDirectory: $outputDirectory,
+            processPresetStore: processPresetStore,
             settings: $settings,
-            isDropTargeted: $isDropTargeted,
-            sources: sources,
-            chooseFilesAction: chooseFilesAction,
-            chooseFolderAction: chooseFolderAction,
-            droppedURLAction: droppedURLAction,
-            startAction: startAction,
-            cancelAction: cancelAction,
-            showsHeader: false
+            selectedProcessPresetID: $selectedProcessPresetID,
+            applyProcessPresetAction: applyProcessPresetAction
         )
     }
 

@@ -17,7 +17,7 @@ enum AudioPreviewLayout {
 }
 
 enum WorkspaceLayoutMetrics {
-    static let appHeaderHeight: CGFloat = 56
+    static let appHeaderHeight: CGFloat = 72
     static let settingsToggleButtonSize: CGFloat = 38
     static let widgetRailWidth: CGFloat = 224
     static let settingsDrawerWidth: CGFloat = 370

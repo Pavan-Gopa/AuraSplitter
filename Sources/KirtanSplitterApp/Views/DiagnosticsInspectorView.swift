@@ -8,10 +8,7 @@ struct DiagnosticsInspectorView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
-                jobWidget
                 logWidget
-                resourceWidget
-                gpuWidget
                 modelCacheWidget
                 metricsWidget
             }
