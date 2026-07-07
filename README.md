@@ -36,6 +36,9 @@ MLX/Metal.
 - Output stems in FLAC or WAV.
 - Header-level run controls with a fixed Start / Cancel / Restart button,
   model preset picker, process-settings preset picker, and long progress meter.
+- Self-calibrating render-time estimate in the header. Completed runs are saved
+  locally and reused to estimate the next run for the selected model, process
+  preset, source duration, and GPU core count.
 - UVR/MDXC controls for RoFormer models:
   - segment size up to 4096,
   - overlap,
@@ -128,6 +131,24 @@ Persistent backend logs are written to:
 The log contains backend startup, request methods, progress events, model load
 activity, conversion messages, and any uncaught exceptions from the Python
 server.
+
+## Render Benchmarks
+
+Every successful separation records a local calibration sample in:
+
+```text
+~/Library/Application Support/KirtanSplitter/models/render_benchmarks.json
+```
+
+To deliberately benchmark one kirtan track across model presets and the
+`Fast 512`, `Heavy 1024`, and `Extreme 4096` process presets:
+
+```bash
+./script/benchmark_models.py /path/to/kirtan.wav --presets all --process-presets builtin.fast,builtin.heavy,builtin.extreme
+```
+
+This can take many hours and may download model files, so run it only on a
+track you intentionally choose for calibration.
 
 ## Tests
 

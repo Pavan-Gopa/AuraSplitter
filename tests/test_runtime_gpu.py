@@ -118,6 +118,20 @@ def test_model_cache_groups_include_available_models_that_are_not_downloaded(tmp
     assert groups["Kirtan Stems Pro"]["backend"] == "ONNX/CoreML"
 
 
+def test_model_cache_groups_include_every_header_preset_name(tmp_path):
+    from kirtan_backend.presets import PRESETS
+
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+
+    result = runtime.model_cache(str(model_dir))
+    sidebar_titles = {group["displayName"] for group in result["groups"]}
+    header_titles = {preset.title for preset in PRESETS.values()}
+
+    assert "Kirtan Clean Split" in sidebar_titles
+    assert header_titles.issubset(sidebar_titles)
+
+
 def test_model_cache_groups_ignore_config_only_files(tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()

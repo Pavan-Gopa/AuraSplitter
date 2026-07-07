@@ -47,6 +47,16 @@ final class ProcessSettingsPresetTests: XCTestCase {
         XCTAssertEqual(reloaded.preset(id: saved.id)?.snapshot.mdxcSegmentSize, 1024)
     }
 
+    func testBuiltInPresetsIncludeExtremeRenderPreset() {
+        let extreme = ProcessSettingsPreset.builtIn.first { $0.id == "builtin.extreme" }
+
+        XCTAssertEqual(extreme?.title, "Extreme 4096")
+        XCTAssertEqual(extreme?.snapshot.mdxcSegmentSize, 4096)
+        XCTAssertEqual(extreme?.snapshot.mdxcOverlap, 12)
+        XCTAssertEqual(extreme?.snapshot.mdxcBatchSize, 1)
+        XCTAssertTrue(extreme?.snapshot.mdxcOverrideModelSegmentSize == true)
+    }
+
     private func presetSettings(segmentSize: Int) -> SeparationSettings {
         var settings = SeparationSettings()
         settings.mdxcSegmentSize = segmentSize

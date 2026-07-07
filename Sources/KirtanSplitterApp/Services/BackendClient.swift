@@ -42,6 +42,7 @@ final class BackendClient: ObservableObject {
     @Published var runtimeStats: RuntimeSnapshot?
     @Published var modelCache: ModelCache?
     @Published var lastSummary: SeparationSummary?
+    @Published var renderEstimate: RenderEstimate?
     @Published var backendLogPath: String?
 
     private var process: Process?
@@ -273,7 +274,45 @@ final class BackendClient: ObservableObject {
         }
     }
 
-    func separate(inputURL: URL, outputDirectory: URL, settings: SeparationSettings) async throws -> SeparationSummary {
+    @discardableResult
+    func fetchRenderEstimate(
+        inputURL: URL,
+        durationSeconds: Double?,
+        settings: SeparationSettings,
+        processPreset: ProcessSettingsPreset?
+    ) async throws -> RenderEstimate {
+        var params: [String: Any] = [
+            "inputPath": inputURL.path,
+            "preset": settings.presetID,
+            "processPresetID": processPreset?.id ?? "builtin.default",
+            "processPresetTitle": processPreset?.title ?? "Default",
+            "mdxcSegmentSize": settings.mdxcSegmentSize,
+            "mdxcOverlap": settings.mdxcOverlap,
+            "mdxcBatchSize": settings.mdxcBatchSize,
+            "speedMode": settings.speedMode,
+        ]
+        if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {
+            params["modelFilename"] = modelOverride
+        }
+        if let durationSeconds, durationSeconds > 0 {
+            params["durationSeconds"] = durationSeconds
+        }
+        if let gpuCoreCount = runtimeStats?.gpu.gpuCoreCount {
+            params["gpuCoreCount"] = gpuCoreCount
+        }
+
+        let result = try await sendRequest(method: "render_estimate", params: params)
+        let estimate = try decodeObject(RenderEstimate.self, from: result)
+        renderEstimate = estimate
+        return estimate
+    }
+
+    func separate(
+        inputURL: URL,
+        outputDirectory: URL,
+        settings: SeparationSettings,
+        processPreset: ProcessSettingsPreset?
+    ) async throws -> SeparationSummary {
         guard !isCancelling else {
             throw BackendClientError.cancelled
         }
@@ -298,6 +337,8 @@ final class BackendClient: ObservableObject {
             "mdxcBatchSize": settings.mdxcBatchSize,
             "mdxcOverrideModelSegmentSize": settings.effectiveMDXCOverrideModelSegmentSize,
             "saveConvertedSafetensors": settings.saveConvertedSafetensors,
+            "processPresetID": processPreset?.id ?? "builtin.default",
+            "processPresetTitle": processPreset?.title ?? "Default",
         ]
         if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {
             params["modelFilename"] = modelOverride
@@ -325,6 +366,12 @@ final class BackendClient: ObservableObject {
         } else {
             modelCache = try? await fetchModelCache()
         }
+        _ = try? await fetchRenderEstimate(
+            inputURL: inputURL,
+            durationSeconds: nil,
+            settings: settings,
+            processPreset: processPreset
+        )
         return summary
     }
 

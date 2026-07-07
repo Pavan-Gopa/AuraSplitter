@@ -286,60 +286,96 @@ def model_cache_groups(model_dir: str) -> list[dict]:
     groups_by_id = {}
     for stem, paths in sorted(grouped.items(), key=lambda item: item[0].lower()):
         metadata = metadata_for_model_stem(stem) or {}
-        source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
-        converted = _first_path_with_suffix(paths, {".safetensors"})
-        config = _first_path_with_suffix(paths, {".yaml"})
-        source_removed = bool(source and _is_source_placeholder(source))
-        if converted is None and (source is None or source_removed):
+        group = _model_group_from_paths(stem=stem, paths=paths, metadata=metadata, include_empty=False)
+        if group is None:
             continue
-        source_bytes = 0 if source_removed or source is None else source.stat().st_size
-        converted_bytes = converted.stat().st_size if converted else 0
-        config_bytes = config.stat().st_size if config else 0
-        visible_files = [
-            _cache_file_entry(path)
-            for path in sorted(paths, key=lambda item: _group_file_sort_key(item))
-            if path.suffix.lower() != ".yaml" and not _is_source_placeholder(path)
-        ]
-
-        groups_by_id[stem] = _model_group(
-            stem=stem,
-            metadata=metadata,
-            converted=converted is not None,
-            has_source=source is not None and not source_removed,
-            source_removed=source_removed,
-            can_delete_source=bool(source and converted and config and not source_removed),
-            total_bytes=sum(path.stat().st_size for path in paths),
-            source_bytes=source_bytes,
-            converted_bytes=converted_bytes,
-            config_bytes=config_bytes,
-            source_path=str(source) if source and not source_removed else None,
-            converted_path=str(converted) if converted else None,
-            config_path=str(config) if config else None,
-            files=visible_files,
-        )
+        groups_by_id[stem] = group
 
     for metadata in model_library_metadata_entries():
         stem = metadata["id"]
         if stem in groups_by_id:
             continue
-        groups_by_id[stem] = _model_group(
+        groups_by_id[stem] = _model_group_from_paths(
             stem=stem,
+            paths=grouped.get(stem, []),
             metadata=metadata,
-            converted=False,
-            has_source=False,
-            source_removed=False,
-            can_delete_source=False,
-            total_bytes=0,
-            source_bytes=0,
-            converted_bytes=0,
-            config_bytes=0,
-            source_path=None,
-            converted_path=None,
-            config_path=None,
-            files=[],
+            include_empty=True,
         )
 
+    existing_titles = {group["displayName"] for group in groups_by_id.values()}
+    for preset_metadata in _header_preset_metadata_entries():
+        if preset_metadata["displayName"] in existing_titles:
+            continue
+        stem = preset_metadata["modelStem"]
+        group = _model_group_from_paths(
+            stem=stem,
+            paths=grouped.get(stem, []),
+            metadata=preset_metadata,
+            include_empty=True,
+            group_id=f"preset:{preset_metadata['presetID']}",
+        )
+        groups_by_id[group["id"]] = group
+        existing_titles.add(group["displayName"])
+
     return sorted(groups_by_id.values(), key=lambda item: item["displayName"].lower())
+
+
+def _model_group_from_paths(
+    stem: str,
+    paths: list[Path],
+    metadata: dict,
+    include_empty: bool,
+    group_id: str | None = None,
+) -> dict | None:
+    source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
+    converted = _first_path_with_suffix(paths, {".safetensors"})
+    config = _first_path_with_suffix(paths, {".yaml"})
+    source_removed = bool(source and _is_source_placeholder(source))
+    if not include_empty and converted is None and (source is None or source_removed):
+        return None
+    source_bytes = 0 if source_removed or source is None else source.stat().st_size
+    converted_bytes = converted.stat().st_size if converted else 0
+    config_bytes = config.stat().st_size if config else 0
+    visible_files = [
+        _cache_file_entry(path)
+        for path in sorted(paths, key=lambda item: _group_file_sort_key(item))
+        if path.suffix.lower() != ".yaml" and not _is_source_placeholder(path)
+    ]
+    group = _model_group(
+        stem=stem,
+        metadata=metadata,
+        converted=converted is not None,
+        has_source=source is not None and not source_removed,
+        source_removed=source_removed,
+        can_delete_source=bool(source and converted and config and not source_removed),
+        total_bytes=sum(path.stat().st_size for path in paths),
+        source_bytes=source_bytes,
+        converted_bytes=converted_bytes,
+        config_bytes=config_bytes,
+        source_path=str(source) if source and not source_removed else None,
+        converted_path=str(converted) if converted else None,
+        config_path=str(config) if config else None,
+        files=visible_files,
+    )
+    if group_id:
+        group["id"] = group_id
+    return group
+
+
+def _header_preset_metadata_entries() -> list[dict]:
+    from .presets import PRESETS
+
+    entries = []
+    for preset in PRESETS.values():
+        stem = Path(preset.model_filename).stem
+        metadata = dict(metadata_for_model_stem(stem) or {})
+        metadata["displayName"] = preset.title
+        metadata["summary"] = preset.summary
+        metadata["technicalName"] = metadata.get("technicalName") or preset.model_filename
+        metadata["modelStem"] = stem
+        metadata["presetID"] = preset.id
+        entries.append(metadata)
+    return entries
 
 
 def _model_group(

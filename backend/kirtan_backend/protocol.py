@@ -118,6 +118,15 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
                 raise ValueError("Missing required parameter: groupID")
             return response(request.id, engine.delete_model_group_source(str(group_id))), events
 
+        if request.method == "render_estimate":
+            preset_id = str(request.params.get("preset", "kirtan_pro"))
+            explicit_model = request.params.get("modelFilename")
+            if preset_id not in PRESETS and not explicit_model:
+                raise ValueError(f"Unknown preset: {preset_id}")
+
+            model_filename = resolve_model_filename(preset_id, explicit_model)
+            return response(request.id, engine.render_estimate(request.params, model_filename)), events
+
         if request.method == "separate":
             preset_id = str(request.params.get("preset", "kirtan_pro"))
             explicit_model = request.params.get("modelFilename")

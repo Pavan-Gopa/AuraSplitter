@@ -31,6 +31,8 @@ class SeparationJob:
     normalization: float = 0.9
     amplification: float = 0.0
     save_converted_safetensors: bool = True
+    process_preset_id: str = "builtin.default"
+    process_preset_title: str = "Default"
 
     @classmethod
     def from_params(cls, params: dict, model_filename: str) -> "SeparationJob":
@@ -74,4 +76,8 @@ class SeparationJob:
             normalization=float(params.get("normalization", 0.9)),
             amplification=float(params.get("amplification", 0.0)),
             save_converted_safetensors=bool(params.get("saveConvertedSafetensors", True)),
+            process_preset_id=str(params.get("processPresetID", params.get("process_preset_id", "builtin.default"))),
+            process_preset_title=str(
+                params.get("processPresetTitle", params.get("process_preset_title", "Default"))
+            ),
         )

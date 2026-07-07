@@ -21,6 +21,7 @@ from .model_catalog import (
     get_model_pack_entry,
 )
 from .onnx_backend import DemucsOnnxBackend, onnx_runtime_status
+from .render_estimates import estimate_render_time, record_render_benchmark
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
@@ -136,6 +137,23 @@ class MlxSeparatorEngine:
 
     def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
         return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins)
+
+    def render_estimate(self, params: dict, model_filename: str) -> dict:
+        duration_seconds = params.get("durationSeconds") or params.get("duration_seconds")
+        if duration_seconds in (None, "", 0, "0"):
+            input_path = params.get("inputPath") or params.get("path")
+            duration_seconds = self._audio_duration_seconds(Path(str(input_path)).expanduser()) if input_path else None
+        process_preset_id = str(params.get("processPresetID", params.get("process_preset_id", "builtin.default")))
+        gpu_core_count = params.get("gpuCoreCount", params.get("gpu_core_count"))
+        if gpu_core_count in (None, "", 0, "0"):
+            gpu_core_count = self._gpu_core_count()
+        return estimate_render_time(
+            self.model_dir,
+            model_filename=model_filename,
+            process_preset_id=process_preset_id,
+            audio_duration_seconds=duration_seconds or 0,
+            gpu_core_count=gpu_core_count,
+        )
 
     def cancel_current(self, reason: str = "User cancelled current operation") -> dict:
         self._cancel_reason = reason
@@ -256,6 +274,7 @@ class MlxSeparatorEngine:
             )
 
         elapsed = time.perf_counter() - started
+        self._record_render_benchmark(job, input_path, elapsed)
         files = [self._file_result(path) for path in output_files]
         missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
         if missing_files:
@@ -503,6 +522,7 @@ class MlxSeparatorEngine:
             raise RuntimeError("ONNX/CoreML backend completed but did not create any output stems.")
 
         elapsed = time.perf_counter() - started
+        self._record_render_benchmark(job, input_path, elapsed)
         files = [self._file_result(path) for path in output_files]
         missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
         if missing_files:
@@ -545,3 +565,63 @@ class MlxSeparatorEngine:
             return match.group(1).strip().lower().replace(" ", "_")
         suffix = path.stem.split("_")[-1]
         return suffix.strip().lower().replace(" ", "_")
+
+    def _record_render_benchmark(self, job: SeparationJob, input_path: Path, elapsed_seconds: float) -> None:
+        duration_seconds = self._audio_duration_seconds(input_path)
+        if not duration_seconds:
+            self.logger.info("Skipping render benchmark because audio duration is unavailable: %s", input_path)
+            return
+        try:
+            record_render_benchmark(
+                self.model_dir,
+                {
+                    "modelFilename": job.model_filename,
+                    "modelPresetID": job.preset,
+                    "processPresetID": job.process_preset_id,
+                    "processPresetTitle": job.process_preset_title,
+                    "elapsedSeconds": elapsed_seconds,
+                    "audioDurationSeconds": duration_seconds,
+                    "gpuCoreCount": self._gpu_core_count(),
+                    "settings": {
+                        "chunkDuration": job.chunk_duration,
+                        "mdxcSegmentSize": job.mdxc_segment_size,
+                        "mdxcOverlap": job.mdxc_overlap,
+                        "mdxcBatchSize": job.mdxc_batch_size,
+                        "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
+                        "speedMode": job.speed_mode,
+                        "outputFormat": job.output_format,
+                    },
+                },
+            )
+        except Exception as exc:
+            self.logger.warning("Failed to record render benchmark: %s", exc)
+
+    def _audio_duration_seconds(self, input_path: Path) -> float | None:
+        try:
+            completed = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(input_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            duration = float(completed.stdout.strip())
+        except (subprocess.CalledProcessError, ValueError, OSError):
+            return None
+        return duration if duration > 0 else None
+
+    def _gpu_core_count(self) -> int | None:
+        try:
+            value = self.runtime_stats().get("gpu", {}).get("gpuCoreCount")
+            core_count = int(value)
+        except (TypeError, ValueError):
+            return None
+        return core_count if core_count > 0 else None

@@ -31,6 +31,7 @@ struct ContentView: View {
                     processPresetID: processPresetIDBinding,
                     modelPresets: backend.presets,
                     processPresets: processPresetStore.presets,
+                    renderEstimate: backend.renderEstimate,
                     hasSelectedSources: hasSelectedSources,
                     isSettingsSidebarOpen: isSettingsSidebarOpen,
                     primaryAction: performPrimaryProcessAction,
@@ -70,6 +71,9 @@ struct ContentView: View {
         .task {
             isSettingsSidebarOpen = false
             await startBackend()
+        }
+        .task(id: renderEstimateRefreshKey) {
+            await refreshRenderEstimate()
         }
         .onAppear {
             guard !didInitializeLayout else { return }
@@ -204,9 +208,57 @@ struct ContentView: View {
         sources.contains { $0.isSelectedForProcessing }
     }
 
+    private var selectedProcessPreset: ProcessSettingsPreset? {
+        processPresetStore.preset(id: selectedProcessPresetID)
+    }
+
+    private var renderEstimateSource: BatchSourceItem? {
+        sources.first { $0.isSelectedForProcessing } ?? sources.first
+    }
+
+    private var renderEstimateRefreshKey: String {
+        guard backend.isReady, let source = renderEstimateSource else {
+            return "not-ready"
+        }
+        let durationKey = source.analysis.map { String(format: "%.2f", $0.durationSeconds) } ?? "duration-pending"
+        return [
+            source.url.path,
+            durationKey,
+            settings.presetID,
+            settings.modelOverride ?? "",
+            selectedProcessPresetID,
+            "\(settings.mdxcSegmentSize)",
+            "\(settings.mdxcOverlap)",
+            "\(settings.mdxcBatchSize)",
+            settings.speedMode,
+            backend.isBusy ? "busy" : "idle",
+        ].joined(separator: "|")
+    }
+
     private func applyProcessPreset(_ presetID: String) {
         guard let preset = processPresetStore.preset(id: presetID) else { return }
         preset.snapshot.apply(to: &settings)
+    }
+
+    @MainActor
+    private func refreshRenderEstimate() async {
+        guard backend.isReady, !backend.isBusy, let source = renderEstimateSource else {
+            if sources.isEmpty {
+                backend.renderEstimate = nil
+            }
+            return
+        }
+
+        do {
+            _ = try await backend.fetchRenderEstimate(
+                inputURL: source.url,
+                durationSeconds: source.analysis?.durationSeconds,
+                settings: settings,
+                processPreset: selectedProcessPreset
+            )
+        } catch {
+            backend.renderEstimate = nil
+        }
     }
 
     private func loadInputFiles(_ urls: [URL]) {
@@ -417,7 +469,8 @@ struct ContentView: View {
                     let nextSummary = try await backend.separate(
                         inputURL: source.url,
                         outputDirectory: outputDir,
-                        settings: sourceSettings
+                        settings: sourceSettings,
+                        processPreset: selectedProcessPreset
                     )
                     await MainActor.run {
                         upsertResultGroup(sourceURL: source.url, summary: nextSummary)
@@ -535,6 +588,7 @@ private struct AppHeaderView: View {
     @Binding var processPresetID: String
     let modelPresets: [SeparationPreset]
     let processPresets: [ProcessSettingsPreset]
+    let renderEstimate: RenderEstimate?
     let hasSelectedSources: Bool
     let isSettingsSidebarOpen: Bool
     let primaryAction: () -> Void
@@ -590,12 +644,25 @@ private struct AppHeaderView: View {
                         .font(.caption.weight(.semibold))
                         .lineLimit(1)
                     Spacer(minLength: 8)
+                    if let renderEstimate {
+                        Text(renderEstimate.displayText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(renderEstimate.isCalibrated ? .green : .secondary)
+                            .lineLimit(1)
+                            .help(renderEstimate.detailText)
+                    }
                     Text("\(Int(backend.progress * 100))%")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 ProgressView(value: backend.progress)
                     .tint(progressTint)
+                if let renderEstimate {
+                    Text(renderEstimate.detailText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(minWidth: 260, maxWidth: .infinity)
 

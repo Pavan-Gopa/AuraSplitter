@@ -80,3 +80,37 @@ struct RunSettings: Codable {
     let mdxcOverrideModelSegmentSize: Bool?
     let speedMode: String?
 }
+
+struct RenderEstimate: Codable, Equatable {
+    let status: String
+    let reason: String?
+    let modelFilename: String
+    let processPresetID: String
+    let estimatedSeconds: Double?
+    let audioDurationSeconds: Double?
+    let sampleCount: Int
+    let baselineGpuCoreCount: Int?
+    let targetGpuCoreCount: Int?
+    let secondsPerAudioSecond: Double?
+
+    var isCalibrated: Bool {
+        status == "calibrated" && estimatedSeconds != nil
+    }
+
+    var displayText: String {
+        guard let estimatedSeconds, isCalibrated else {
+            return "Estimate pending"
+        }
+        return "Est. \(FileHelpers.formattedDuration(estimatedSeconds))"
+    }
+
+    var detailText: String {
+        guard isCalibrated else {
+            return "Run once to calibrate"
+        }
+        if let baselineGpuCoreCount, let targetGpuCoreCount {
+            return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples") - \(baselineGpuCoreCount) -> \(targetGpuCoreCount) GPU cores"
+        }
+        return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples")"
+    }
+}

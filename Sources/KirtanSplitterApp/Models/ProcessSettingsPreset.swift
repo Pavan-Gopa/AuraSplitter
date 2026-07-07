@@ -60,6 +60,12 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
             snapshot: ProcessSettingsSnapshot(settings: heavySettings),
             isBuiltIn: true
         ),
+        ProcessSettingsPreset(
+            id: "builtin.extreme",
+            title: "Extreme 4096",
+            snapshot: ProcessSettingsSnapshot(settings: extremeSettings),
+            isBuiltIn: true
+        ),
     ]
 
     private static var fastSettings: SeparationSettings {
@@ -76,6 +82,16 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.mdxcSegmentSize = 1024
         settings.mdxcOverlap = 10
         settings.mdxcBatchSize = 2
+        settings.speedMode = "latency_safe_v3"
+        return settings
+    }
+
+    private static var extremeSettings: SeparationSettings {
+        var settings = SeparationSettings()
+        settings.mdxcSegmentSize = 4096
+        settings.mdxcOverlap = 12
+        settings.mdxcBatchSize = 1
+        settings.mdxcOverrideModelSegmentSize = true
         settings.speedMode = "latency_safe_v3"
         return settings
     }

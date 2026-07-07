@@ -19,6 +19,7 @@ from kirtan_backend.server import should_restart_after_cancel
 class FakeEngine:
     def __init__(self):
         self.calls = []
+        self.estimate_calls = []
         self.last_model_limit = None
         self.cancel_reason = None
 
@@ -124,6 +125,15 @@ class FakeEngine:
             ],
             "elapsedSeconds": 1.25,
             "model": job.model_filename,
+        }
+
+    def render_estimate(self, params, model_filename):
+        self.estimate_calls.append((params, model_filename))
+        return {
+            "status": "calibrated",
+            "estimatedSeconds": 123.0,
+            "modelFilename": model_filename,
+            "processPresetID": params.get("processPresetID"),
         }
 
     def cancel_current(self, reason):
@@ -245,6 +255,8 @@ def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
             "mdxcOverlap": 10,
             "mdxcBatchSize": 2,
             "mdxcOverrideModelSegmentSize": True,
+            "processPresetID": "builtin.heavy",
+            "processPresetTitle": "Heavy 1024",
         },
     )
 
@@ -262,6 +274,32 @@ def test_separate_uses_preset_model_and_emits_progress_events(tmp_path):
     assert engine.calls[0].mdxc_overlap == 10
     assert engine.calls[0].mdxc_batch_size == 2
     assert engine.calls[0].mdxc_override_model_segment_size is True
+    assert engine.calls[0].process_preset_id == "builtin.heavy"
+    assert engine.calls[0].process_preset_title == "Heavy 1024"
+
+
+def test_render_estimate_resolves_preset_model_and_forwards_params():
+    engine = FakeEngine()
+    request = BackendRequest(
+        id="r-estimate",
+        method="render_estimate",
+        params={
+            "preset": "kirtan_pro",
+            "processPresetID": "builtin.fast",
+            "durationSeconds": 2700,
+            "gpuCoreCount": 10,
+        },
+    )
+
+    response, events = handle_request(request, engine=engine)
+
+    assert events == []
+    assert response["type"] == "response"
+    assert response["result"]["status"] == "calibrated"
+    assert response["result"]["estimatedSeconds"] == 123.0
+    assert response["result"]["modelFilename"] == "BS-Roformer-SW.ckpt"
+    assert engine.estimate_calls[0][1] == "BS-Roformer-SW.ckpt"
+    assert engine.estimate_calls[0][0]["processPresetID"] == "builtin.fast"
 
 
 def test_separate_accepts_snake_case_mdxc_parameters(tmp_path):
