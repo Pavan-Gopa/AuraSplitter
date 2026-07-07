@@ -21,31 +21,39 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            HStack(spacing: 0) {
-                mainWorkspace
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                AppHeaderView(
+                    backend: backend,
+                    isSettingsSidebarOpen: isSettingsSidebarOpen,
+                    settingsAction: toggleSettingsSidebar
+                )
+                .frame(height: WorkspaceLayoutMetrics.appHeaderHeight)
 
-                if isSettingsSidebarOpen {
-                    Divider()
-                    SettingsDrawerView(
-                        backend: backend,
-                        outputDirectory: $outputDirectory,
-                        settings: $settings,
-                        isDropTargeted: $isDropTargeted,
-                        sources: sources,
-                        chooseFilesAction: loadInputFiles,
-                        chooseFolderAction: loadInputFolder,
-                        droppedURLAction: handleDroppedURL,
-                        startAction: startBatchSeparation,
-                        closeAction: {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                isSettingsSidebarOpen = false
-                            }
-                        }
-                    )
-                    .frame(width: WorkspaceLayoutMetrics.settingsDrawerWidth)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                Divider()
+
+                HStack(spacing: 0) {
+                    mainWorkspace
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if isSettingsSidebarOpen {
+                        Divider()
+                        SettingsDrawerView(
+                            backend: backend,
+                            outputDirectory: $outputDirectory,
+                            settings: $settings,
+                            isDropTargeted: $isDropTargeted,
+                            sources: sources,
+                            chooseFilesAction: loadInputFiles,
+                            chooseFolderAction: loadInputFolder,
+                            droppedURLAction: handleDroppedURL,
+                            startAction: startBatchSeparation,
+                            closeAction: closeSettingsSidebar
+                        )
+                        .frame(width: WorkspaceLayoutMetrics.settingsDrawerWidth)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
 
@@ -117,17 +125,11 @@ struct ContentView: View {
             WorkspaceWidgetRailView(
                 backend: backend,
                 sources: sources,
-                isSettingsSidebarOpen: isSettingsSidebarOpen,
                 isDropTargeted: $isDropTargeted,
                 chooseFilesAction: loadInputFiles,
                 chooseFolderAction: loadInputFolder,
                 droppedURLAction: handleDroppedURL,
-                startAction: startBatchSeparation,
-                settingsAction: {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        isSettingsSidebarOpen.toggle()
-                    }
-                }
+                startAction: startBatchSeparation
             )
             .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
 
@@ -155,6 +157,18 @@ struct ContentView: View {
             analyzeLoadedSources()
         } catch {
             backend.errorMessage = error.localizedDescription
+        }
+    }
+
+    private func toggleSettingsSidebar() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isSettingsSidebarOpen.toggle()
+        }
+    }
+
+    private func closeSettingsSidebar() {
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isSettingsSidebarOpen = false
         }
     }
 
@@ -436,6 +450,86 @@ struct ContentView: View {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
         return isDirectory.boolValue
+    }
+}
+
+private struct AppHeaderView: View {
+    @ObservedObject var backend: BackendClient
+    let isSettingsSidebarOpen: Bool
+    let settingsAction: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppLogoView()
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("KirtanSplitter")
+                    .font(.headline.weight(.semibold))
+                    .lineLimit(1)
+                Text(statusText)
+                    .font(.caption2)
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 16)
+
+            Button(action: settingsAction) {
+                Image(systemName: "sidebar.trailing")
+                    .symbolVariant(isSettingsSidebarOpen ? .fill : .none)
+                    .frame(
+                        width: WorkspaceLayoutMetrics.settingsToggleButtonSize,
+                        height: WorkspaceLayoutMetrics.settingsToggleButtonSize
+                    )
+            }
+            .buttonStyle(SettingsSidebarToggleButtonStyle(isActive: isSettingsSidebarOpen))
+            .help(isSettingsSidebarOpen ? "Hide settings sidebar" : "Show settings sidebar")
+            .accessibilityLabel(isSettingsSidebarOpen ? "Hide settings sidebar" : "Show settings sidebar")
+        }
+        .padding(.horizontal, 18)
+        .background(.thinMaterial)
+    }
+
+    private var statusText: String {
+        if backend.isProcessing {
+            return "\(Int(backend.progress * 100))% - \(backend.currentStage)"
+        }
+        return backend.isReady ? "Ready" : "Starting backend"
+    }
+
+    private var statusColor: Color {
+        if backend.isProcessing {
+            return .orange
+        }
+        return backend.isReady ? .green : .orange
+    }
+}
+
+private struct SettingsSidebarToggleButtonStyle: ButtonStyle {
+    let isActive: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(isActive ? Color.white : Color.primary)
+            .background(backgroundColor(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(isActive ? Color.orange.opacity(0.75) : Color.secondary.opacity(0.25), lineWidth: 1)
+            }
+            .shadow(color: isActive ? Color.orange.opacity(0.24) : Color.clear, radius: 8, y: 2)
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.snappy(duration: 0.14), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.18), value: isActive)
+    }
+
+    private func backgroundColor(isPressed: Bool) -> Color {
+        if isActive {
+            return isPressed ? Color.orange.opacity(0.82) : Color.orange.opacity(0.70)
+        }
+        return isPressed ? Color.secondary.opacity(0.18) : Color.secondary.opacity(0.10)
     }
 }
 

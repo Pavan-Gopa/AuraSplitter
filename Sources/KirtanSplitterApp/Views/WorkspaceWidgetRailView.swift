@@ -5,17 +5,14 @@ import UniformTypeIdentifiers
 struct WorkspaceWidgetRailView: View {
     @ObservedObject var backend: BackendClient
     let sources: [BatchSourceItem]
-    let isSettingsSidebarOpen: Bool
     @Binding var isDropTargeted: Bool
     let chooseFilesAction: ([URL]) -> Void
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
     let startAction: () -> Void
-    let settingsAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
             importWidget
             processWidget
             systemWidget
@@ -23,27 +20,6 @@ struct WorkspaceWidgetRailView: View {
         }
         .padding(14)
         .background(.thinMaterial)
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            AppLogoView()
-            VStack(alignment: .leading, spacing: 1) {
-                Text("KirtanSplitter")
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(1)
-                Text(backend.isReady ? "Ready" : "Starting")
-                    .font(.caption2)
-                    .foregroundStyle(backend.isReady ? .green : .orange)
-            }
-            Spacer(minLength: 4)
-            Button(action: settingsAction) {
-                Image(systemName: isSettingsSidebarOpen ? "sidebar.trailing" : "slider.horizontal.3")
-                    .frame(width: 26, height: 26)
-            }
-            .buttonStyle(.borderless)
-            .help(isSettingsSidebarOpen ? "Hide settings" : "Show settings")
-        }
     }
 
     private var importWidget: some View {

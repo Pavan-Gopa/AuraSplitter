@@ -7,6 +7,11 @@ final class WorkspaceLayoutMetricsTests: XCTestCase {
         XCTAssertEqual(WorkspaceLayoutMetrics.settingsDrawerWidth, 370)
     }
 
+    func testWorkspaceUsesSeparatedHeaderWithProminentSettingsToggle() {
+        XCTAssertEqual(WorkspaceLayoutMetrics.appHeaderHeight, 56)
+        XCTAssertGreaterThanOrEqual(WorkspaceLayoutMetrics.settingsToggleButtonSize, 36)
+    }
+
     func testPreviewAreaDefaultsToHalfOfMainWorkspace() {
         XCTAssertEqual(WorkspaceLayoutMetrics.defaultPreviewFraction, 0.50)
     }
