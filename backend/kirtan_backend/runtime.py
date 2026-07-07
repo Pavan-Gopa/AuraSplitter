@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .model_catalog import metadata_for_model_stem
+from .model_catalog import metadata_for_model_stem, model_library_metadata_entries
 
 
 MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth", ".yaml", ".safetensors"}
@@ -276,15 +276,14 @@ def delete_model_group_source(model_dir: str, group_id: str) -> dict:
 
 def model_cache_groups(model_dir: str) -> list[dict]:
     root = Path(model_dir).expanduser()
-    if not root.exists():
-        return []
 
     grouped: dict[str, list[Path]] = {}
-    for path in root.iterdir():
-        if path.is_file() and path.suffix.lower() in MODEL_SUFFIXES:
-            grouped.setdefault(path.stem, []).append(path)
+    if root.exists():
+        for path in root.iterdir():
+            if path.is_file() and path.suffix.lower() in MODEL_SUFFIXES:
+                grouped.setdefault(path.stem, []).append(path)
 
-    groups = []
+    groups_by_id = {}
     for stem, paths in sorted(grouped.items(), key=lambda item: item[0].lower()):
         metadata = metadata_for_model_stem(stem) or {}
         source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
@@ -302,31 +301,95 @@ def model_cache_groups(model_dir: str) -> list[dict]:
             if path.suffix.lower() != ".yaml" and not _is_source_placeholder(path)
         ]
 
-        groups.append(
-            {
-                "id": stem,
-                "displayName": metadata.get("displayName", stem),
-                "technicalName": metadata.get("technicalName"),
-                "architecture": metadata.get("architecture"),
-                "backend": metadata.get("backend"),
-                "license": metadata.get("license"),
-                "sourceURL": metadata.get("sourceURL"),
-                "summary": metadata.get("summary"),
-                "converted": converted is not None,
-                "hasSource": source is not None and not source_removed,
-                "sourceRemoved": source_removed,
-                "canDeleteSource": bool(source and converted and config and not source_removed),
-                "totalBytes": sum(path.stat().st_size for path in paths),
-                "sourceBytes": source_bytes,
-                "convertedBytes": converted_bytes,
-                "configBytes": config_bytes,
-                "sourcePath": str(source) if source and not source_removed else None,
-                "convertedPath": str(converted) if converted else None,
-                "configPath": str(config) if config else None,
-                "files": visible_files,
-            }
+        groups_by_id[stem] = _model_group(
+            stem=stem,
+            metadata=metadata,
+            converted=converted is not None,
+            has_source=source is not None and not source_removed,
+            source_removed=source_removed,
+            can_delete_source=bool(source and converted and config and not source_removed),
+            total_bytes=sum(path.stat().st_size for path in paths),
+            source_bytes=source_bytes,
+            converted_bytes=converted_bytes,
+            config_bytes=config_bytes,
+            source_path=str(source) if source and not source_removed else None,
+            converted_path=str(converted) if converted else None,
+            config_path=str(config) if config else None,
+            files=visible_files,
         )
-    return groups
+
+    for metadata in model_library_metadata_entries():
+        stem = metadata["id"]
+        if stem in groups_by_id:
+            continue
+        groups_by_id[stem] = _model_group(
+            stem=stem,
+            metadata=metadata,
+            converted=False,
+            has_source=False,
+            source_removed=False,
+            can_delete_source=False,
+            total_bytes=0,
+            source_bytes=0,
+            converted_bytes=0,
+            config_bytes=0,
+            source_path=None,
+            converted_path=None,
+            config_path=None,
+            files=[],
+        )
+
+    return sorted(groups_by_id.values(), key=lambda item: item["displayName"].lower())
+
+
+def _model_group(
+    stem: str,
+    metadata: dict,
+    converted: bool,
+    has_source: bool,
+    source_removed: bool,
+    can_delete_source: bool,
+    total_bytes: int,
+    source_bytes: int,
+    converted_bytes: int,
+    config_bytes: int,
+    source_path: str | None,
+    converted_path: str | None,
+    config_path: str | None,
+    files: list[dict],
+) -> dict:
+    if converted:
+        local_state = "installed"
+    elif has_source:
+        local_state = "downloaded"
+    elif source_removed:
+        local_state = "source_removed"
+    else:
+        local_state = "not_downloaded"
+
+    return {
+        "id": stem,
+        "displayName": metadata.get("displayName", stem),
+        "technicalName": metadata.get("technicalName"),
+        "architecture": metadata.get("architecture"),
+        "backend": metadata.get("backend"),
+        "license": metadata.get("license"),
+        "sourceURL": metadata.get("sourceURL"),
+        "summary": metadata.get("summary"),
+        "localState": local_state,
+        "converted": converted,
+        "hasSource": has_source,
+        "sourceRemoved": source_removed,
+        "canDeleteSource": can_delete_source,
+        "totalBytes": total_bytes,
+        "sourceBytes": source_bytes,
+        "convertedBytes": converted_bytes,
+        "configBytes": config_bytes,
+        "sourcePath": source_path,
+        "convertedPath": converted_path,
+        "configPath": config_path,
+        "files": files,
+    }
 
 
 def model_cache_items(model_dir: str) -> list[dict]:

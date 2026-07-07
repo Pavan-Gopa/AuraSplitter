@@ -161,7 +161,7 @@ struct DiagnosticsInspectorView: View {
                 .font(.caption)
 
                 if !modelCacheGroups.isEmpty {
-                    ForEach(Array(modelCacheGroups.prefix(7))) { group in
+                    ForEach(modelCacheGroups) { group in
                         HStack(spacing: 8) {
                             Image(systemName: group.converted ? "checkmark.seal.fill" : "shippingbox")
                                 .foregroundStyle(group.converted ? .green : .secondary)
@@ -349,6 +349,10 @@ struct DiagnosticsInspectorView: View {
         var parts: [String] = []
         if group.converted {
             parts.append("converted \(FileHelpers.formattedBytes(group.convertedBytes))")
+        } else if group.localState == "not_downloaded" {
+            parts.append("not downloaded")
+        } else if group.localState == "downloaded" {
+            parts.append("downloaded")
         }
         if group.hasSource {
             parts.append("source \(FileHelpers.formattedBytes(group.sourceBytes))")

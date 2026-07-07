@@ -72,6 +72,7 @@ struct ModelCacheGroup: Identifiable, Codable, Equatable {
     let license: String?
     let sourceURL: String?
     let summary: String?
+    let localState: String?
     let converted: Bool
     let hasSource: Bool
     let sourceRemoved: Bool

@@ -57,6 +57,8 @@ MLX/Metal.
 - Right-side diagnostics inspector:
   - persistent backend log path,
   - installed model groups backed by converted `.safetensors`,
+  - full model library entries, including not-yet-downloaded models with source,
+    architecture, backend, license, and purpose metadata,
   - confirmable source-checkpoint deletion after conversion,
   - last-run UVR parameters and decode / inference / write timings.
 - Compact left widgets show input count plus backend, CPU, memory, GPU, and model

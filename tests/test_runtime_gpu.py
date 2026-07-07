@@ -69,15 +69,15 @@ def test_model_cache_groups_hide_config_files_and_report_installed_model(tmp_pat
 
     result = runtime.model_cache(str(model_dir))
 
-    assert result["groups"][0]["id"] == "BS-Roformer-SW"
-    assert result["groups"][0]["converted"] is True
-    assert result["groups"][0]["hasSource"] is True
-    assert result["groups"][0]["sourceRemoved"] is False
-    assert result["groups"][0]["canDeleteSource"] is True
-    assert result["groups"][0]["sourceBytes"] == len(b"source-checkpoint")
-    assert result["groups"][0]["convertedBytes"] == len(b"converted-weights")
-    assert result["groups"][0]["configBytes"] == config.stat().st_size
-    assert [file["kind"] for file in result["groups"][0]["files"]] == ["checkpoint", "converted"]
+    group = {item["id"]: item for item in result["groups"]}["BS-Roformer-SW"]
+    assert group["converted"] is True
+    assert group["hasSource"] is True
+    assert group["sourceRemoved"] is False
+    assert group["canDeleteSource"] is True
+    assert group["sourceBytes"] == len(b"source-checkpoint")
+    assert group["convertedBytes"] == len(b"converted-weights")
+    assert group["configBytes"] == config.stat().st_size
+    assert [file["kind"] for file in group["files"]] == ["checkpoint", "converted"]
 
 
 def test_model_cache_groups_attach_catalog_metadata_for_sidebar_details(tmp_path):
@@ -92,7 +92,7 @@ def test_model_cache_groups_attach_catalog_metadata_for_sidebar_details(tmp_path
 
     result = runtime.model_cache(str(model_dir))
 
-    group = result["groups"][0]
+    group = {item["displayName"]: item for item in result["groups"]}["Kirtan Vocal Pro"]
     assert group["displayName"] == "Kirtan Vocal Pro"
     assert group["technicalName"] == "HyperACE v2 Vocal"
     assert group["architecture"] == "BS-RoFormer"
@@ -100,6 +100,22 @@ def test_model_cache_groups_attach_catalog_metadata_for_sidebar_details(tmp_path
     assert group["license"]
     assert group["sourceURL"] == "https://huggingface.co/pcunwa/BS-Roformer-HyperACE"
     assert group["summary"]
+    assert group["localState"] == "installed"
+
+
+def test_model_cache_groups_include_available_models_that_are_not_downloaded(tmp_path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+
+    result = runtime.model_cache(str(model_dir))
+    groups = {group["displayName"]: group for group in result["groups"]}
+
+    assert groups["Kirtan Vocal Elite"]["technicalName"] == "Leap Xe Vocal"
+    assert groups["Kirtan Vocal Elite"]["converted"] is False
+    assert groups["Kirtan Vocal Elite"]["hasSource"] is False
+    assert groups["Kirtan Vocal Elite"]["localState"] == "not_downloaded"
+    assert groups["Kirtan Vocal Elite"]["totalBytes"] == 0
+    assert groups["Kirtan Stems Pro"]["backend"] == "ONNX/CoreML"
 
 
 def test_model_cache_groups_ignore_config_only_files(tmp_path):
@@ -109,7 +125,7 @@ def test_model_cache_groups_ignore_config_only_files(tmp_path):
 
     result = runtime.model_cache(str(model_dir))
 
-    assert result["groups"] == []
+    assert all(group["id"] != "orphan" for group in result["groups"])
 
 
 def test_delete_model_group_source_replaces_checkpoint_with_placeholder(tmp_path):
@@ -129,7 +145,7 @@ def test_delete_model_group_source_replaces_checkpoint_with_placeholder(tmp_path
     assert checkpoint.stat().st_size < len(source_bytes)
     assert converted.exists()
     assert config.exists()
-    group = result["groups"][0]
+    group = {item["id"]: item for item in result["groups"]}["BS-Roformer-SW"]
     assert group["id"] == "BS-Roformer-SW"
     assert group["converted"] is True
     assert group["hasSource"] is False

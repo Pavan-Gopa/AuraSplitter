@@ -434,16 +434,34 @@ def display_name_for_model(filename: str) -> str | None:
 def metadata_for_model_stem(stem: str) -> dict | None:
     entry = MODEL_PACK_BY_STEM.get(stem)
     if entry:
-        return {
-            "displayName": entry.title,
-            "technicalName": entry.technical_name,
-            "architecture": entry.architecture,
-            "backend": entry.backend_label,
-            "license": entry.license,
-            "sourceURL": entry.source_url,
-            "summary": entry.summary,
-        }
+        return _metadata_for_entry(Path(entry.filename).stem, entry)
     return BUILTIN_MODEL_METADATA.get(stem)
+
+
+def model_library_metadata_entries() -> list[dict]:
+    entries = [
+        {"id": stem, **metadata}
+        for stem, metadata in BUILTIN_MODEL_METADATA.items()
+    ]
+    entries.extend(
+        _metadata_for_entry(Path(entry.filename).stem, entry)
+        for entry in MODEL_PACK_ENTRIES
+        if entry.enabled
+    )
+    return entries
+
+
+def _metadata_for_entry(stem: str, entry: ModelCatalogEntry) -> dict:
+    return {
+        "id": stem,
+        "displayName": entry.title,
+        "technicalName": entry.technical_name,
+        "architecture": entry.architecture,
+        "backend": entry.backend_label,
+        "license": entry.license,
+        "sourceURL": entry.source_url,
+        "summary": entry.summary,
+    }
 
 
 def merge_model_pack(grouped: dict) -> dict:
