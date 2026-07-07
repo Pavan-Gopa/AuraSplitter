@@ -197,7 +197,9 @@ def test_list_presets_exposes_kirtan_focused_defaults():
         "demucs_onnx_stems",
     }.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
+    assert PRESETS["vocal_clean"].model_filename == "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
     assert PRESETS["viperx_vocal"].model_filename == "model_bs_roformer_ep_368_sdr_12.9628.ckpt"
+    assert PRESETS["vocal_clean"].model_filename != PRESETS["viperx_vocal"].model_filename
     assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
     assert PRESETS["hyperace_v2_vocal"].model_filename == "bs_roformer_voc_hyperacev2.ckpt"
 

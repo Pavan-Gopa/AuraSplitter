@@ -34,8 +34,8 @@ PRESETS: dict[str, SeparationPreset] = {
     "vocal_clean": SeparationPreset(
         id="vocal_clean",
         title="Kirtan Clean Split",
-        model_filename="model_bs_roformer_ep_368_sdr_12.9628.ckpt",
-        summary="High-quality BS-RoFormer vocal isolation for noisy live recordings.",
+        model_filename="model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        summary="BS-Roformer-Viperx-1297 vocal / instrumental split for clean vocal isolation.",
         expected_stems=("vocals", "instrumental"),
     ),
     "viperx_vocal": SeparationPreset(

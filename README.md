@@ -12,7 +12,7 @@ MLX/Metal.
 - MLX/Metal acceleration through `mlx-audio-separator`.
 - Presets for:
   - `Kirtan Pro`: `BS-Roformer-SW.ckpt` 6-stem split.
-  - `Kirtan Clean Split`: classic vocal / instrumental split.
+  - `Kirtan Clean Split`: ViperX 1297 vocal / instrumental split.
   - `Kirtan Vocal Classic`: ViperX 1296 vocal / instrumental split.
   - `Kirtan Karaoke Classic`: ViperX karaoke-style split.
   - `Kirtan Instrument Clean`: instrumental cleanup when vocal bleed remains.

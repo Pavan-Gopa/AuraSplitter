@@ -70,7 +70,7 @@ def _heartbeat_progress_value(
     return start + (end - start) * fraction
 
 UVR_MODEL_ALIASES = {
-    "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "Kirtan Vocal Classic 2",
+    "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "Kirtan Clean Split",
     "model_bs_roformer_ep_368_sdr_12.9628.ckpt": "Kirtan Vocal Classic",
     "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt": "Kirtan Karaoke Classic",
 }

@@ -130,6 +130,7 @@ def test_model_cache_groups_include_every_header_preset_name(tmp_path):
 
     assert "Kirtan Clean Split" in sidebar_titles
     assert header_titles.issubset(sidebar_titles)
+    assert {group["displayName"]: group for group in result["groups"]}["Kirtan Clean Split"]["technicalName"] == "BS-Roformer-Viperx-1297"
 
 
 def test_model_cache_groups_ignore_config_only_files(tmp_path):
