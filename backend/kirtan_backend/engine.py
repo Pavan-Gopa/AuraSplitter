@@ -14,6 +14,12 @@ from typing import Callable
 
 from .audio_analysis import analyze_audio
 from .jobs import SeparationJob
+from .model_catalog import (
+    attach_model_pack_to_separator,
+    display_name_for_model,
+    ensure_model_pack_assets,
+    get_model_pack_entry,
+)
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
@@ -96,6 +102,7 @@ class MlxSeparatorEngine:
         from mlx_audio_separator import Separator
 
         separator = Separator(info_only=True, model_file_dir=self.model_dir)
+        attach_model_pack_to_separator(separator)
         simplified = separator.get_simplified_model_list(filter_sort_by="filename")
         models: list[dict] = []
         for filename, info in simplified.items():
@@ -212,7 +219,7 @@ class MlxSeparatorEngine:
             stage="loading",
             message=self._model_load_message(job.model_filename),
             progress=progress,
-            work=lambda: separator.load_model(model_filename=job.model_filename),
+            work=lambda: self._load_model(separator, job.model_filename),
         )
 
         self._raise_if_cancelled()
@@ -412,6 +419,9 @@ class MlxSeparatorEngine:
             raise RuntimeError(f"Failed to restore mono output with ffmpeg: {message}") from exc
 
     def _is_model_downloaded(self, filename: str) -> bool:
+        entry = get_model_pack_entry(filename)
+        if entry:
+            return all((Path(self.model_dir) / asset.filename).is_file() for asset in entry.assets)
         stem = Path(filename).stem
         model_path = Path(self.model_dir) / filename
         if model_path.exists():
@@ -419,9 +429,15 @@ class MlxSeparatorEngine:
         return any(Path(self.model_dir).glob(f"{stem}*"))
 
     def _display_model_name(self, filename: str, fallback: str) -> str:
+        catalog_name = display_name_for_model(filename)
+        if catalog_name:
+            return catalog_name
         return UVR_MODEL_ALIASES.get(filename, fallback)
 
     def _model_load_message(self, filename: str) -> str:
+        entry = get_model_pack_entry(filename)
+        if entry and not self._is_model_downloaded(filename):
+            return f"Downloading {entry.title} model pack files"
         stem = Path(filename).stem
         model_path = Path(self.model_dir) / filename
         converted_path = Path(self.model_dir) / f"{stem}.safetensors"
@@ -430,6 +446,11 @@ class MlxSeparatorEngine:
         if model_path.exists():
             return "Converting model for MLX on first run"
         return "Downloading and converting model for MLX on first run"
+
+    def _load_model(self, separator, filename: str):
+        attach_model_pack_to_separator(separator)
+        ensure_model_pack_assets(filename, self.model_dir, self.logger)
+        return separator.load_model(model_filename=filename)
 
     def _file_result(self, path_value: str) -> dict:
         path = Path(path_value)

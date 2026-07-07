@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import kirtan_backend.engine as engine_module
+import kirtan_backend.model_catalog as model_catalog
 from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
@@ -172,10 +173,22 @@ def test_list_presets_exposes_kirtan_focused_defaults():
 
     presets = response["result"]["presets"]
     preset_ids = {preset["id"] for preset in presets}
-    assert {"kirtan_pro", "vocal_clean", "instrument_bleed", "viperx_vocal", "viperx_karaoke"}.issubset(preset_ids)
+    assert {
+        "kirtan_pro",
+        "vocal_clean",
+        "instrument_bleed",
+        "viperx_vocal",
+        "viperx_karaoke",
+        "hyperace_v2_vocal",
+        "leap_xe_vocal",
+        "lead_back_bve_gonza",
+        "drumsep_mdx23c_5stem",
+        "mega_lead_vocal",
+    }.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
     assert PRESETS["viperx_vocal"].model_filename == "model_bs_roformer_ep_368_sdr_12.9628.ckpt"
     assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
+    assert PRESETS["hyperace_v2_vocal"].model_filename == "bs_roformer_voc_hyperacev2.ckpt"
 
 
 def test_list_models_defaults_to_full_catalog_limit():
@@ -428,7 +441,18 @@ def test_unknown_method_returns_error():
     assert "Unknown method" in response["error"]
 
 
-@pytest.mark.parametrize("preset_id", ["kirtan_pro", "vocal_clean", "instrument_bleed"])
+@pytest.mark.parametrize(
+    "preset_id",
+    [
+        "kirtan_pro",
+        "vocal_clean",
+        "instrument_bleed",
+        "hyperace_v2_vocal",
+        "lead_back_bve_gonza",
+        "drumsep_mdx23c_5stem",
+        "mega_lead_vocal",
+    ],
+)
 def test_presets_have_user_visible_labels(preset_id):
     preset = PRESETS[preset_id]
 
@@ -626,6 +650,94 @@ def test_engine_list_models_applies_uvr_favorite_aliases(tmp_path, monkeypatch):
     names = {model["filename"]: model["name"] for model in models}
     assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "BS-Roformer-Viperx-1296"
     assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "MB-Ro-Kara-AuFR33-Viperx"
+
+
+def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
+    class CatalogAwareFakeSeparator:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def list_supported_model_files(self):
+            return {"MDXC": {}}
+
+        def get_simplified_model_list(self, filter_sort_by=None):
+            simplified = {}
+            for model_type, models in self.list_supported_model_files().items():
+                for name, info in models.items():
+                    simplified[info["filename"]] = {
+                        "Name": name,
+                        "Type": model_type,
+                        "Stems": info.get("stems", []),
+                        "SDR": {stem: None for stem in info.get("stems", [])},
+                    }
+            return simplified
+
+    _install_fake_separator(monkeypatch, CatalogAwareFakeSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+
+    models = engine.list_models(limit=500)
+
+    names = {model["filename"]: model["name"] for model in models}
+    assert names["bs_roformer_voc_hyperacev2.ckpt"] == "HyperACE v2 Vocal"
+    assert names["mel_band_roformer_bve_gonza.ckpt"] == "Lead / Back BVE Gonza"
+    assert "model_bs_polarformer_float16.ckpt" not in names
+
+
+def test_engine_downloads_model_pack_assets_before_loading(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+    downloaded = []
+
+    def fake_download(url, output_path, logger):
+        downloaded.append((url, output_path.name))
+        output_path.write_bytes(b"asset")
+
+    monkeypatch.setattr(model_catalog, "_download_asset", fake_download)
+
+    class FakeSeparator:
+        last_model_filename = None
+
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def list_supported_model_files(self):
+            return {"MDXC": {}}
+
+        def load_model(self, model_filename):
+            FakeSeparator.last_model_filename = model_filename
+            assert (model_dir / "bs_roformer_voc_hyperacev2.ckpt").is_file()
+            assert (model_dir / "bs_roformer_voc_hyperacev2.yaml").is_file()
+
+        def separate(self, audio_path):
+            output = self.output_dir / "stereo_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, FakeSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="bs_roformer_voc_hyperacev2.ckpt",
+            preset="hyperace_v2_vocal",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    assert FakeSeparator.last_model_filename == "bs_roformer_voc_hyperacev2.ckpt"
+    assert result["files"][0]["stem"] == "vocals"
+    assert {name for _url, name in downloaded} == {
+        "bs_roformer_voc_hyperacev2.ckpt",
+        "bs_roformer_voc_hyperacev2.yaml",
+    }
 
 
 def test_engine_reports_model_load_state_for_converted_and_first_run_models(tmp_path):

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .model_catalog import MODEL_PACK_BY_ID
+
 
 @dataclass(frozen=True)
 class SeparationPreset:
@@ -63,6 +65,97 @@ PRESETS: dict[str, SeparationPreset] = {
         model_filename="kuielab_a_drums.onnx",
         summary="Fast drum extraction fallback for tabla, pakhawaj, and percussion cleanup.",
         expected_stems=("drums", "no drums"),
+    ),
+    "hyperace_v2_vocal": SeparationPreset(
+        id="hyperace_v2_vocal",
+        title=MODEL_PACK_BY_ID["hyperace_v2_vocal"].title,
+        model_filename=MODEL_PACK_BY_ID["hyperace_v2_vocal"].filename,
+        summary=MODEL_PACK_BY_ID["hyperace_v2_vocal"].summary,
+        expected_stems=MODEL_PACK_BY_ID["hyperace_v2_vocal"].expected_stems,
+    ),
+    "hyperace_v2_instrumental": SeparationPreset(
+        id="hyperace_v2_instrumental",
+        title=MODEL_PACK_BY_ID["hyperace_v2_instrumental"].title,
+        model_filename=MODEL_PACK_BY_ID["hyperace_v2_instrumental"].filename,
+        summary=MODEL_PACK_BY_ID["hyperace_v2_instrumental"].summary,
+        expected_stems=MODEL_PACK_BY_ID["hyperace_v2_instrumental"].expected_stems,
+    ),
+    "leap_xe_vocal": SeparationPreset(
+        id="leap_xe_vocal",
+        title=MODEL_PACK_BY_ID["leap_xe_vocal"].title,
+        model_filename=MODEL_PACK_BY_ID["leap_xe_vocal"].filename,
+        summary=MODEL_PACK_BY_ID["leap_xe_vocal"].summary,
+        expected_stems=MODEL_PACK_BY_ID["leap_xe_vocal"].expected_stems,
+    ),
+    "leap_xe_instrumental": SeparationPreset(
+        id="leap_xe_instrumental",
+        title=MODEL_PACK_BY_ID["leap_xe_instrumental"].title,
+        model_filename=MODEL_PACK_BY_ID["leap_xe_instrumental"].filename,
+        summary=MODEL_PACK_BY_ID["leap_xe_instrumental"].summary,
+        expected_stems=MODEL_PACK_BY_ID["leap_xe_instrumental"].expected_stems,
+    ),
+    "becruily_deux": SeparationPreset(
+        id="becruily_deux",
+        title=MODEL_PACK_BY_ID["becruily_deux"].title,
+        model_filename=MODEL_PACK_BY_ID["becruily_deux"].filename,
+        summary=MODEL_PACK_BY_ID["becruily_deux"].summary,
+        expected_stems=MODEL_PACK_BY_ID["becruily_deux"].expected_stems,
+    ),
+    "lead_back_bve_gonza": SeparationPreset(
+        id="lead_back_bve_gonza",
+        title=MODEL_PACK_BY_ID["lead_back_bve_gonza"].title,
+        model_filename=MODEL_PACK_BY_ID["lead_back_bve_gonza"].filename,
+        summary=MODEL_PACK_BY_ID["lead_back_bve_gonza"].summary,
+        expected_stems=MODEL_PACK_BY_ID["lead_back_bve_gonza"].expected_stems,
+    ),
+    "lead_back_karaoke_anvuew": SeparationPreset(
+        id="lead_back_karaoke_anvuew",
+        title=MODEL_PACK_BY_ID["lead_back_karaoke_anvuew"].title,
+        model_filename=MODEL_PACK_BY_ID["lead_back_karaoke_anvuew"].filename,
+        summary=MODEL_PACK_BY_ID["lead_back_karaoke_anvuew"].summary,
+        expected_stems=MODEL_PACK_BY_ID["lead_back_karaoke_anvuew"].expected_stems,
+    ),
+    "drumsep_mdx23c_5stem": SeparationPreset(
+        id="drumsep_mdx23c_5stem",
+        title=MODEL_PACK_BY_ID["drumsep_mdx23c_5stem"].title,
+        model_filename=MODEL_PACK_BY_ID["drumsep_mdx23c_5stem"].filename,
+        summary=MODEL_PACK_BY_ID["drumsep_mdx23c_5stem"].summary,
+        expected_stems=MODEL_PACK_BY_ID["drumsep_mdx23c_5stem"].expected_stems,
+    ),
+    "mega_lead_vocal": SeparationPreset(
+        id="mega_lead_vocal",
+        title=MODEL_PACK_BY_ID["mega_lead_vocal"].title,
+        model_filename=MODEL_PACK_BY_ID["mega_lead_vocal"].filename,
+        summary=MODEL_PACK_BY_ID["mega_lead_vocal"].summary,
+        expected_stems=MODEL_PACK_BY_ID["mega_lead_vocal"].expected_stems,
+    ),
+    "mega_back_vocal": SeparationPreset(
+        id="mega_back_vocal",
+        title=MODEL_PACK_BY_ID["mega_back_vocal"].title,
+        model_filename=MODEL_PACK_BY_ID["mega_back_vocal"].filename,
+        summary=MODEL_PACK_BY_ID["mega_back_vocal"].summary,
+        expected_stems=MODEL_PACK_BY_ID["mega_back_vocal"].expected_stems,
+    ),
+    "mega_drums": SeparationPreset(
+        id="mega_drums",
+        title=MODEL_PACK_BY_ID["mega_drums"].title,
+        model_filename=MODEL_PACK_BY_ID["mega_drums"].filename,
+        summary=MODEL_PACK_BY_ID["mega_drums"].summary,
+        expected_stems=MODEL_PACK_BY_ID["mega_drums"].expected_stems,
+    ),
+    "mega_sitar": SeparationPreset(
+        id="mega_sitar",
+        title=MODEL_PACK_BY_ID["mega_sitar"].title,
+        model_filename=MODEL_PACK_BY_ID["mega_sitar"].filename,
+        summary=MODEL_PACK_BY_ID["mega_sitar"].summary,
+        expected_stems=MODEL_PACK_BY_ID["mega_sitar"].expected_stems,
+    ),
+    "mega_piano": SeparationPreset(
+        id="mega_piano",
+        title=MODEL_PACK_BY_ID["mega_piano"].title,
+        model_filename=MODEL_PACK_BY_ID["mega_piano"].filename,
+        summary=MODEL_PACK_BY_ID["mega_piano"].summary,
+        expected_stems=MODEL_PACK_BY_ID["mega_piano"].expected_stems,
     ),
 }
 

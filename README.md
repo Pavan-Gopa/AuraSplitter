@@ -17,8 +17,17 @@ MLX/Metal.
   - `ViperX Karaoke Aufr33`: `MB-Ro-Kara-AuFR33-Viperx` alias for `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`.
   - `Instrument Bleed Control`: `mel_band_roformer_instrumental_instv7n_gabox.ckpt`.
   - `Drums / No Drums`: `kuielab_a_drums.onnx`.
+  - Model Pack V1 presets that download public checkpoints on first use:
+    `HyperACE v2 Vocal`, `HyperACE v2 Instrumental`, `Leap Xe Vocal`,
+    `Leap Xe Instrumental`, `Becruily Deux Vocal / Instrumental`,
+    `Lead / Back BVE Gonza`, `Lead / Back Karaoke Anvuew`,
+    `DrumSep MDX23C 5-Stem`, and selected MVSep Mega 53 single-target
+    models for lead vocal, back vocal, drums, sitar, and piano.
 - Model picker with the full live model catalog exposed by the backend, using
   UVR-friendly aliases for known ViperX names.
+- Kirtan model-pack catalog layered over `mlx-audio-separator` without patching
+  site-packages. The backend downloads a preset's checkpoint plus YAML config
+  into the local model cache before first MLX conversion.
 - Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
 - Output stems in FLAC or WAV.
 - Header-level run controls with a fixed Start / Cancel / Restart button,
@@ -144,3 +153,19 @@ The previous hand-written `bsroformer_mlx.py` prototype is still preserved under
 `KirtanSplitter/` for reference, but it is not used by the production path. The
 working path uses `mlx-audio-separator`, which already supports RoFormer, MDXC,
 MDX, VR, and Demucs models on MLX.
+
+## Model Architecture Notes
+
+Model Pack V1 only exposes models that can run through the current MLX backend:
+BS-RoFormer, MelBand RoFormer, and MDX23C/MDXC-style checkpoints with YAML
+configs. Experimental candidates such as BS PolarFormer and generic DrumSep ONNX
+are cataloged in code but are intentionally not exposed as runnable presets yet.
+They need one of two future backends:
+
+- ONNX Runtime with CoreML Execution Provider for model-specific ONNX pipelines.
+  This is the fastest route to support generic ONNX files, but performance and
+  GPU/CoreML coverage depend on the model ops.
+- A native MLX implementation for each architecture, such as PolarFormer/PoPE or
+  newer DrumSep variants. This is the best long-term path for speed and a single
+  MLX runtime, but it requires implementing each architecture's preprocessing,
+  model graph, and postprocessing.
