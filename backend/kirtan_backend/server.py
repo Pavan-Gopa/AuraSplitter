@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="KirtanSplitter MLX backend")
     parser.add_argument(
         "--model-dir",
-        default=os.environ.get("KIRTAN_SPLITTER_MODEL_DIR", str(project_root() / "models")),
+        default=os.environ.get("KIRTAN_SPLITTER_MODEL_DIR", default_model_dir()),
         help="Directory for downloaded and converted model files.",
     )
     parser.add_argument(
@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tcp-port", type=int, default=None, help="Serve JSON-lines protocol on this TCP port.")
     parser.add_argument("--debug", action="store_true", help="Enable backend debug logging.")
     return parser
+
+
+def default_model_dir() -> str:
+    return str(Path.home() / "AI_LOCAL_MODELS" / "Sound" / "KirtanSplitter")
 
 
 def project_root() -> Path:

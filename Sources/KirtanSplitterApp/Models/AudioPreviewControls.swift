@@ -21,6 +21,7 @@ enum WorkspaceLayoutMetrics {
     static let settingsToggleButtonSize: CGFloat = 38
     static let widgetRailWidth: CGFloat = 224
     static let settingsDrawerWidth: CGFloat = 370
+    static let settingsDrawerTabColumnCount = 2
     static let modelPresetStatusDotSize: CGFloat = 4
     static let modelPresetMenuPopoverWidth: CGFloat = 260
     static let defaultPreviewFraction = AudioPreviewLayout.defaultBottomFraction

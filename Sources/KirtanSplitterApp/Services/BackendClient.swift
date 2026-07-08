@@ -686,6 +686,7 @@ final class BackendClient: ObservableObject {
             backendLogPath = message["logFile"] as? String
             statusLine = "Backend ready"
             currentStage = "Ready"
+            refreshBackendLogFromFile()
 
         case "progress":
             currentStage = (message["message"] as? String) ?? (message["stage"] as? String) ?? "Working"
@@ -698,13 +699,17 @@ final class BackendClient: ObservableObject {
                     mergeModelCacheSummary(cacheSummary)
                 }
             }
+            refreshBackendLogFromFile()
 
         case "response":
             guard let requestID, let continuation = pendingRequests.removeValue(forKey: requestID) else { return }
+            refreshBackendLogFromFile()
             continuation.resume(returning: message["result"] as? [String: Any] ?? [:])
 
         case "error":
             let backendError = (message["error"] as? String) ?? "Unknown backend error"
+            appendLog("Backend error: \(backendError)\n")
+            refreshBackendLogFromFile()
             if let requestID, let continuation = pendingRequests.removeValue(forKey: requestID) {
                 continuation.resume(throwing: BackendClientError.backend(backendError))
             } else {
@@ -729,6 +734,14 @@ final class BackendClient: ObservableObject {
         if backendLog.count > 20_000 {
             backendLog.removeFirst(backendLog.count - 20_000)
         }
+    }
+
+    private func refreshBackendLogFromFile() {
+        guard let backendLogPath,
+              let text = FileHelpers.readTrailingText(path: backendLogPath, maxBytes: 120_000),
+              !text.isEmpty
+        else { return }
+        backendLog = text
     }
 
     private func waitUntilReady(timeoutSeconds: Double) async throws {
@@ -817,9 +830,15 @@ final class BackendClient: ObservableObject {
                 backendDir,
                 URL(fileURLWithPath: projectRoot).appendingPathComponent(".venv/lib/python3.11/site-packages").path,
             ].joined(separator: ":")
+        let defaultModelDir = ModelStoragePaths.defaultModelDirectory()
         let modelDir = env["KIRTAN_SPLITTER_MODEL_DIR"]
             ?? bundledModelDir
-            ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("models").path
+            ?? defaultModelDir
+        if env["KIRTAN_SPLITTER_MODEL_DIR"] == nil && modelDir == defaultModelDir {
+            ModelStoragePaths.prepareDefaultModelDirectoryAndMigrateLegacyCache()
+        } else {
+            ModelStoragePaths.prepareModelDirectory(modelDir)
+        }
         let logFile = env["KIRTAN_SPLITTER_LOG_FILE"]
             ?? bundledLogFile
             ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("logs/backend.log").path

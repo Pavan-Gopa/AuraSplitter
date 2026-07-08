@@ -32,7 +32,8 @@ MLX/Metal.
 - Kirtan model-pack catalog layered over `mlx-audio-separator` without patching
   site-packages. The backend downloads a preset's checkpoint plus YAML config
   into the local model cache before first MLX conversion.
-- Runtime model cache in `~/Library/Application Support/KirtanSplitter/models/`.
+- Runtime model cache in `~/AI_LOCAL_MODELS/Sound/KirtanSplitter/`, with a
+  one-time sync from the previous Application Support cache when present.
 - Output stems in FLAC or WAV.
 - Header-level run controls with a fixed Start / Cancel / Restart button,
   model preset picker, process-settings preset picker, and long progress meter.
@@ -60,13 +61,14 @@ MLX/Metal.
   source channel count, sample rate, WAV bit depth, and WAV PCM codec family
   before saving. Output files also receive compact KirtanSplitter metadata with
   the model, checkpoint, model preset, and process preset.
-- Right-side diagnostics inspector:
-  - persistent backend log path,
-  - installed model groups backed by converted `.safetensors`,
-  - full model library entries, including not-yet-downloaded models with source,
-    architecture, backend, license, and purpose metadata,
-  - confirmable source-checkpoint deletion after conversion,
-  - last-run UVR parameters and decode / inference / write timings.
+- Right-side settings drawer:
+  - `Process` tab for model and process settings,
+  - `Models` tab with the visible model storage folder, installed model groups,
+    and not-yet-downloaded model metadata,
+  - `Last Run` tab with the latest run first, current process status, CPU,
+    memory, backend RSS, and GPU telemetry,
+  - `Logs` tab with a readable backend log console plus open, reveal, and
+    export actions.
 - Compact left widgets show input count plus backend, CPU, memory, GPU, and model
   cache status while processing controls stay in the header.
 - Header model menu marks locally cached models with a green dot and shows a
@@ -142,7 +144,7 @@ server.
 Every successful separation records a local calibration sample in:
 
 ```text
-~/Library/Application Support/KirtanSplitter/models/render_benchmarks.json
+~/AI_LOCAL_MODELS/Sound/KirtanSplitter/render_benchmarks.json
 ```
 
 To deliberately benchmark one kirtan track across model presets and the
@@ -167,8 +169,9 @@ The backend tests use a fake engine, so they do not download models.
 ## Runtime Data
 
 - `.venv/`: local Python 3.11 environment.
-- `models/`: project-side cache copied into runtime cache when present.
-- `~/Library/Application Support/KirtanSplitter/models/`: runtime UVR model files and converted safetensors.
+- `models/`: project-side seed cache copied into the user-visible runtime cache when present.
+- `~/AI_LOCAL_MODELS/Sound/KirtanSplitter/`: runtime UVR model files, converted safetensors, ONNX cache, and render benchmark history.
+- `~/Library/Application Support/KirtanSplitter/models/`: legacy runtime model cache; copied into the new user-visible folder when present.
 - `~/Library/Application Support/KirtanSplitter/logs/backend.log`: backend startup, progress, and error log.
 - `dist/`: staged local app bundle.
 - Output stems: selected output folder, or `<input>_stems` next to the input.

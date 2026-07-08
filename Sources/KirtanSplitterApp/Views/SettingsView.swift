@@ -8,7 +8,7 @@ struct SettingsView: View {
             Section("Runtime") {
                 LabeledContent("Project root", value: environment["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? FileManager.default.currentDirectoryPath)
                 LabeledContent("Python", value: environment["KIRTAN_SPLITTER_PYTHON"] ?? ".venv/bin/python")
-                LabeledContent("Models", value: environment["KIRTAN_SPLITTER_MODEL_DIR"] ?? "models")
+                LabeledContent("Models", value: environment["KIRTAN_SPLITTER_MODEL_DIR"] ?? ModelStoragePaths.defaultModelDirectory())
             }
 
             Section("Requirements") {

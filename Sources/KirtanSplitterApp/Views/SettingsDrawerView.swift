@@ -1,27 +1,13 @@
 import SwiftUI
 
 struct SettingsDrawerView: View {
-    private enum Section: String, CaseIterable, Identifiable {
-        case process = "Process"
-        case system = "System"
-
-        var id: String { rawValue }
-
-        var systemImage: String {
-            switch self {
-            case .process: return "slider.horizontal.3"
-            case .system: return "gauge"
-            }
-        }
-    }
-
     @ObservedObject var backend: BackendClient
     @ObservedObject var processPresetStore: ProcessSettingsPresetStore
     @Binding var settings: SeparationSettings
     @Binding var selectedProcessPresetID: String
     let applyProcessPresetAction: (String) -> Void
     let closeAction: () -> Void
-    @State private var selectedSection: Section = .process
+    @State private var selectedSection: SettingsDrawerSection = .process
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,8 +22,12 @@ struct SettingsDrawerView: View {
                 switch selectedSection {
                 case .process:
                     processSection
-                case .system:
-                    systemSection
+                case .models:
+                    DiagnosticsInspectorView(backend: backend, section: .models)
+                case .run:
+                    DiagnosticsInspectorView(backend: backend, section: .run)
+                case .logs:
+                    DiagnosticsInspectorView(backend: backend, section: .logs)
                 }
             }
         }
@@ -54,17 +44,19 @@ struct SettingsDrawerView: View {
         )
     }
 
-    private var systemSection: some View {
-        DiagnosticsInspectorView(backend: backend)
-    }
-
     private var sectionPicker: some View {
-        HStack(spacing: 6) {
-            ForEach(Section.allCases) { section in
+        LazyVGrid(
+            columns: Array(
+                repeating: GridItem(.flexible(), spacing: 6),
+                count: WorkspaceLayoutMetrics.settingsDrawerTabColumnCount
+            ),
+            spacing: 6
+        ) {
+            ForEach(SettingsDrawerSection.allCases) { section in
                 Button {
                     selectedSection = section
                 } label: {
-                    Label(section.rawValue, systemImage: section.systemImage)
+                    Label(section.title, systemImage: section.systemImage)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)

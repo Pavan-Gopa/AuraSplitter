@@ -19,6 +19,7 @@ from kirtan_backend.engine import MlxSeparatorEngine  # noqa: E402
 from kirtan_backend.jobs import SeparationJob  # noqa: E402
 from kirtan_backend.presets import PRESETS, resolve_model_filename  # noqa: E402
 from kirtan_backend.process_presets import PROCESS_PRESETS  # noqa: E402
+from kirtan_backend.server import default_model_dir  # noqa: E402
 
 
 def main() -> int:
@@ -33,7 +34,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--model-dir",
-        default="~/Library/Application Support/KirtanSplitter/models",
+        default=default_model_dir(),
         help="Model cache directory.",
     )
     parser.add_argument(

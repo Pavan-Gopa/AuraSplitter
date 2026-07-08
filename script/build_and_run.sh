@@ -17,7 +17,8 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 APP_SUPPORT="$HOME/Library/Application Support/$APP_NAME"
 RUNTIME_BACKEND="$APP_SUPPORT/backend"
 RUNTIME_LAUNCHER="$APP_SUPPORT/run_backend.sh"
-RUNTIME_MODEL_DIR="$APP_SUPPORT/models"
+LEGACY_MODEL_DIR="$APP_SUPPORT/models"
+RUNTIME_MODEL_DIR="${KIRTAN_SPLITTER_MODEL_DIR:-$HOME/AI_LOCAL_MODELS/Sound/$APP_NAME}"
 LOG_FILE="$APP_SUPPORT/logs/backend.log"
 PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
 SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
@@ -55,6 +56,9 @@ cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
 chmod +x "$RUNTIME_LAUNCHER"
 if [[ -d "$ROOT_DIR/models" ]]; then
   rsync -a --ignore-existing "$ROOT_DIR/models/" "$RUNTIME_MODEL_DIR/"
+fi
+if [[ -d "$LEGACY_MODEL_DIR" && "$LEGACY_MODEL_DIR" != "$RUNTIME_MODEL_DIR" ]]; then
+  rsync -a --ignore-existing "$LEGACY_MODEL_DIR/" "$RUNTIME_MODEL_DIR/"
 fi
 
 cat >"$INFO_PLIST" <<PLIST

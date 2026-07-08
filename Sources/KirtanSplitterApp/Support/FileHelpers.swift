@@ -7,9 +7,34 @@ enum FileHelpers {
         NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
     }
 
+    static func open(path: String) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
     static func copyPath(_ path: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(path, forType: .string)
+    }
+
+    static func readTrailingText(path: String, maxBytes: Int) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer {
+            try? handle.close()
+        }
+
+        let fileSize = (try? handle.seekToEnd()) ?? 0
+        let byteCount = UInt64(max(0, maxBytes))
+        let offset = fileSize > byteCount ? fileSize - byteCount : 0
+        try? handle.seek(toOffset: offset)
+        let data = handle.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func exportText(_ text: String, suggestedFilename: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedFilename
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     static func formattedBytes(_ bytes: Int) -> String {

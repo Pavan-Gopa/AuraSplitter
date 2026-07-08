@@ -2,15 +2,14 @@ import SwiftUI
 
 struct DiagnosticsInspectorView: View {
     @ObservedObject var backend: BackendClient
+    let section: SettingsDrawerSection
     @State private var deletionCandidate: ModelCacheItem?
     @State private var sourceDeletionCandidate: ModelCacheGroup?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 14) {
-                logWidget
-                modelCacheWidget
-                metricsWidget
+                sectionContent
             }
             .padding(16)
         }
@@ -53,6 +52,25 @@ struct DiagnosticsInspectorView: View {
         }
     }
 
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch section {
+        case .process:
+            EmptyView()
+        case .models:
+            modelStorageWidget
+            modelCacheWidget
+        case .run:
+            metricsWidget
+            jobWidget
+            resourceWidget
+            gpuWidget
+        case .logs:
+            logFileWidget
+            logConsoleWidget
+        }
+    }
+
     private var jobWidget: some View {
         InspectorCard(title: "Process", systemImage: "waveform.path.ecg") {
             VStack(alignment: .leading, spacing: 10) {
@@ -70,24 +88,6 @@ struct DiagnosticsInspectorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
-            }
-        }
-    }
-
-    private var logWidget: some View {
-        InspectorCard(title: "Logs", systemImage: "doc.text.magnifyingglass") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(backend.backendLogPath ?? "Waiting for backend log path")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
-                if !backend.backendLog.isEmpty {
-                    Text(backend.backendLog.split(separator: "\n").suffix(1).joined())
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
             }
         }
     }
@@ -144,6 +144,35 @@ struct DiagnosticsInspectorView: View {
                     Text("Power \(power, specifier: "%.2f") W")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var modelStorageWidget: some View {
+        InspectorCard(title: "Storage", systemImage: "folder") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(modelStoragePath)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .textSelection(.enabled)
+
+                HStack(spacing: 8) {
+                    Button {
+                        ModelStoragePaths.prepareModelDirectory(modelStoragePath)
+                        FileHelpers.reveal(path: modelStoragePath)
+                    } label: {
+                        Label("Reveal", systemImage: "folder")
+                    }
+                    .controlSize(.small)
+
+                    Button {
+                        FileHelpers.copyPath(modelStoragePath)
+                    } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .controlSize(.small)
                 }
             }
         }
@@ -236,6 +265,68 @@ struct DiagnosticsInspectorView: View {
         }
     }
 
+    private var logFileWidget: some View {
+        InspectorCard(title: "Log File", systemImage: "doc.text") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(backend.backendLogPath ?? "Waiting for backend log path")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .textSelection(.enabled)
+
+                HStack(spacing: 8) {
+                    Button {
+                        guard let path = backend.backendLogPath else { return }
+                        FileHelpers.open(path: path)
+                    } label: {
+                        Label("Open", systemImage: "arrow.up.right.square")
+                    }
+                    .controlSize(.small)
+                    .disabled(backend.backendLogPath == nil)
+
+                    Button {
+                        guard let path = backend.backendLogPath else { return }
+                        FileHelpers.reveal(path: path)
+                    } label: {
+                        Label("Reveal", systemImage: "folder")
+                    }
+                    .controlSize(.small)
+                    .disabled(backend.backendLogPath == nil)
+
+                    Button {
+                        FileHelpers.exportText(
+                            logExportText,
+                            suggestedFilename: "KirtanSplitter-backend.log"
+                        )
+                    } label: {
+                        Label("Export", systemImage: "square.and.arrow.down")
+                    }
+                    .controlSize(.small)
+                    .disabled(logExportText.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var logConsoleWidget: some View {
+        InspectorCard(title: "Backend Log", systemImage: "terminal") {
+            ScrollView(.vertical, showsIndicators: true) {
+                Text(logDisplayText)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(logExportText.isEmpty ? Color.secondary : Color.green)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(10)
+            }
+            .frame(minHeight: 300)
+            .background(Color.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.green.opacity(0.16), lineWidth: 1)
+            }
+        }
+    }
+
     private var metricsWidget: some View {
         InspectorCard(title: "Last Run", systemImage: "timer") {
             VStack(alignment: .leading, spacing: 8) {
@@ -291,6 +382,26 @@ struct DiagnosticsInspectorView: View {
     private var memoryDetail: String {
         guard let memory = backend.runtimeStats?.memory else { return "waiting" }
         return "\(FileHelpers.formattedBytes(memory.usedBytes)) / \(FileHelpers.formattedBytes(memory.totalBytes))"
+    }
+
+    private var modelStoragePath: String {
+        backend.modelCache?.modelDir
+            ?? backend.runtimeStats?.modelCache?.modelDir
+            ?? ModelStoragePaths.defaultModelDirectory()
+    }
+
+    private var logDisplayText: String {
+        logExportText.isEmpty ? "Waiting for backend log entries." : logExportText
+    }
+
+    private var logExportText: String {
+        let memoryLog = backend.backendLog.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !memoryLog.isEmpty {
+            return memoryLog
+        }
+        guard let path = backend.backendLogPath else { return "" }
+        return FileHelpers.readTrailingText(path: path, maxBytes: 120_000)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private var backendRSSDetail: String {
