@@ -593,6 +593,7 @@ private struct AppHeaderView: View {
     let isSettingsSidebarOpen: Bool
     let primaryAction: () -> Void
     let settingsAction: () -> Void
+    @State private var isModelPresetMenuOpen = false
 
     var body: some View {
         let presentation = ProcessingControlPresentation(
@@ -616,24 +617,15 @@ private struct AppHeaderView: View {
             }
             .frame(width: 154, alignment: .leading)
 
-            Picker("Model Preset", selection: $modelPresetID) {
-                ForEach(modelPresets) { preset in
-                    ModelPresetPickerRow(
-                        title: preset.title,
-                        state: ModelPresetMenuState(
-                            preset: preset,
-                            models: backend.models,
-                            modelCache: backend.modelCache
-                        )
-                    )
-                    .tag(preset.id)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 172)
-            .disabled(modelPresets.isEmpty || backend.isBusy)
-            .help("Model preset")
+            ModelPresetDropdown(
+                selection: $modelPresetID,
+                isPresented: $isModelPresetMenuOpen,
+                presets: modelPresets,
+                models: backend.models,
+                modelCache: backend.modelCache,
+                isDisabled: modelPresets.isEmpty || backend.isBusy
+            )
+            .frame(width: 188)
 
             Picker("Process Preset", selection: $processPresetID) {
                 ForEach(processPresets) { preset in
@@ -745,19 +737,111 @@ private struct AppHeaderView: View {
     }
 }
 
-private struct ModelPresetPickerRow: View {
+private struct ModelPresetDropdown: View {
+    @Binding var selection: String
+    @Binding var isPresented: Bool
+    let presets: [SeparationPreset]
+    let models: [SeparatorModel]
+    let modelCache: ModelCache?
+    let isDisabled: Bool
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Text(selectedPreset?.title ?? "Model")
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ModelPresetStatusIndicators(state: selectedState)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 27)
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(ModelPresetDropdownButtonStyle(isOpen: isPresented))
+        .disabled(isDisabled)
+        .help(selectedState.helpText)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(presets) { preset in
+                        let state = ModelPresetMenuState(preset: preset, models: models, modelCache: modelCache)
+                        Button {
+                            selection = preset.id
+                            isPresented = false
+                        } label: {
+                            ModelPresetDropdownRow(
+                                title: preset.title,
+                                state: state,
+                                isSelected: preset.id == selection
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help(state.helpText)
+                    }
+                }
+                .padding(6)
+            }
+            .frame(width: WorkspaceLayoutMetrics.modelPresetMenuPopoverWidth)
+            .frame(maxHeight: 520)
+        }
+        .accessibilityLabel("Model preset")
+    }
+
+    private var selectedPreset: SeparationPreset? {
+        presets.first { $0.id == selection } ?? presets.first
+    }
+
+    private var selectedState: ModelPresetMenuState {
+        guard let selectedPreset else {
+            return ModelPresetMenuState.empty
+        }
+        return ModelPresetMenuState(preset: selectedPreset, models: models, modelCache: modelCache)
+    }
+}
+
+private struct ModelPresetDropdownRow: View {
     let title: String
     let state: ModelPresetMenuState
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.primary)
+                .opacity(isSelected ? 1 : 0)
+                .frame(width: 14)
             Text(title)
+                .font(.callout)
                 .lineLimit(1)
-            Spacer(minLength: 18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ModelPresetStatusIndicators(state: state)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .help(state.helpText)
+    }
+}
+
+private struct ModelPresetStatusIndicators: View {
+    let state: ModelPresetMenuState
+
+    var body: some View {
+        HStack(spacing: 6) {
             if state.isLocal {
-                Text("●")
-                    .font(.system(size: 6, weight: .bold))
-                    .foregroundStyle(.green)
+                Circle()
+                    .fill(Color.green)
+                    .frame(
+                        width: WorkspaceLayoutMetrics.modelPresetStatusDotSize,
+                        height: WorkspaceLayoutMetrics.modelPresetStatusDotSize
+                    )
                     .accessibilityLabel("Cached locally")
             }
             if let usageLabel = state.usageLabel {
@@ -767,7 +851,27 @@ private struct ModelPresetPickerRow: View {
                     .accessibilityLabel("Used \(state.usageCount) \(state.usageCount == 1 ? "time" : "times")")
             }
         }
-        .help(state.helpText)
+    }
+}
+
+private struct ModelPresetDropdownButtonStyle: ButtonStyle {
+    let isOpen: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.primary)
+            .background(backgroundColor(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isOpen ? Color.orange.opacity(0.65) : Color.secondary.opacity(0.22), lineWidth: 1)
+            }
+    }
+
+    private func backgroundColor(isPressed: Bool) -> Color {
+        if isPressed || isOpen {
+            return Color.secondary.opacity(0.20)
+        }
+        return Color.secondary.opacity(0.13)
     }
 }
 

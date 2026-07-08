@@ -131,4 +131,50 @@ final class ModelPresetMenuStateTests: XCTestCase {
         XCTAssertNil(state.usageLabel)
         XCTAssertEqual(state.helpText, "Downloads on first use")
     }
+
+    func testMenuStateDoesNotTreatRemovedSourceWithoutConvertedWeightsAsLocal() {
+        let preset = SeparationPreset(
+            id: "broken",
+            title: "Broken Local",
+            modelFilename: "broken.ckpt",
+            summary: "Missing converted weights",
+            expectedStems: ["vocals"],
+            usageCount: 0
+        )
+        let cache = ModelCache(
+            modelDir: "/tmp/models",
+            totalBytes: 0,
+            items: [],
+            groups: [
+                ModelCacheGroup(
+                    id: "broken",
+                    displayName: "Broken Local",
+                    technicalName: "broken.ckpt",
+                    architecture: "BS-RoFormer",
+                    backend: "MLX",
+                    license: nil,
+                    sourceURL: nil,
+                    summary: nil,
+                    localState: "source_removed",
+                    converted: false,
+                    hasSource: false,
+                    sourceRemoved: true,
+                    canDeleteSource: false,
+                    totalBytes: 0,
+                    sourceBytes: 0,
+                    convertedBytes: 0,
+                    configBytes: 0,
+                    sourcePath: nil,
+                    convertedPath: nil,
+                    configPath: nil,
+                    usageCount: 0,
+                    files: []
+                )
+            ]
+        )
+
+        let state = ModelPresetMenuState(preset: preset, models: [], modelCache: cache)
+
+        XCTAssertFalse(state.isLocal)
+    }
 }

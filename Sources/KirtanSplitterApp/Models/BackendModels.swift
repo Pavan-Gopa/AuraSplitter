@@ -89,6 +89,7 @@ struct RunSettings: Codable {
 struct ModelPresetMenuState: Equatable {
     let isLocal: Bool
     let usageCount: Int
+    static let empty = ModelPresetMenuState(isLocal: false, usageCount: 0)
 
     init(preset: SeparationPreset, models: [SeparatorModel], modelCache: ModelCache?) {
         let matchingModel = models.first { $0.filename == preset.modelFilename }
@@ -98,6 +99,11 @@ struct ModelPresetMenuState: Equatable {
 
         isLocal = (matchingModel?.isDownloaded ?? false) || Self.isLocalCacheGroup(matchingGroup)
         usageCount = max(0, preset.usageCount ?? 0, matchingGroup?.usageCount ?? 0)
+    }
+
+    private init(isLocal: Bool, usageCount: Int) {
+        self.isLocal = isLocal
+        self.usageCount = max(0, usageCount)
     }
 
     var usageLabel: String? {
@@ -112,8 +118,8 @@ struct ModelPresetMenuState: Equatable {
 
     private static func isLocalCacheGroup(_ group: ModelCacheGroup?) -> Bool {
         guard let group else { return false }
-        if group.converted || group.hasSource || group.sourceRemoved { return true }
-        return group.localState == "installed" || group.localState == "downloaded" || group.localState == "source_removed"
+        if group.converted || group.hasSource { return true }
+        return group.localState == "installed" || group.localState == "downloaded"
     }
 
     private static func group(_ group: ModelCacheGroup, matches modelFilename: String) -> Bool {

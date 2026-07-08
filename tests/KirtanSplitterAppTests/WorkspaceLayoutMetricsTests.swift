@@ -15,4 +15,9 @@ final class WorkspaceLayoutMetricsTests: XCTestCase {
     func testPreviewAreaDefaultsToHalfOfMainWorkspace() {
         XCTAssertEqual(WorkspaceLayoutMetrics.defaultPreviewFraction, 0.50)
     }
+
+    func testModelPresetMenuUsesSmallStatusDotAndReadablePopoverWidth() {
+        XCTAssertLessThanOrEqual(WorkspaceLayoutMetrics.modelPresetStatusDotSize, 4)
+        XCTAssertGreaterThanOrEqual(WorkspaceLayoutMetrics.modelPresetMenuPopoverWidth, 240)
+    }
 }
