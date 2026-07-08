@@ -697,7 +697,9 @@ class MlxSeparatorEngine:
     def _is_model_downloaded(self, filename: str) -> bool:
         entry = get_model_pack_entry(filename)
         if entry:
-            return all((Path(self.model_dir) / asset.filename).is_file() for asset in entry.assets)
+            if entry.assets:
+                return all((Path(self.model_dir) / asset.filename).is_file() for asset in entry.assets)
+            return (Path(self.model_dir) / filename).is_file()
         stem = Path(filename).stem
         model_path = Path(self.model_dir) / filename
         if model_path.exists():

@@ -956,9 +956,11 @@ def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
     models = engine.list_models(limit=500)
 
     names = {model["filename"]: model["name"] for model in models}
+    downloaded = {model["filename"]: model["isDownloaded"] for model in models}
     assert names["bs_roformer_voc_hyperacev2.ckpt"] == "Kirtan Vocal Pro"
     assert names["mel_band_roformer_bve_gonza.ckpt"] == "Kirtan Lead / Back"
     assert names["htdemucs_ft.onnx"] == "Kirtan Stems Pro"
+    assert downloaded["htdemucs_ft.onnx"] is False
     assert "model_bs_polarformer_float16.ckpt" not in names
 
 

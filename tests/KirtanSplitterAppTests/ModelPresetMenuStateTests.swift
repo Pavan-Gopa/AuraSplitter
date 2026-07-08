@@ -75,4 +75,60 @@ final class ModelPresetMenuStateTests: XCTestCase {
         XCTAssertEqual(state.usageCount, 3)
         XCTAssertEqual(state.usageLabel, "x3")
     }
+
+    func testMenuStateDoesNotMarkNotDownloadedCacheGroupAsLocal() {
+        let preset = SeparationPreset(
+            id: "demucs_onnx_stems",
+            title: "Kirtan Stems Pro",
+            modelFilename: "htdemucs_ft.onnx",
+            summary: "ONNX stems",
+            expectedStems: ["vocals"],
+            usageCount: 0
+        )
+        let model = SeparatorModel(
+            filename: "htdemucs_ft.onnx",
+            name: "Kirtan Stems Pro",
+            type: "ONNX/CoreML",
+            stems: ["vocals"],
+            sdr: [:],
+            isDownloaded: false
+        )
+        let cache = ModelCache(
+            modelDir: "/tmp/models",
+            totalBytes: 0,
+            items: [],
+            groups: [
+                ModelCacheGroup(
+                    id: "htdemucs_ft",
+                    displayName: "Kirtan Stems Pro",
+                    technicalName: "HT-Demucs FT ONNX",
+                    architecture: "HT-Demucs",
+                    backend: "ONNX/CoreML",
+                    license: nil,
+                    sourceURL: nil,
+                    summary: nil,
+                    localState: "not_downloaded",
+                    converted: false,
+                    hasSource: false,
+                    sourceRemoved: false,
+                    canDeleteSource: false,
+                    totalBytes: 0,
+                    sourceBytes: 0,
+                    convertedBytes: 0,
+                    configBytes: 0,
+                    sourcePath: nil,
+                    convertedPath: nil,
+                    configPath: nil,
+                    usageCount: 0,
+                    files: []
+                )
+            ]
+        )
+
+        let state = ModelPresetMenuState(preset: preset, models: [model], modelCache: cache)
+
+        XCTAssertFalse(state.isLocal)
+        XCTAssertNil(state.usageLabel)
+        XCTAssertEqual(state.helpText, "Downloads on first use")
+    }
 }

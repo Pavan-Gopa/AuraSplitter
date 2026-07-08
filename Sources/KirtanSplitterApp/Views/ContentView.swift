@@ -755,8 +755,8 @@ private struct ModelPresetPickerRow: View {
                 .lineLimit(1)
             Spacer(minLength: 18)
             if state.isLocal {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 7, weight: .semibold))
+                Text("●")
+                    .font(.system(size: 6, weight: .bold))
                     .foregroundStyle(.green)
                     .accessibilityLabel("Cached locally")
             }
