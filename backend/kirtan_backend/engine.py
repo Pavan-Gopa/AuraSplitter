@@ -26,6 +26,7 @@ from .model_catalog import (
 from .onnx_backend import DemucsOnnxBackend, onnx_runtime_status
 from .render_estimates import estimate_render_time, record_render_benchmark
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
+from .presets import preset_list
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
@@ -151,6 +152,9 @@ class MlxSeparatorEngine:
             if len(models) >= limit:
                 break
         return models
+
+    def list_presets(self) -> list[dict]:
+        return preset_list(self.model_dir)
 
     def runtime_stats(self) -> dict:
         return runtime_stats(self.model_dir)

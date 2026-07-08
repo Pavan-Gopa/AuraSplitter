@@ -133,6 +133,38 @@ def test_model_cache_groups_include_every_header_preset_name(tmp_path):
     assert {group["displayName"]: group for group in result["groups"]}["Kirtan Clean Split"]["technicalName"] == "BS-Roformer-Viperx-1297"
 
 
+def test_model_cache_groups_include_usage_count_from_render_history(tmp_path):
+    from kirtan_backend.render_estimates import record_render_benchmark
+
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    record_render_benchmark(
+        str(model_dir),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.fast",
+            "elapsedSeconds": 300,
+            "audioDurationSeconds": 300,
+        },
+    )
+    record_render_benchmark(
+        str(model_dir),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 450,
+            "audioDurationSeconds": 300,
+        },
+    )
+
+    result = runtime.model_cache(str(model_dir))
+    group = {item["displayName"]: item for item in result["groups"]}["Kirtan Pro"]
+
+    assert group["usageCount"] == 2
+
+
 def test_model_cache_groups_ignore_config_only_files(tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()

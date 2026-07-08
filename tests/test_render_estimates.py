@@ -1,6 +1,7 @@
 from kirtan_backend.render_estimates import (
     estimate_render_time,
     load_render_benchmarks,
+    model_usage_counts,
     record_render_benchmark,
 )
 
@@ -88,3 +89,41 @@ def test_render_estimate_uses_matching_process_preset_samples(tmp_path):
     assert result["sampleCount"] == 1
     assert result["estimatedSeconds"] == 2400.0
     assert load_render_benchmarks(str(tmp_path))[1]["processPresetTitle"] == "Extreme 4096"
+
+
+def test_model_usage_counts_total_successful_runs_by_model(tmp_path):
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.fast",
+            "elapsedSeconds": 300,
+            "audioDurationSeconds": 300,
+        },
+    )
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 450,
+            "audioDurationSeconds": 300,
+        },
+    )
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+            "modelPresetID": "vocal_clean",
+            "processPresetID": "builtin.fast",
+            "elapsedSeconds": 200,
+            "audioDurationSeconds": 300,
+        },
+    )
+
+    assert model_usage_counts(str(tmp_path)) == {
+        "BS-Roformer-SW.ckpt": 2,
+        "model_bs_roformer_ep_317_sdr_12.9755.ckpt": 1,
+    }

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .model_catalog import metadata_for_model_stem, model_library_metadata_entries
+from .render_estimates import model_usage_counts
 
 
 MODEL_SUFFIXES = {".ckpt", ".onnx", ".pth", ".yaml", ".safetensors"}
@@ -276,6 +277,7 @@ def delete_model_group_source(model_dir: str, group_id: str) -> dict:
 
 def model_cache_groups(model_dir: str) -> list[dict]:
     root = Path(model_dir).expanduser()
+    usage_counts = model_usage_counts(str(root))
 
     grouped: dict[str, list[Path]] = {}
     if root.exists():
@@ -286,7 +288,13 @@ def model_cache_groups(model_dir: str) -> list[dict]:
     groups_by_id = {}
     for stem, paths in sorted(grouped.items(), key=lambda item: item[0].lower()):
         metadata = metadata_for_model_stem(stem) or {}
-        group = _model_group_from_paths(stem=stem, paths=paths, metadata=metadata, include_empty=False)
+        group = _model_group_from_paths(
+            stem=stem,
+            paths=paths,
+            metadata=metadata,
+            include_empty=False,
+            usage_counts=usage_counts,
+        )
         if group is None:
             continue
         groups_by_id[stem] = group
@@ -300,6 +308,7 @@ def model_cache_groups(model_dir: str) -> list[dict]:
             paths=grouped.get(stem, []),
             metadata=metadata,
             include_empty=True,
+            usage_counts=usage_counts,
         )
 
     existing_titles = {group["displayName"] for group in groups_by_id.values()}
@@ -313,6 +322,7 @@ def model_cache_groups(model_dir: str) -> list[dict]:
             metadata=preset_metadata,
             include_empty=True,
             group_id=f"preset:{preset_metadata['presetID']}",
+            usage_counts=usage_counts,
         )
         groups_by_id[group["id"]] = group
         existing_titles.add(group["displayName"])
@@ -326,6 +336,7 @@ def _model_group_from_paths(
     metadata: dict,
     include_empty: bool,
     group_id: str | None = None,
+    usage_counts: dict[str, int] | None = None,
 ) -> dict | None:
     source = _first_path_with_suffix(paths, SOURCE_MODEL_SUFFIXES)
     converted = _first_path_with_suffix(paths, {".safetensors"})
@@ -355,6 +366,7 @@ def _model_group_from_paths(
         source_path=str(source) if source and not source_removed else None,
         converted_path=str(converted) if converted else None,
         config_path=str(config) if config else None,
+        usage_count=_usage_count_for_model(stem, metadata, usage_counts or {}),
         files=visible_files,
     )
     if group_id:
@@ -373,6 +385,7 @@ def _header_preset_metadata_entries() -> list[dict]:
         metadata["summary"] = preset.summary
         metadata["technicalName"] = metadata.get("technicalName") or preset.model_filename
         metadata["modelStem"] = stem
+        metadata["modelFilename"] = preset.model_filename
         metadata["presetID"] = preset.id
         entries.append(metadata)
     return entries
@@ -392,6 +405,7 @@ def _model_group(
     source_path: str | None,
     converted_path: str | None,
     config_path: str | None,
+    usage_count: int,
     files: list[dict],
 ) -> dict:
     if converted:
@@ -424,8 +438,27 @@ def _model_group(
         "sourcePath": source_path,
         "convertedPath": converted_path,
         "configPath": config_path,
+        "usageCount": usage_count,
         "files": files,
     }
+
+
+def _usage_count_for_model(stem: str, metadata: dict, usage_counts: dict[str, int]) -> int:
+    candidates = [
+        metadata.get("modelFilename"),
+        f"{stem}.ckpt",
+        f"{stem}.onnx",
+        f"{stem}.pth",
+        f"{stem}.yaml",
+        stem,
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        count = usage_counts.get(str(candidate))
+        if count is not None:
+            return max(0, int(count))
+    return 0
 
 
 def model_cache_items(model_dir: str) -> list[dict]:

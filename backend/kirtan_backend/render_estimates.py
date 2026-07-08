@@ -27,6 +27,16 @@ def load_render_benchmarks(model_dir: str) -> list[dict[str, Any]]:
     return [sample for sample in data if isinstance(sample, dict)]
 
 
+def model_usage_counts(model_dir: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for sample in load_render_benchmarks(model_dir):
+        model_filename = str(sample.get("modelFilename") or "").strip()
+        if not model_filename:
+            continue
+        counts[model_filename] = counts.get(model_filename, 0) + 1
+    return counts
+
+
 def record_render_benchmark(model_dir: str, sample: dict[str, Any]) -> dict[str, Any]:
     elapsed_seconds = _positive_float(sample.get("elapsedSeconds"))
     duration_seconds = _positive_float(sample.get("audioDurationSeconds"))

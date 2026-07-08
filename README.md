@@ -69,6 +69,8 @@ MLX/Metal.
   - last-run UVR parameters and decode / inference / write timings.
 - Compact left widgets show input count plus backend, CPU, memory, GPU, and model
   cache status while processing controls stay in the header.
+- Header model menu marks locally cached models with a green dot and shows a
+  compact personal usage count from completed runs.
 
 ## Requirements
 

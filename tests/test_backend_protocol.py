@@ -12,6 +12,7 @@ import kirtan_backend.model_catalog as model_catalog
 from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
+from kirtan_backend.render_estimates import record_render_benchmark
 from kirtan_backend.presets import PRESETS
 from kirtan_backend.server import should_restart_after_cancel
 
@@ -202,6 +203,39 @@ def test_list_presets_exposes_kirtan_focused_defaults():
     assert PRESETS["vocal_clean"].model_filename != PRESETS["viperx_vocal"].model_filename
     assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
     assert PRESETS["hyperace_v2_vocal"].model_filename == "bs_roformer_voc_hyperacev2.ckpt"
+
+
+def test_list_presets_reports_local_usage_count(tmp_path):
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.fast",
+            "elapsedSeconds": 300,
+            "audioDurationSeconds": 300,
+        },
+    )
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 600,
+            "audioDurationSeconds": 300,
+        },
+    )
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path))
+
+    response, _ = handle_request(
+        BackendRequest(id="r2", method="list_presets", params={}),
+        engine=engine,
+    )
+
+    presets = {preset["id"]: preset for preset in response["result"]["presets"]}
+    assert presets["kirtan_pro"]["usageCount"] == 2
+    assert presets["vocal_clean"]["usageCount"] == 0
 
 
 def test_model_pack_presets_use_user_friendly_kirtan_titles():

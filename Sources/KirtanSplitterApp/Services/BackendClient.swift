@@ -366,6 +366,7 @@ final class BackendClient: ObservableObject {
         } else {
             modelCache = try? await fetchModelCache()
         }
+        presets = (try? await listPresets()) ?? presets
         _ = try? await fetchRenderEstimate(
             inputURL: inputURL,
             durationSeconds: nil,

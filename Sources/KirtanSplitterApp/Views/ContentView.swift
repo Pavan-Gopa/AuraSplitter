@@ -618,7 +618,15 @@ private struct AppHeaderView: View {
 
             Picker("Model Preset", selection: $modelPresetID) {
                 ForEach(modelPresets) { preset in
-                    Text(preset.title).tag(preset.id)
+                    ModelPresetPickerRow(
+                        title: preset.title,
+                        state: ModelPresetMenuState(
+                            preset: preset,
+                            models: backend.models,
+                            modelCache: backend.modelCache
+                        )
+                    )
+                    .tag(preset.id)
                 }
             }
             .labelsHidden()
@@ -734,6 +742,32 @@ private struct AppHeaderView: View {
             return .orange
         }
         return backend.isReady ? .green : .orange
+    }
+}
+
+private struct ModelPresetPickerRow: View {
+    let title: String
+    let state: ModelPresetMenuState
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .lineLimit(1)
+            Spacer(minLength: 18)
+            if state.isLocal {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Cached locally")
+            }
+            if let usageLabel = state.usageLabel {
+                Text(usageLabel)
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Used \(state.usageCount) \(state.usageCount == 1 ? "time" : "times")")
+            }
+        }
+        .help(state.helpText)
     }
 }
 

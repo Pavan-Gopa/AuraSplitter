@@ -77,6 +77,8 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             return response(request.id, result), events
 
         if request.method == "list_presets":
+            if hasattr(engine, "list_presets"):
+                return response(request.id, {"presets": engine.list_presets()}), events
             return response(request.id, {"presets": preset_list()}), events
 
         if request.method == "list_models":

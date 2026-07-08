@@ -84,5 +84,6 @@ struct ModelCacheGroup: Identifiable, Codable, Equatable {
     let sourcePath: String?
     let convertedPath: String?
     let configPath: String?
+    var usageCount: Int? = nil
     let files: [ModelCacheItem]
 }

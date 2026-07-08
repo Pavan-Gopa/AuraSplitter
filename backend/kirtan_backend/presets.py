@@ -13,13 +13,14 @@ class SeparationPreset:
     summary: str
     expected_stems: tuple[str, ...]
 
-    def to_dict(self) -> dict:
+    def to_dict(self, usage_count: int = 0) -> dict:
         return {
             "id": self.id,
             "title": self.title,
             "modelFilename": self.model_filename,
             "summary": self.summary,
             "expectedStems": list(self.expected_stems),
+            "usageCount": max(0, int(usage_count)),
         }
 
 
@@ -174,8 +175,16 @@ PRESETS: dict[str, SeparationPreset] = {
 }
 
 
-def preset_list() -> list[dict]:
-    return [preset.to_dict() for preset in PRESETS.values()]
+def preset_list(model_dir: str | None = None) -> list[dict]:
+    usage_counts = {}
+    if model_dir:
+        from .render_estimates import model_usage_counts
+
+        usage_counts = model_usage_counts(model_dir)
+    return [
+        preset.to_dict(usage_count=usage_counts.get(preset.model_filename, 0))
+        for preset in PRESETS.values()
+    ]
 
 
 def resolve_model_filename(preset_id: str | None, explicit_model: str | None) -> str:

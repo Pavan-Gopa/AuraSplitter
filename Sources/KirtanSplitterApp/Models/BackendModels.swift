@@ -6,6 +6,11 @@ struct SeparationPreset: Identifiable, Hashable, Codable {
     let modelFilename: String
     let summary: String
     let expectedStems: [String]
+    var usageCount: Int? = nil
+
+    var normalizedUsageCount: Int {
+        max(0, usageCount ?? 0)
+    }
 }
 
 struct SeparatorModel: Identifiable, Hashable, Codable {
@@ -79,6 +84,46 @@ struct RunSettings: Codable {
     let mdxcBatchSize: Int?
     let mdxcOverrideModelSegmentSize: Bool?
     let speedMode: String?
+}
+
+struct ModelPresetMenuState: Equatable {
+    let isLocal: Bool
+    let usageCount: Int
+
+    init(preset: SeparationPreset, models: [SeparatorModel], modelCache: ModelCache?) {
+        let matchingModel = models.first { $0.filename == preset.modelFilename }
+        let matchingGroup = modelCache?.groups?.first { group in
+            Self.group(group, matches: preset.modelFilename)
+        }
+
+        isLocal = (matchingModel?.isDownloaded ?? false) || Self.isLocalCacheGroup(matchingGroup)
+        usageCount = max(0, preset.usageCount ?? 0, matchingGroup?.usageCount ?? 0)
+    }
+
+    var usageLabel: String? {
+        usageCount > 0 ? "x\(usageCount)" : nil
+    }
+
+    var helpText: String {
+        let localText = isLocal ? "Cached locally" : "Downloads on first use"
+        guard usageCount > 0 else { return localText }
+        return "\(localText) - used \(usageCount) \(usageCount == 1 ? "time" : "times")"
+    }
+
+    private static func isLocalCacheGroup(_ group: ModelCacheGroup?) -> Bool {
+        guard let group else { return false }
+        if group.converted || group.hasSource || group.sourceRemoved { return true }
+        return group.localState == "installed" || group.localState == "downloaded" || group.localState == "source_removed"
+    }
+
+    private static func group(_ group: ModelCacheGroup, matches modelFilename: String) -> Bool {
+        if group.technicalName == modelFilename { return true }
+        let stem = URL(fileURLWithPath: modelFilename).deletingPathExtension().lastPathComponent
+        if group.id == stem { return true }
+        if group.convertedPath?.contains(stem) == true { return true }
+        if group.sourcePath?.contains(modelFilename) == true { return true }
+        return group.files.contains { $0.filename == modelFilename || $0.filename.hasPrefix("\(stem).") }
+    }
 }
 
 struct RenderEstimate: Codable, Equatable {
