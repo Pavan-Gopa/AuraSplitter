@@ -61,10 +61,7 @@ struct DiagnosticsInspectorView: View {
             modelStorageWidget
             modelCacheWidget
         case .run:
-            metricsWidget
-            jobWidget
-            resourceWidget
-            gpuWidget
+            lastRunWidget
         case .logs:
             logFileWidget
             logConsoleWidget
@@ -303,6 +300,14 @@ struct DiagnosticsInspectorView: View {
                     }
                     .controlSize(.small)
                     .disabled(logExportText.isEmpty)
+
+                    Button(role: .destructive) {
+                        backend.clearBackendLog()
+                    } label: {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    .controlSize(.small)
+                    .disabled(backend.backendLogPath == nil && logExportText.isEmpty)
                 }
             }
         }
@@ -327,42 +332,47 @@ struct DiagnosticsInspectorView: View {
         }
     }
 
-    private var metricsWidget: some View {
+    private var lastRunWidget: some View {
         InspectorCard(title: "Last Run", systemImage: "timer") {
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = backend.lastSummary {
-                    HStack {
-                        Text(summary.model)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))
-                            .foregroundStyle(.secondary)
+                    let report = LastRunReport(summary: summary)
+                    ForEach(report.overviewRows, id: \.0) { key, value in
+                        detailRow(key, value)
                     }
-                    .font(.caption)
 
-                    if let settings = summary.settings {
+                    if !report.settingRows.isEmpty {
                         Divider()
-                        ForEach(settingRows(from: settings), id: \.0) { key, value in
-                            HStack {
-                                Text(key)
-                                Spacer()
-                                Text(value)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.caption2.monospacedDigit())
+                        Text("Settings")
+                            .font(.caption.weight(.semibold))
+                        ForEach(report.settingRows, id: \.0) { key, value in
+                            detailRow(key, value)
                         }
                     }
 
-                    if let metrics = summary.metrics, !metrics.isEmpty {
+                    if !report.metricRows.isEmpty {
                         Divider()
-                        ForEach(metricRows(from: metrics), id: \.0) { key, value in
-                            HStack {
-                                Text(key)
-                                Spacer()
-                                Text("\(value, specifier: "%.3f")s")
+                        Text("Timings")
+                            .font(.caption.weight(.semibold))
+                        ForEach(report.metricRows, id: \.0) { key, value in
+                            detailRow(key, value)
+                        }
+                    }
+
+                    if !report.fileRows.isEmpty {
+                        Divider()
+                        Text("Output Files")
+                            .font(.caption.weight(.semibold))
+                        ForEach(report.fileRows, id: \.1) { stem, detail in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(stem)
+                                    .font(.caption2.weight(.semibold))
+                                Text(detail)
+                                    .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
                             }
-                            .font(.caption2.monospacedDigit())
                         }
                     }
                 } else {
@@ -382,6 +392,18 @@ struct DiagnosticsInspectorView: View {
     private var memoryDetail: String {
         guard let memory = backend.runtimeStats?.memory else { return "waiting" }
         return "\(FileHelpers.formattedBytes(memory.usedBytes)) / \(FileHelpers.formattedBytes(memory.totalBytes))"
+    }
+
+    private func detailRow(_ key: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(key)
+            Spacer(minLength: 12)
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .font(.caption2.monospacedDigit())
     }
 
     private var modelStoragePath: String {
@@ -497,23 +519,6 @@ struct DiagnosticsInspectorView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private func settingRows(from settings: RunSettings) -> [(String, String)] {
-        [
-            ("segment", settings.mdxcSegmentSize.map(String.init) ?? "default"),
-            ("overlap", settings.mdxcOverlap.map(String.init) ?? "default"),
-            ("batch", settings.mdxcBatchSize.map(String.init) ?? "default"),
-            ("override", settings.mdxcOverrideModelSegmentSize == true ? "on" : "off"),
-            ("speed", settings.speedMode ?? "default"),
-        ]
-    }
-
-    private func metricRows(from metrics: [String: Double]) -> [(String, Double)] {
-        let order = ["decode_s", "preprocess_s", "inference_s", "postprocess_s", "write_s", "cleanup_s", "total_s"]
-        return order.compactMap { key in
-            guard let value = metrics[key] else { return nil }
-            return (key.replacingOccurrences(of: "_s", with: ""), value)
-        }
-    }
 }
 
 private struct InspectorCard<Content: View>: View {

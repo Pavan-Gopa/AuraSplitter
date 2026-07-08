@@ -221,6 +221,7 @@ class MlxSeparatorEngine:
 
         progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
+        started_at = time.time()
 
         performance_params = {
             "speed_mode": job.speed_mode,
@@ -311,6 +312,7 @@ class MlxSeparatorEngine:
             )
 
         elapsed = time.perf_counter() - started
+        completed_at = time.time()
         self._record_render_benchmark(job, input_path, elapsed)
         files = [self._file_result(path) for path in output_files]
         missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
@@ -324,6 +326,8 @@ class MlxSeparatorEngine:
         return {
             "model": job.model_filename,
             "preset": job.preset,
+            "startedAt": started_at,
+            "completedAt": completed_at,
             "elapsedSeconds": round(elapsed, 2),
             "files": files,
             "metrics": getattr(separator, "last_perf_metrics", None),
@@ -745,6 +749,7 @@ class MlxSeparatorEngine:
         catalog_entry,
     ) -> dict:
         started = time.perf_counter()
+        started_at = time.time()
         progress(
             "loading",
             f"Preparing {catalog_entry.title} ONNX/CoreML backend",
@@ -774,6 +779,7 @@ class MlxSeparatorEngine:
             raise RuntimeError("ONNX/CoreML backend completed but did not create any output stems.")
 
         elapsed = time.perf_counter() - started
+        completed_at = time.time()
         self._record_render_benchmark(job, input_path, elapsed)
         files = [self._file_result(path) for path in output_files]
         missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
@@ -787,6 +793,8 @@ class MlxSeparatorEngine:
         return {
             "model": job.model_filename,
             "preset": job.preset,
+            "startedAt": started_at,
+            "completedAt": completed_at,
             "elapsedSeconds": round(elapsed, 2),
             "files": files,
             "metrics": {"backend": 1.0},

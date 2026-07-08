@@ -274,6 +274,12 @@ final class BackendClient: ObservableObject {
         }
     }
 
+    func clearBackendLog() {
+        backendLog = ""
+        guard let backendLogPath else { return }
+        try? "".write(toFile: backendLogPath, atomically: true, encoding: .utf8)
+    }
+
     @discardableResult
     func fetchRenderEstimate(
         inputURL: URL,

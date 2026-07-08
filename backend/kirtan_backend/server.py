@@ -16,6 +16,11 @@ from .protocol import BackendRequest, error_response, handle_request
 
 _send_lock = threading.Lock()
 _stream_logger = logging.getLogger("kirtan_backend.stream")
+QUIET_REQUEST_METHODS = {"ping", "runtime_stats", "model_cache"}
+
+
+def should_log_request_method(method: str) -> bool:
+    return method not in QUIET_REQUEST_METHODS
 
 
 def log_stream_message(message: dict):
@@ -156,7 +161,10 @@ class BackendTCPHandler(socketserver.StreamRequestHandler):
                     continue
                 try:
                     request = BackendRequest.from_json(raw_text)
-                    logger.info("request id=%s method=%s", request.id, request.method)
+                    if should_log_request_method(request.method):
+                        logger.info("request id=%s method=%s", request.id, request.method)
+                    else:
+                        logger.debug("request id=%s method=%s", request.id, request.method)
                     result, _events = handle_request(request, engine=self.server.engine, emit_event=self.send_message)
                     schedule_backend_restart_after_cancel(request, result, logger)
                     self.send_message(result)

@@ -65,10 +65,10 @@ MLX/Metal.
   - `Process` tab for model and process settings,
   - `Models` tab with the visible model storage folder, installed model groups,
     and not-yet-downloaded model metadata,
-  - `Last Run` tab with the latest run first, current process status, CPU,
-    memory, backend RSS, and GPU telemetry,
-  - `Logs` tab with a readable backend log console plus open, reveal, and
-    export actions.
+  - `Last Run` tab with only the latest completed run: start/completion time,
+    model, preset, process settings, timings, and output files,
+  - `Logs` tab with a readable backend log console plus open, reveal, export,
+    and clear actions.
 - Compact left widgets show input count plus backend, CPU, memory, GPU, and model
   cache status while processing controls stay in the header.
 - Header model menu marks locally cached models with a green dot and shows a
@@ -135,9 +135,10 @@ Persistent backend logs are written to:
 ~/Library/Application Support/KirtanSplitter/logs/backend.log
 ```
 
-The log contains backend startup, request methods, progress events, model load
+The log contains backend startup, action requests, progress events, model load
 activity, conversion messages, and any uncaught exceptions from the Python
-server.
+server. Routine telemetry polls such as `runtime_stats`, `model_cache`, and
+`ping` are intentionally not written to the persistent log.
 
 ## Render Benchmarks
 

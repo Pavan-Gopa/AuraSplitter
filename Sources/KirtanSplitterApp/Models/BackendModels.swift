@@ -70,11 +70,76 @@ struct SeparationSettings: Equatable, Codable {
 struct SeparationSummary: Codable {
     let model: String
     let preset: String?
+    let startedAt: Double?
+    let completedAt: Double?
     let elapsedSeconds: Double
     let files: [StemFile]
     let metrics: [String: Double]?
     let modelCache: ModelCache?
     let settings: RunSettings?
+}
+
+struct LastRunReport {
+    let summary: SeparationSummary
+
+    var overviewRows: [(String, String)] {
+        var rows: [(String, String)] = [
+            ("model", summary.model),
+            ("preset", summary.preset ?? "default"),
+        ]
+        if let startedAt = summary.startedAt {
+            rows.append(("started", Self.formattedRunDate(startedAt)))
+        }
+        if let completedAt = summary.completedAt {
+            rows.append(("completed", Self.formattedRunDate(completedAt)))
+        }
+        rows.append(("elapsed", FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds)))
+        rows.append(("outputs", "\(summary.files.count) \(summary.files.count == 1 ? "file" : "files")"))
+        rows.append(("output size", formattedByteTotal(summary.files.reduce(0) { $0 + $1.sizeBytes })))
+        return rows
+    }
+
+    var settingRows: [(String, String)] {
+        guard let settings = summary.settings else { return [] }
+        return [
+            ("chunk", settings.chunkDuration.map { FileHelpers.formattedDuration($0) } ?? "off"),
+            ("segment", settings.mdxcSegmentSize.map(String.init) ?? "default"),
+            ("overlap", settings.mdxcOverlap.map(String.init) ?? "default"),
+            ("batch", settings.mdxcBatchSize.map(String.init) ?? "default"),
+            ("override", settings.mdxcOverrideModelSegmentSize == true ? "on" : "off"),
+            ("speed", settings.speedMode ?? "default"),
+        ]
+    }
+
+    var metricRows: [(String, String)] {
+        let order = ["decode_s", "preprocess_s", "inference_s", "postprocess_s", "write_s", "cleanup_s", "total_s"]
+        guard let metrics = summary.metrics else { return [] }
+        return order.compactMap { key -> (String, String)? in
+            guard let value = metrics[key] else { return nil }
+            return (key.replacingOccurrences(of: "_s", with: ""), String(format: "%.3fs", value))
+        }
+    }
+
+    var fileRows: [(String, String)] {
+        summary.files.map { file in
+            (file.displayName, "\(file.fileName) - \(formattedByteTotal(file.sizeBytes))")
+        }
+    }
+
+    static func formattedRunDate(_ timestamp: Double, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: Date(timeIntervalSince1970: timestamp))
+    }
+
+    private func formattedByteTotal(_ bytes: Int) -> String {
+        if bytes < 1024 {
+            return "\(bytes) \(bytes == 1 ? "byte" : "bytes")"
+        }
+        return FileHelpers.formattedBytes(bytes)
+    }
 }
 
 struct RunSettings: Codable {
