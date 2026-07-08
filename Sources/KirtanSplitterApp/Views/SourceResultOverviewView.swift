@@ -191,15 +191,22 @@ private struct SourceMetricRow: View {
             metric(analysis.channelLabel, systemImage: analysis.channels == 1 ? "circle.lefthalf.filled" : "circle.grid.cross")
             metric(FileHelpers.formattedDuration(analysis.durationSeconds), systemImage: "timer")
             metric("\(analysis.sampleRate) Hz", systemImage: "dot.radiowaves.left.and.right")
+            if let bitDepthLabel = analysis.bitDepthLabel {
+                metric(bitDepthLabel, systemImage: "waveform")
+            }
+            if let modelLabel = analysis.separationModelLabel {
+                metric(modelLabel, systemImage: "cpu", monospaced: false)
+            }
             metric(analysis.peakLabel, systemImage: "meter.waveform", warning: analysis.clipped || analysis.peakDb >= -0.25)
         }
     }
 
-    private func metric(_ text: String, systemImage: String, warning: Bool = false) -> some View {
+    private func metric(_ text: String, systemImage: String, warning: Bool = false, monospaced: Bool = true) -> some View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
             Text(text)
-                .monospacedDigit()
+                .font(monospaced ? .caption2.monospacedDigit() : .caption2)
+                .lineLimit(1)
         }
         .font(.caption2)
         .foregroundStyle(warning ? .red : .secondary)

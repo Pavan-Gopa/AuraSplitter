@@ -1,3 +1,7 @@
+import subprocess
+import wave
+from pathlib import Path
+
 import numpy as np
 
 from kirtan_backend import audio_analysis
@@ -51,3 +55,45 @@ def test_spectrogram_batches_fft_work_for_preview_speed(monkeypatch):
 def test_peak_db_is_computed_from_preview_samples_without_second_ffmpeg_pass():
     assert audio_analysis._peak_db_from_samples(np.array([0.0, -0.5, 1.0], dtype=np.float32)) == 0.0
     assert audio_analysis._peak_db_from_samples(np.zeros(32, dtype=np.float32)) == -120.0
+
+
+def test_analyze_audio_returns_kirtan_splitter_model_metadata(tmp_path):
+    source = tmp_path / "source.wav"
+    tagged = tmp_path / "tagged.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(3)
+        wav.setframerate(48_000)
+        wav.writeframes(b"\0\0\0" * 480)
+
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-c:a",
+            "copy",
+            "-metadata",
+            "encoded_by=KirtanSplitter",
+            "-metadata",
+            "comment=KirtanSplitter model=Kirtan Pro; checkpoint=BS-Roformer-SW.ckpt; preset=kirtan_pro; process=Heavy 1024",
+            str(tagged),
+        ],
+        check=True,
+    )
+
+    result = audio_analysis.analyze_audio(str(tagged), waveform_points=8, spectrogram_columns=8, spectrogram_bins=8)
+
+    assert result["sampleRate"] == 48_000
+    assert result["bitDepth"] == 24
+    assert result["separationModelName"] == "Kirtan Pro"
+    assert result["separationModelCheckpoint"] == "BS-Roformer-SW.ckpt"
+    assert result["separationPresetID"] == "kirtan_pro"
+    assert result["separationProcessPresetTitle"] == "Heavy 1024"

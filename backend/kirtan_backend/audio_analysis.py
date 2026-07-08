@@ -14,18 +14,20 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
         raise FileNotFoundError(f"Audio file does not exist: {audio_path}")
 
     info = _ffprobe_audio_info(audio_path)
+    separation_metadata = _kirtan_splitter_metadata(info.get("tags") or {})
     preview_sample_rate = 22050
     preview_samples = _decode_mono_float(audio_path, sample_rate=preview_sample_rate)
     peak_db = _peak_db_from_samples(preview_samples)
     waveform = _waveform_peaks(preview_samples, waveform_points)
     spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins, sample_rate=preview_sample_rate)
 
-    return {
+    result = {
         "path": str(audio_path),
         "filename": audio_path.name,
         "durationSeconds": round(info["durationSeconds"], 3),
         "channels": info["channels"],
         "sampleRate": info["sampleRate"],
+        "bitDepth": info["bitDepth"],
         "peakDb": round(peak_db, 2),
         "clipped": peak_db >= -0.1,
         "waveformPeaks": waveform,
@@ -35,6 +37,8 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
             "values": spectrogram,
         },
     }
+    result.update(separation_metadata)
+    return result
 
 
 def _ffprobe_audio_info(path: Path) -> dict:
@@ -46,9 +50,7 @@ def _ffprobe_audio_info(path: Path) -> dict:
             "-select_streams",
             "a:0",
             "-show_entries",
-            "stream=channels,sample_rate,duration",
-            "-show_entries",
-            "format=duration",
+            "stream=channels,sample_rate,duration,bits_per_raw_sample,bits_per_sample,sample_fmt:format=duration:format_tags",
             "-of",
             "json",
             str(path),
@@ -63,8 +65,54 @@ def _ffprobe_audio_info(path: Path) -> dict:
     return {
         "channels": int(stream.get("channels") or 0),
         "sampleRate": int(stream.get("sample_rate") or 0),
+        "bitDepth": _bit_depth_from_stream(stream),
         "durationSeconds": float(duration or 0),
+        "tags": fmt.get("tags") or {},
     }
+
+
+def _bit_depth_from_stream(stream: dict) -> int | None:
+    value = stream.get("bits_per_raw_sample") or stream.get("bits_per_sample")
+    if value and str(value).isdigit():
+        depth = int(value)
+        return depth if depth > 0 else None
+    sample_format = str(stream.get("sample_fmt") or "").lower().rstrip("p")
+    if sample_format in {"u8", "s8"}:
+        return 8
+    if sample_format in {"s16", "u16"}:
+        return 16
+    if sample_format in {"s24", "u24"}:
+        return 24
+    if sample_format in {"s32", "u32", "flt"}:
+        return 32
+    if sample_format == "dbl":
+        return 64
+    return None
+
+
+def _kirtan_splitter_metadata(tags: dict) -> dict:
+    comment = str(tags.get("comment") or tags.get("COMMENT") or "")
+    encoded_by = str(tags.get("encoded_by") or tags.get("ENCODED_BY") or "")
+    if not comment.startswith("KirtanSplitter") and encoded_by != "KirtanSplitter":
+        return {}
+
+    parsed = {}
+    body = comment.removeprefix("KirtanSplitter").strip()
+    for part in body.split(";"):
+        key, separator, value = part.strip().partition("=")
+        if separator:
+            parsed[key.strip()] = value.strip()
+
+    result = {}
+    if parsed.get("model"):
+        result["separationModelName"] = parsed["model"]
+    if parsed.get("checkpoint"):
+        result["separationModelCheckpoint"] = parsed["checkpoint"]
+    if parsed.get("preset"):
+        result["separationPresetID"] = parsed["preset"]
+    if parsed.get("process"):
+        result["separationProcessPresetTitle"] = parsed["process"]
+    return result
 
 
 def _decode_mono_float(path: Path, sample_rate: int) -> np.ndarray:

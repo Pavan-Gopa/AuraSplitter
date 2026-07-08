@@ -610,9 +610,138 @@ def test_engine_restores_mono_outputs_for_mono_sources(tmp_path, monkeypatch):
     assert _audio_channels(Path(result["files"][0]["path"])) == 1
 
 
+def test_engine_does_not_leak_temporary_stereo_marker_into_mono_output_names(tmp_path, monkeypatch):
+    input_path = tmp_path / "01MAIN_V.wav"
+    _write_silent_wav(input_path, channels=1)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class TemporaryStereoNameSeparator:
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            assert Path(audio_path).stem == "01MAIN_V.stereo"
+            output = self.output_dir / f"{Path(audio_path).stem}_(Vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, TemporaryStereoNameSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    output_path = Path(result["files"][0]["path"])
+    assert output_path.name == "01MAIN_V_(Vocals).wav"
+    assert "stereo" not in output_path.name.lower()
+    assert _audio_channels(output_path) == 1
+
+
+def test_engine_writes_kirtan_model_metadata_to_output_files(tmp_path, monkeypatch):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class MetadataSeparator:
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            output = self.output_dir / f"{Path(audio_path).stem}_(Vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, MetadataSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+            process_preset_id="builtin.heavy",
+            process_preset_title="Heavy 1024",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    tags = _audio_tags(Path(result["files"][0]["path"]))
+    assert tags["encoded_by"] == "KirtanSplitter"
+    assert "model=Kirtan Pro" in tags["comment"]
+    assert "checkpoint=BS-Roformer-SW.ckpt" in tags["comment"]
+    assert "preset=kirtan_pro" in tags["comment"]
+    assert "process=Heavy 1024" in tags["comment"]
+
+
+def test_engine_restores_source_format_after_mlx_separator_output(tmp_path, monkeypatch):
+    input_path = tmp_path / "mono_48k.wav"
+    _write_silent_wav(input_path, channels=1, sample_rate=48_000, sample_width=3)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class Separator44100Output:
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            output = self.output_dir / f"{Path(audio_path).stem}_(Vocals).wav"
+            _write_silent_wav(output, channels=2, sample_rate=44_100)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, Separator44100Output)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    output_path = Path(result["files"][0]["path"])
+    assert _audio_channels(output_path) == 1
+    assert _audio_sample_rate(output_path) == 48_000
+    assert _audio_bit_depth(output_path) == 24
+    assert _audio_codec(output_path) == "pcm_s24le"
+
+
 def test_engine_keeps_stereo_outputs_for_stereo_sources(tmp_path, monkeypatch):
     input_path = tmp_path / "stereo.wav"
-    _write_silent_wav(input_path, channels=2)
+    _write_silent_wav(input_path, channels=2, sample_rate=48_000, sample_width=3)
     model_dir = tmp_path / "models"
     output_dir = tmp_path / "out"
 
@@ -630,7 +759,7 @@ def test_engine_keeps_stereo_outputs_for_stereo_sources(tmp_path, monkeypatch):
             StereoOutputSeparator.last_audio_path = Path(audio_path)
             assert StereoOutputSeparator.last_audio_path == input_path
             output = self.output_dir / "stereo_(vocals).wav"
-            _write_silent_wav(output, channels=2)
+            _write_silent_wav(output, channels=2, sample_rate=44_100, sample_width=2)
             return [str(output)]
 
     _install_fake_separator(monkeypatch, StereoOutputSeparator)
@@ -649,7 +778,57 @@ def test_engine_keeps_stereo_outputs_for_stereo_sources(tmp_path, monkeypatch):
         progress=lambda *_args: None,
     )
 
-    assert _audio_channels(Path(result["files"][0]["path"])) == 2
+    output_path = Path(result["files"][0]["path"])
+    assert _audio_channels(output_path) == 2
+    assert _audio_sample_rate(output_path) == 48_000
+    assert _audio_bit_depth(output_path) == 24
+    assert _audio_codec(output_path) == "pcm_s24le"
+
+
+def test_engine_preserves_source_float32_wav_codec(tmp_path, monkeypatch):
+    input_path = tmp_path / "float32_48k.wav"
+    _write_float_wav(input_path, channels=2, sample_rate=48_000)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+
+    class Int16OutputSeparator:
+        last_audio_path = None
+
+        def __init__(self, *args, output_dir, **kwargs):
+            self.output_dir = Path(output_dir)
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            return None
+
+        def separate(self, audio_path):
+            Int16OutputSeparator.last_audio_path = Path(audio_path)
+            assert Int16OutputSeparator.last_audio_path == input_path
+            output = self.output_dir / "float32_48k_(vocals).wav"
+            _write_silent_wav(output, channels=2, sample_rate=44_100, sample_width=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, Int16OutputSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    result = engine.separate(
+        SeparationJob(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            model_filename="BS-Roformer-SW.ckpt",
+            preset="kirtan_pro",
+            output_format="WAV",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    output_path = Path(result["files"][0]["path"])
+    assert _audio_channels(output_path) == 2
+    assert _audio_sample_rate(output_path) == 48_000
+    assert _audio_bit_depth(output_path) == 32
+    assert _audio_codec(output_path) == "pcm_f32le"
 
 
 def test_engine_rejects_separator_runs_that_return_no_files(tmp_path, monkeypatch):
@@ -867,12 +1046,41 @@ def _install_fake_separator(monkeypatch, separator_class):
     )
 
 
-def _write_silent_wav(path: Path, channels: int):
+def _write_silent_wav(path: Path, channels: int, sample_rate: int = 44_100, sample_width: int = 2):
     with wave.open(str(path), "wb") as wav:
         wav.setnchannels(channels)
-        wav.setsampwidth(2)
-        wav.setframerate(44100)
-        wav.writeframes(b"\0\0" * channels * 4410)
+        wav.setsampwidth(sample_width)
+        wav.setframerate(sample_rate)
+        wav.writeframes((b"\0" * sample_width) * channels * 4410)
+
+
+def _write_float_wav(path: Path, channels: int, sample_rate: int):
+    raw_path = path.with_suffix(".f32le")
+    raw_path.write_bytes(b"\0" * 4 * channels * max(1, sample_rate // 10))
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "f32le",
+                "-ar",
+                str(sample_rate),
+                "-ac",
+                str(channels),
+                "-i",
+                str(raw_path),
+                "-c:a",
+                "pcm_f32le",
+                str(path),
+            ],
+            check=True,
+        )
+    finally:
+        raw_path.unlink(missing_ok=True)
 
 
 def _audio_channels(path: Path) -> int:
@@ -892,3 +1100,87 @@ def _audio_channels(path: Path) -> int:
         text=True,
     )
     return int(output.strip())
+
+
+def _audio_sample_rate(path: Path) -> int:
+    output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=sample_rate",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        text=True,
+    )
+    return int(output.strip())
+
+
+def _audio_bit_depth(path: Path) -> int:
+    output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=bits_per_raw_sample,bits_per_sample",
+            "-of",
+            "json",
+            str(path),
+        ],
+        text=True,
+    )
+    stream = json.loads(output)["streams"][0]
+    value = stream.get("bits_per_raw_sample") or stream.get("bits_per_sample")
+    if value and str(value).isdigit():
+        return int(value)
+    sample_format = str(stream.get("sample_fmt") or "").lower().rstrip("p")
+    if sample_format == "flt":
+        return 32
+    if sample_format == "dbl":
+        return 64
+    digits = "".join(character for character in sample_format if character.isdigit())
+    return int(digits or 0)
+
+
+def _audio_codec(path: Path) -> str:
+    output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        text=True,
+    )
+    return output.strip()
+
+
+def _audio_tags(path: Path) -> dict:
+    output = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format_tags",
+            "-of",
+            "json",
+            str(path),
+        ],
+        text=True,
+    )
+    return json.loads(output)["format"]["tags"]

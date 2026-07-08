@@ -48,15 +48,18 @@ MLX/Metal.
   segment size, overlap, batch size, model segment override, and converted-model
   retention.
 - Finder reveal, path copy, and audio preview for generated stems.
-- Source preview with channel count, duration, peak dBFS, clipping warning,
+- Source preview with channel count, duration, sample rate, bit depth, model
+  metadata for KirtanSplitter-generated files, peak dBFS, clipping warning,
   waveform, spectrogram, playhead, and click/drag seeking.
 - Source rows include processing checkboxes and per-file preset selection.
 - Separated results are grouped by source file. Clicking any generated stem
   loads that stem into the waveform/spectrogram preview, and stem rows can
   delete the generated audio file from disk.
-- Mono input preservation: MLX models can still receive a temporary stereo
-  compatibility input, but stems are restored to mono when the source file is
-  mono. Stereo sources stay stereo.
+- Source format preservation: MLX models can still receive a temporary
+  stereo/float compatibility input, but generated stems are restored to the
+  source channel count, sample rate, WAV bit depth, and WAV PCM codec family
+  before saving. Output files also receive compact KirtanSplitter metadata with
+  the model, checkpoint, model preset, and process preset.
 - Right-side diagnostics inspector:
   - persistent backend log path,
   - installed model groups backed by converted `.safetensors`,

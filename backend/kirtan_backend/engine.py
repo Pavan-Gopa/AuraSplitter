@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -19,6 +21,7 @@ from .model_catalog import (
     display_name_for_model,
     ensure_model_pack_assets,
     get_model_pack_entry,
+    metadata_for_model_stem,
 )
 from .onnx_backend import DemucsOnnxBackend, onnx_runtime_status
 from .render_estimates import estimate_render_time, record_render_benchmark
@@ -68,6 +71,32 @@ def _heartbeat_progress_value(
         fraction = math.log1p(elapsed / HEARTBEAT_CURVE_SECONDS) / denominator
     fraction = min(HEARTBEAT_FRACTION_CAP, max(0.0, fraction))
     return start + (end - start) * fraction
+
+
+def _bit_depth_from_sample_format(sample_format: str) -> int | None:
+    if not sample_format:
+        return None
+    normalized = sample_format.lower().rstrip("p")
+    if normalized in {"u8", "s8"}:
+        return 8
+    if normalized in {"s16", "u16"}:
+        return 16
+    if normalized in {"s24", "u24"}:
+        return 24
+    if normalized in {"s32", "u32", "flt"}:
+        return 32
+    if normalized == "dbl":
+        return 64
+    return None
+
+
+@dataclass(frozen=True)
+class AudioFormatSpec:
+    channels: int | None
+    sample_rate: int | None
+    bit_depth: int | None
+    codec_name: str | None
+
 
 UVR_MODEL_ALIASES = {
     "model_bs_roformer_ep_317_sdr_12.9755.ckpt": "Kirtan Clean Split",
@@ -174,7 +203,7 @@ class MlxSeparatorEngine:
         if not input_path.exists():
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
-        source_channels = self._audio_channel_count(input_path)
+        source_format = self._source_audio_format(input_path)
         catalog_entry = get_model_pack_entry(job.model_filename)
         if catalog_entry and catalog_entry.backend == "demucs_onnx":
             return self._separate_with_demucs_onnx(
@@ -182,7 +211,7 @@ class MlxSeparatorEngine:
                 progress=progress,
                 input_path=input_path,
                 output_dir=output_dir,
-                source_channels=source_channels,
+                source_format=source_format,
                 catalog_entry=catalog_entry,
             )
 
@@ -211,7 +240,8 @@ class MlxSeparatorEngine:
             "Starting separation input=%s output_dir=%s model=%s preset=%s "
             "output_format=%s chunk_duration=%s mdxc_segment_size=%s "
             "mdxc_overlap=%s mdxc_batch_size=%s mdxc_override_model_segment_size=%s "
-            "speed_mode=%s cache_clear_policy=%s write_workers=%s source_channels=%s",
+            "speed_mode=%s cache_clear_policy=%s write_workers=%s "
+            "source_channels=%s source_sample_rate=%s source_bit_depth=%s source_codec=%s",
             input_path,
             output_dir,
             job.model_filename,
@@ -225,7 +255,10 @@ class MlxSeparatorEngine:
             job.speed_mode,
             job.cache_clear_policy,
             job.write_workers,
-            source_channels,
+            source_format.channels,
+            source_format.sample_rate,
+            source_format.bit_depth,
+            source_format.codec_name,
         )
 
         self._raise_if_cancelled()
@@ -254,7 +287,7 @@ class MlxSeparatorEngine:
 
         self._raise_if_cancelled()
         progress("model_ready", "Model ready", 0.30, self.runtime_stats())
-        with self._stereo_input_path(input_path, progress, channels=source_channels) as separator_input_path:
+        with self._stereo_input_path(input_path, progress, channels=source_format.channels) as separator_input_path:
             self._raise_if_cancelled()
             output_files = self._with_heartbeat(
                 start=0.35,
@@ -265,9 +298,9 @@ class MlxSeparatorEngine:
                 work=lambda: separator.separate(str(separator_input_path)),
             )
         self._raise_if_cancelled()
-        if source_channels == 1:
-            progress("postprocessing", "Restoring mono channel layout", 0.94, self.runtime_stats())
-            output_files = self._restore_mono_outputs(output_files)
+        progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
+        output_files = self._conform_outputs_to_source_format(output_files, source_format)
+        output_files = self._finalize_output_files(job, output_files, input_path)
         if not output_files:
             raise RuntimeError(
                 "No output stems were created. Check the backend log for the underlying separator error."
@@ -363,16 +396,74 @@ class MlxSeparatorEngine:
             self._raise_if_cancelled()
             yield prepared_path
 
-    def _restore_mono_outputs(self, output_files) -> list[str]:
+    def _source_audio_format(self, input_path: Path) -> AudioFormatSpec:
+        return AudioFormatSpec(
+            channels=self._audio_channel_count(input_path),
+            sample_rate=self._audio_sample_rate(input_path),
+            bit_depth=self._audio_bit_depth(input_path),
+            codec_name=self._audio_codec_name(input_path),
+        )
+
+    def _conform_outputs_to_source_format(
+        self,
+        output_files,
+        source_format: AudioFormatSpec,
+    ) -> list[str]:
         restored = []
         for output_file in output_files or []:
             path = Path(output_file)
-            if self._audio_channel_count(path) == 1:
-                restored.append(str(path))
-                continue
-            self._convert_output_to_mono(path)
+            current_channels = self._audio_channel_count(path)
+            current_sample_rate = self._audio_sample_rate(path)
+            current_bit_depth = self._audio_bit_depth(path)
+            current_codec = self._audio_codec_name(path)
+            target_codec = self._codec_for_source_format(path, source_format)
+            needs_channels = source_format.channels is not None and current_channels != source_format.channels
+            needs_sample_rate = source_format.sample_rate is not None and current_sample_rate != source_format.sample_rate
+            needs_bit_depth = source_format.bit_depth is not None and current_bit_depth != source_format.bit_depth
+            needs_codec = target_codec is not None and current_codec != target_codec
+            if needs_channels or needs_sample_rate or needs_bit_depth or needs_codec:
+                self.logger.info(
+                    "Conforming output to source format output=%s channels=%s->%s "
+                    "sample_rate=%s->%s bit_depth=%s->%s codec=%s->%s",
+                    path,
+                    current_channels,
+                    source_format.channels,
+                    current_sample_rate,
+                    source_format.sample_rate,
+                    current_bit_depth,
+                    source_format.bit_depth,
+                    current_codec,
+                    target_codec,
+                )
+                self._convert_output_audio_format(
+                    path,
+                    channels=source_format.channels,
+                    sample_rate=source_format.sample_rate,
+                    codec=target_codec,
+                )
             restored.append(str(path))
         return restored
+
+    def _finalize_output_files(self, job: SeparationJob, output_files, source_path: Path) -> list[str]:
+        finalized = []
+        for output_file in output_files or []:
+            path = self._rename_temporary_stereo_output(Path(output_file), source_path)
+            self._write_output_metadata(path, job)
+            finalized.append(str(path))
+        return finalized
+
+    def _rename_temporary_stereo_output(self, output_path: Path, source_path: Path) -> Path:
+        temporary_prefix = f"{source_path.stem}.stereo"
+        if not output_path.stem.startswith(temporary_prefix):
+            return output_path
+
+        suffix_part = output_path.stem[len(temporary_prefix):]
+        target = output_path.with_name(f"{source_path.stem}{suffix_part}{output_path.suffix}")
+        if target == output_path:
+            return output_path
+        target.unlink(missing_ok=True)
+        output_path.replace(target)
+        return target
 
     def _audio_channel_count(self, input_path: Path) -> int | None:
         try:
@@ -395,6 +486,82 @@ class MlxSeparatorEngine:
             return int(output.strip())
         except Exception as exc:
             self.logger.warning("Could not inspect audio channel count for %s: %s", input_path, exc)
+            return None
+
+    def _audio_sample_rate(self, input_path: Path) -> int | None:
+        try:
+            output = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=sample_rate",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(input_path),
+                ],
+                text=True,
+                timeout=10,
+            )
+            value = int(output.strip())
+            return value if value > 0 else None
+        except Exception as exc:
+            self.logger.warning("Could not inspect audio sample rate for %s: %s", input_path, exc)
+            return None
+
+    def _audio_bit_depth(self, input_path: Path) -> int | None:
+        try:
+            output = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=bits_per_raw_sample,bits_per_sample,sample_fmt",
+                    "-of",
+                    "json",
+                    str(input_path),
+                ],
+                text=True,
+                timeout=10,
+            )
+            stream = (json.loads(output).get("streams") or [{}])[0]
+            value = stream.get("bits_per_raw_sample") or stream.get("bits_per_sample")
+            if value and str(value).isdigit():
+                depth = int(value)
+                return depth if depth > 0 else None
+            return _bit_depth_from_sample_format(str(stream.get("sample_fmt") or ""))
+        except Exception as exc:
+            self.logger.warning("Could not inspect audio bit depth for %s: %s", input_path, exc)
+            return None
+
+    def _audio_codec_name(self, input_path: Path) -> str | None:
+        try:
+            output = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=codec_name",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(input_path),
+                ],
+                text=True,
+                timeout=10,
+            )
+            value = output.strip()
+            return value or None
+        except Exception as exc:
+            self.logger.warning("Could not inspect audio codec for %s: %s", input_path, exc)
             return None
 
     def _convert_to_stereo(self, input_path: Path, output_path: Path):
@@ -421,9 +588,15 @@ class MlxSeparatorEngine:
             message = (exc.stderr or exc.stdout or str(exc)).strip()
             raise RuntimeError(f"Failed to prepare stereo input with ffmpeg: {message}") from exc
 
-    def _convert_output_to_mono(self, output_path: Path):
-        temp_path = output_path.with_name(f"{output_path.stem}.mono.tmp{output_path.suffix}")
-        codec = "flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le"
+    def _convert_output_audio_format(
+        self,
+        output_path: Path,
+        channels: int | None,
+        sample_rate: int | None,
+        codec: str | None = None,
+    ):
+        temp_path = output_path.with_name(f"{output_path.stem}.format.tmp{output_path.suffix}")
+        codec = codec or self._audio_codec_name(output_path) or ("flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le")
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -435,10 +608,68 @@ class MlxSeparatorEngine:
             "-map",
             "0:a:0",
             "-vn",
-            "-ac",
-            "1",
             "-c:a",
             codec,
+        ]
+        if channels is not None:
+            command.extend(["-ac", str(channels)])
+        if sample_rate is not None:
+            command.extend(["-ar", str(sample_rate)])
+        command.append(str(temp_path))
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True, timeout=None)
+            temp_path.replace(output_path)
+        except subprocess.CalledProcessError as exc:
+            temp_path.unlink(missing_ok=True)
+            message = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(f"Failed to restore output audio format with ffmpeg: {message}") from exc
+
+    def _codec_for_source_format(
+        self,
+        output_path: Path,
+        source_format: AudioFormatSpec,
+    ) -> str | None:
+        if output_path.suffix.lower() == ".flac":
+            return "flac"
+        if output_path.suffix.lower() != ".wav":
+            return None
+        if source_format.codec_name in {"pcm_f32le", "pcm_f32be"}:
+            return "pcm_f32le"
+        if source_format.codec_name in {"pcm_s16le", "pcm_s16be"}:
+            return "pcm_s16le"
+        if source_format.codec_name in {"pcm_s24le", "pcm_s24be"}:
+            return "pcm_s24le"
+        if source_format.codec_name in {"pcm_s32le", "pcm_s32be"}:
+            return "pcm_s32le"
+        if source_format.bit_depth == 16:
+            return "pcm_s16le"
+        if source_format.bit_depth == 24:
+            return "pcm_s24le"
+        if source_format.bit_depth == 32:
+            return "pcm_s32le"
+        return None
+
+    def _write_output_metadata(self, output_path: Path, job: SeparationJob):
+        if not output_path.exists():
+            return
+        temp_path = output_path.with_name(f"{output_path.stem}.metadata.tmp{output_path.suffix}")
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(output_path),
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-c:a",
+            "copy",
+            "-metadata",
+            "encoded_by=KirtanSplitter",
+            "-metadata",
+            f"comment={self._output_metadata_comment(job)}",
             str(temp_path),
         ]
         try:
@@ -447,7 +678,17 @@ class MlxSeparatorEngine:
         except subprocess.CalledProcessError as exc:
             temp_path.unlink(missing_ok=True)
             message = (exc.stderr or exc.stdout or str(exc)).strip()
-            raise RuntimeError(f"Failed to restore mono output with ffmpeg: {message}") from exc
+            self.logger.warning("Failed to write output metadata for %s: %s", output_path, message)
+
+    def _output_metadata_comment(self, job: SeparationJob) -> str:
+        model_name = self._display_model_name(job.model_filename, Path(job.model_filename).stem)
+        process_title = job.process_preset_title or job.process_preset_id
+        return (
+            f"KirtanSplitter model={model_name}; "
+            f"checkpoint={job.model_filename}; "
+            f"preset={job.preset}; "
+            f"process={process_title}"
+        )
 
     def _is_model_downloaded(self, filename: str) -> bool:
         entry = get_model_pack_entry(filename)
@@ -463,7 +704,12 @@ class MlxSeparatorEngine:
         catalog_name = display_name_for_model(filename)
         if catalog_name:
             return catalog_name
-        return UVR_MODEL_ALIASES.get(filename, fallback)
+        if filename in UVR_MODEL_ALIASES:
+            return UVR_MODEL_ALIASES[filename]
+        metadata = metadata_for_model_stem(Path(filename).stem)
+        if metadata and metadata.get("displayName"):
+            return str(metadata["displayName"])
+        return fallback
 
     def _model_load_message(self, filename: str) -> str:
         entry = get_model_pack_entry(filename)
@@ -489,7 +735,7 @@ class MlxSeparatorEngine:
         progress: ProgressCallback,
         input_path: Path,
         output_dir: Path,
-        source_channels: int | None,
+        source_format: AudioFormatSpec,
         catalog_entry,
     ) -> dict:
         started = time.perf_counter()
@@ -515,9 +761,9 @@ class MlxSeparatorEngine:
             ),
         )
         self._raise_if_cancelled()
-        if source_channels == 1:
-            progress("postprocessing", "Restoring mono channel layout", 0.94, self.runtime_stats())
-            output_files = self._restore_mono_outputs(output_files)
+        progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
+        output_files = self._conform_outputs_to_source_format(output_files, source_format)
+        output_files = self._finalize_output_files(job, output_files, input_path)
         if not output_files:
             raise RuntimeError("ONNX/CoreML backend completed but did not create any output stems.")
 
