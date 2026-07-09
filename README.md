@@ -126,6 +126,12 @@ back to macOS `ioreg` when `powermetrics` is unavailable without elevated
 privileges. GPU power still depends on `powermetrics`; if the OS denies access,
 the GPU widget shows utilization without inventing power data.
 
+ONNX/CoreML presets request Core ML with `MLComputeUnits=ALL`, which allows
+Core ML to schedule supported operators across CPU, GPU, and Neural Engine.
+The NPU widget reports this CoreML/Neural Engine availability mode; macOS does
+not provide a stable public per-process Neural Engine utilization percentage
+that can be shown as honestly as CPU or GPU usage.
+
 `Speed` is a runtime profile passed to `mlx-audio-separator`, not an output
 quality preset. `default` leaves the library defaults untouched, `latency_safe`
 uses conservative batch sizes for lower peak memory, and `latency_safe_v3` adds
@@ -203,6 +209,8 @@ configs. It also adds separate ONNX/CoreML backends for Demucs ONNX models via
 `demucs-onnx` and BS PolarFormer via a model-specific STFT/ONNX/iSTFT adapter.
 Those presets are routed outside MLX and use ONNX Runtime provider selection,
 which can choose CoreML on Apple Silicon when the runtime supports it.
+PolarFormer uses a dedicated CoreML cache under the visible model folder and
+reports real chunk-level progress instead of a synthetic long-running heartbeat.
 
 Generic ONNX files are not interchangeable: each one can require different audio
 windowing, spectrogram inputs, and postprocessing. DrumSep ONNX remains

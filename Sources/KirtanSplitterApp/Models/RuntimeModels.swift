@@ -6,6 +6,7 @@ struct RuntimeSnapshot: Codable, Equatable {
     let memory: MemoryStats
     let process: ProcessStats
     let gpu: GPUStats
+    let coreML: CoreMLStats?
     let modelCache: ModelCacheSummary?
 }
 
@@ -33,6 +34,15 @@ struct GPUStats: Codable, Equatable {
     let utilizationPercent: Double?
     let powerWatts: Double?
     let gpuCoreCount: Int?
+    let status: String
+    let source: String?
+}
+
+struct CoreMLStats: Codable, Equatable {
+    let provider: String?
+    let computeUnits: String
+    let gpuAllowed: Bool
+    let neuralEngineAllowed: Bool
     let status: String
     let source: String?
 }

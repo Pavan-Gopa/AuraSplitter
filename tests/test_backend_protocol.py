@@ -1073,8 +1073,32 @@ def test_engine_routes_polarformer_presets_to_polarformer_backend(tmp_path, monk
         def __init__(self, model_dir, logger=None):
             calls.append(("init", model_dir))
 
-        def separate(self, input_path, output_dir, output_format, model, config_filename):
-            calls.append(("separate", Path(input_path), Path(output_dir), output_format, model, config_filename))
+        def separate(
+            self,
+            input_path,
+            output_dir,
+            output_format,
+            model,
+            config_filename,
+            progress_callback=None,
+            progress_start=None,
+            progress_end=None,
+            cancel_callback=None,
+        ):
+            calls.append(
+                (
+                    "separate",
+                    Path(input_path),
+                    Path(output_dir),
+                    output_format,
+                    model,
+                    config_filename,
+                    callable(progress_callback),
+                    progress_start,
+                    progress_end,
+                    callable(cancel_callback),
+                )
+            )
             output = Path(output_dir) / "vocals.wav"
             _write_silent_wav(output, channels=2)
             return [str(output)]
@@ -1104,6 +1128,10 @@ def test_engine_routes_polarformer_presets_to_polarformer_backend(tmp_path, monk
         "WAV",
         "bs_polarformer_fp16.onnx",
         "model_bs_polarformer_float16.yaml",
+        True,
+        0.08,
+        0.92,
+        True,
     )
     assert result["model"] == "bs_polarformer_fp16.onnx"
     assert result["files"][0]["stem"] == "vocals"

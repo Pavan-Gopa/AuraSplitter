@@ -40,6 +40,28 @@ def test_gpu_stats_falls_back_to_ioreg_when_powermetrics_is_unavailable(monkeypa
     assert result["utilizationPercent"] == 74.0
 
 
+def test_coreml_stats_reports_all_compute_units_when_coreml_provider_is_available(monkeypatch):
+    monkeypatch.setattr(
+        runtime,
+        "onnx_runtime_status",
+        lambda: {
+            "available": True,
+            "status": "ok",
+            "providers": ["CoreMLExecutionProvider", "CPUExecutionProvider"],
+            "preferredProvider": "CoreMLExecutionProvider",
+        },
+        raising=False,
+    )
+
+    result = runtime.coreml_stats()
+
+    assert result["status"] == "ok"
+    assert result["provider"] == "CoreMLExecutionProvider"
+    assert result["computeUnits"] == "ALL"
+    assert result["gpuAllowed"] is True
+    assert result["neuralEngineAllowed"] is True
+
+
 def test_delete_model_cache_item_removes_file_and_reports_remaining_cache(tmp_path):
     model_dir = tmp_path / "models"
     model_dir.mkdir()

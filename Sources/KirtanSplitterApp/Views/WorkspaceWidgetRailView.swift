@@ -72,6 +72,7 @@ struct WorkspaceWidgetRailView: View {
                 MiniGauge(title: "CPU", detail: cpuDetail, value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
                 MiniGauge(title: "Memory", detail: memoryDetail, value: backend.runtimeStats?.memory.usedPercent ?? 0, tint: .purple)
                 MiniGauge(title: "GPU", detail: gpuDetail, value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
+                StatusLine(title: "NPU", value: npuDetail, tint: npuTint)
                 StatusLine(title: "Models", value: "\(modelCount)", tint: .secondary)
             }
         }
@@ -117,6 +118,19 @@ struct WorkspaceWidgetRailView: View {
             return "\(Int(utilization))%"
         }
         return gpu.status
+    }
+
+    private var npuDetail: String {
+        guard let coreML = backend.runtimeStats?.coreML else { return "waiting" }
+        if coreML.neuralEngineAllowed {
+            return coreML.computeUnits
+        }
+        return coreML.status
+    }
+
+    private var npuTint: Color {
+        guard let coreML = backend.runtimeStats?.coreML else { return .secondary }
+        return coreML.neuralEngineAllowed ? .green : .secondary
     }
 
     private var dropBackground: Color {

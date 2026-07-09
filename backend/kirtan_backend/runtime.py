@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .model_catalog import metadata_for_model_stem, model_library_metadata_entries
+from .onnx_backend import onnx_runtime_status
 from .render_estimates import model_usage_counts
 
 
@@ -23,6 +24,7 @@ def runtime_stats(model_dir: str) -> dict:
         "memory": memory_stats(),
         "process": process_stats(os.getpid()),
         "gpu": gpu_stats(),
+        "coreML": coreml_stats(),
         "modelCache": model_cache_summary(model_dir),
     }
 
@@ -112,6 +114,22 @@ def gpu_stats() -> dict:
         "gpuCoreCount": sample.get("gpuCoreCount"),
         "status": sample.get("status", "unavailable"),
         "source": sample.get("source", "powermetrics"),
+    }
+
+
+def coreml_stats() -> dict:
+    status = onnx_runtime_status()
+    providers = status.get("providers") or []
+    coreml_available = "CoreMLExecutionProvider" in providers
+    provider = "CoreMLExecutionProvider" if coreml_available else status.get("preferredProvider")
+
+    return {
+        "provider": provider,
+        "computeUnits": "ALL" if coreml_available else "unavailable",
+        "gpuAllowed": coreml_available,
+        "neuralEngineAllowed": coreml_available,
+        "status": "ok" if coreml_available else status.get("status", "unavailable"),
+        "source": "onnxruntime-coreml",
     }
 
 

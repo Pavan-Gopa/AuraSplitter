@@ -838,19 +838,21 @@ class MlxSeparatorEngine:
         ensure_model_pack_assets(job.model_filename, self.model_dir, self.logger)
         backend = PolarFormerOnnxBackend(self.model_dir, logger=self.logger)
         self._raise_if_cancelled()
-        output_files = self._with_heartbeat(
-            start=0.08,
-            end=0.92,
-            stage="separating",
-            message=f"Running {catalog_entry.title} ONNX/CoreML separation",
-            progress=progress,
-            work=lambda: backend.separate(
-                input_path=str(input_path),
-                output_dir=str(output_dir),
-                output_format=job.output_format,
-                model=catalog_entry.runner_model or catalog_entry.filename,
-                config_filename=catalog_entry.config_filename,
-            ),
+
+        def polarformer_progress(stage: str, message: str, value: float):
+            self._raise_if_cancelled()
+            progress(stage, message, value, self.runtime_stats())
+
+        output_files = backend.separate(
+            input_path=str(input_path),
+            output_dir=str(output_dir),
+            output_format=job.output_format,
+            model=catalog_entry.runner_model or catalog_entry.filename,
+            config_filename=catalog_entry.config_filename,
+            progress_callback=polarformer_progress,
+            progress_start=0.08,
+            progress_end=0.92,
+            cancel_callback=self._raise_if_cancelled,
         )
         self._raise_if_cancelled()
         progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())

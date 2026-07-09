@@ -4,7 +4,12 @@ import logging
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
+
+
+PolarFormerProgressCallback = Callable[[str, str, float], None]
+CancelCallback = Callable[[], None]
 
 
 def onnx_runtime_status() -> dict:
@@ -130,8 +135,11 @@ class DemucsOnnxBackend:
 class PolarFormerOnnxBackend:
     def __init__(self, model_dir: str, logger: logging.Logger | None = None):
         self.model_dir = Path(model_dir).expanduser()
+        self.cache_dir = self.model_dir / "onnx"
+        self.coreml_cache_dir = self.cache_dir / "coreml-cache"
         self.logger = logger or logging.getLogger("kirtan_backend.onnx_backend")
         self.model_dir.mkdir(parents=True, exist_ok=True)
+        self.coreml_cache_dir.mkdir(parents=True, exist_ok=True)
         self.last_perf_metrics: dict[str, float] = {}
 
     def separate(
@@ -141,6 +149,10 @@ class PolarFormerOnnxBackend:
         output_format: str,
         model: str,
         config_filename: str,
+        progress_callback: PolarFormerProgressCallback | None = None,
+        progress_start: float = 0.08,
+        progress_end: float = 0.92,
+        cancel_callback: CancelCallback | None = None,
     ) -> list[str]:
         model_path = self.model_dir / model
         config_path = self.model_dir / config_filename
@@ -159,16 +171,23 @@ class PolarFormerOnnxBackend:
         with tempfile.TemporaryDirectory(prefix="kirtan-polarformer-") as temp_dir:
             prepared_input = Path(temp_dir) / "input.wav"
             self._decode_to_model_input(input_path, prepared_input, sample_rate)
+            _check_cancelled(cancel_callback)
             audio, load_seconds = self._read_stereo_audio(prepared_input)
+            _check_cancelled(cancel_callback)
 
             inference_started = time.perf_counter()
             vocals = self._run_chunked_inference(
                 audio=audio,
                 config=config,
                 model_path=model_path,
+                progress_callback=progress_callback,
+                progress_start=progress_start,
+                progress_end=progress_end,
+                cancel_callback=cancel_callback,
             )
             inference_seconds = time.perf_counter() - inference_started
 
+        _check_cancelled(cancel_callback)
         write_started = time.perf_counter()
         vocals_path = output_path / "vocals.wav"
         instrumental_path = output_path / "instrumental.wav"
@@ -237,13 +256,21 @@ class PolarFormerOnnxBackend:
             audio = audio[:, :2]
         return audio.T.copy(), time.perf_counter() - started
 
-    def _run_chunked_inference(self, audio, config: dict, model_path: Path):
+    def _run_chunked_inference(
+        self,
+        audio,
+        config: dict,
+        model_path: Path,
+        progress_callback: PolarFormerProgressCallback | None = None,
+        progress_start: float = 0.08,
+        progress_end: float = 0.92,
+        cancel_callback: CancelCallback | None = None,
+    ):
         import numpy as np
 
         inference = config.get("inference", {})
         chunk_size = max(1, int(inference.get("chunk_size", 882000)))
         num_overlap = max(1, int(inference.get("num_overlap", 2)))
-        batch_size = max(1, int(inference.get("batch_size", 1)))
         step = max(1, chunk_size // num_overlap)
         total_samples = int(audio.shape[1])
         if total_samples <= 0:
@@ -252,29 +279,39 @@ class PolarFormerOnnxBackend:
         session = self._create_session(model_path)
         result = np.zeros((2, total_samples), dtype=np.float32)
         count = np.zeros(total_samples, dtype=np.float32)
-        chunks: list[tuple[int, int, object]] = []
-        for start in range(0, total_samples, step):
-            end = min(start + chunk_size, total_samples)
-            chunk = audio[:, start:end]
-            if chunk.shape[1] < chunk_size:
-                padding = np.zeros((2, chunk_size - chunk.shape[1]), dtype=np.float32)
-                chunk = np.concatenate([chunk, padding], axis=1)
-            chunks.append((start, end, chunk))
+        total_chunks = max(1, (total_samples + step - 1) // step)
+        processed_chunks = 0
 
-        for index in range(0, len(chunks), batch_size):
-            for start, end, chunk in chunks[index:index + batch_size]:
-                features, stft_repr, stft_window, raw_audio_len = self._prepare_stft(chunk, config)
-                mask = session.run(None, {"stft_features": features})[0]
-                recon = self._reconstruct_audio(
-                    stft_repr=stft_repr,
-                    mask=mask,
-                    stft_window=stft_window,
-                    raw_audio_len=raw_audio_len,
-                    config=config,
-                )
-                actual_len = end - start
-                result[:, start:end] += recon[:, :actual_len]
-                count[start:end] += 1.0
+        for start in range(0, total_samples, step):
+            _check_cancelled(cancel_callback)
+            end = min(start + chunk_size, total_samples)
+            actual_len = end - start
+            chunk = np.zeros((2, chunk_size), dtype=np.float32)
+            chunk[:, :actual_len] = audio[:, start:end]
+
+            features, stft_repr, stft_window, raw_audio_len = self._prepare_stft(chunk, config)
+            _check_cancelled(cancel_callback)
+            mask = session.run(None, {"stft_features": features})[0]
+            _check_cancelled(cancel_callback)
+            recon = self._reconstruct_audio(
+                stft_repr=stft_repr,
+                mask=mask,
+                stft_window=stft_window,
+                raw_audio_len=raw_audio_len,
+                config=config,
+            )
+            result[:, start:end] += recon[:, :actual_len]
+            count[start:end] += 1.0
+            processed_chunks += 1
+            _emit_polarformer_progress(
+                progress_callback,
+                "separating",
+                f"PolarFormer chunk {processed_chunks}/{total_chunks}",
+                progress_start,
+                progress_end,
+                processed_chunks,
+                total_chunks,
+            )
 
         count = np.maximum(count, 1.0)
         return result / count[np.newaxis, :]
@@ -287,7 +324,11 @@ class PolarFormerOnnxBackend:
                 "ONNX Runtime is required for the PolarFormer backend. Run script/setup_backend.sh."
             ) from exc
 
-        providers = _ordered_onnx_providers(list(ort.get_available_providers()))
+        providers = _ordered_onnx_providers(
+            list(ort.get_available_providers()),
+            coreml_cache_dir=self.coreml_cache_dir,
+        )
+        self.logger.info("Creating PolarFormer ONNX Runtime session providers=%s", providers)
         try:
             return ort.InferenceSession(str(model_path), providers=providers)
         except Exception:
@@ -301,23 +342,24 @@ class PolarFormerOnnxBackend:
 
         model = config.get("model", {})
         stft_kwargs = self._stft_kwargs(model)
-        raw_audio = torch.from_numpy(audio).float()
-        stft_window = torch.hann_window(stft_kwargs["win_length"])
-        stft_repr = torch.stft(raw_audio, **stft_kwargs, window=stft_window, return_complex=True)
-        stft_repr = torch.view_as_real(stft_repr)
-        freq_bins = stft_repr.shape[1]
-        frames = stft_repr.shape[2]
-        stft_repr = (
-            stft_repr.permute(1, 0, 2, 3)
-            .contiguous()
-            .reshape(1, freq_bins * 2, frames, 2)
-        )
-        features = (
-            stft_repr.permute(0, 2, 1, 3)
-            .contiguous()
-            .reshape(1, frames, freq_bins * 2 * 2)
-            .numpy()
-        )
+        with torch.inference_mode():
+            raw_audio = torch.from_numpy(audio).float()
+            stft_window = torch.hann_window(stft_kwargs["win_length"])
+            stft_repr = torch.stft(raw_audio, **stft_kwargs, window=stft_window, return_complex=True)
+            stft_repr = torch.view_as_real(stft_repr)
+            freq_bins = stft_repr.shape[1]
+            frames = stft_repr.shape[2]
+            stft_repr = (
+                stft_repr.permute(1, 0, 2, 3)
+                .contiguous()
+                .reshape(1, freq_bins * 2, frames, 2)
+            )
+            features = (
+                stft_repr.permute(0, 2, 1, 3)
+                .contiguous()
+                .reshape(1, frames, freq_bins * 2 * 2)
+                .numpy()
+            )
         return features, stft_repr, stft_window, raw_audio.shape[-1]
 
     def _reconstruct_audio(self, stft_repr, mask, stft_window, raw_audio_len: int, config: dict):
@@ -328,27 +370,28 @@ class PolarFormerOnnxBackend:
         audio_channels = 2 if model.get("stereo", True) else 1
         freq_bins = int(model.get("stft_n_fft", 2048)) // 2 + 1
 
-        mask_tensor = torch.from_numpy(mask).float()
-        stft_c = torch.view_as_complex(stft_repr.unsqueeze(1).contiguous())
-        mask_c = torch.view_as_complex(mask_tensor.contiguous())
-        masked = stft_c * mask_c
-        batch, stems, _flat_bins, frames = masked.shape
-        masked = (
-            masked.reshape(batch, stems, freq_bins, audio_channels, frames)
-            .permute(0, 1, 3, 2, 4)
-            .contiguous()
-            .reshape(batch * stems * audio_channels, freq_bins, frames)
-        )
-        masked[:, 0, :] = 0.0
-        recon = torch.istft(
-            masked,
-            **stft_kwargs,
-            window=stft_window,
-            return_complex=False,
-            length=raw_audio_len,
-        )
-        recon = recon.reshape(batch, stems, audio_channels, raw_audio_len)
-        return recon[0, 0].numpy()
+        with torch.inference_mode():
+            mask_tensor = torch.from_numpy(mask).float()
+            stft_c = torch.view_as_complex(stft_repr.unsqueeze(1).contiguous())
+            mask_c = torch.view_as_complex(mask_tensor.contiguous())
+            masked = stft_c * mask_c
+            batch, stems, _flat_bins, frames = masked.shape
+            masked = (
+                masked.reshape(batch, stems, freq_bins, audio_channels, frames)
+                .permute(0, 1, 3, 2, 4)
+                .contiguous()
+                .reshape(batch * stems * audio_channels, freq_bins, frames)
+            )
+            masked[:, 0, :] = 0.0
+            recon = torch.istft(
+                masked,
+                **stft_kwargs,
+                window=stft_window,
+                return_complex=False,
+                length=raw_audio_len,
+            )
+            recon = recon.reshape(batch, stems, audio_channels, raw_audio_len)
+            return recon[0, 0].numpy()
 
     def _stft_kwargs(self, model_config: dict) -> dict:
         return {
@@ -392,9 +435,9 @@ class PolarFormerOnnxBackend:
         return converted_files
 
 
-def _ordered_onnx_providers(providers: list[str]) -> list[str]:
+def _ordered_onnx_providers(providers: list[str], coreml_cache_dir: Path | None = None) -> list:
     ordered = [
-        candidate
+        _provider_spec(candidate, coreml_cache_dir)
         for candidate in (
             "CoreMLExecutionProvider",
             "CUDAExecutionProvider",
@@ -404,6 +447,41 @@ def _ordered_onnx_providers(providers: list[str]) -> list[str]:
         if candidate in providers
     ]
     return ordered or providers
+
+
+def _provider_spec(provider: str, coreml_cache_dir: Path | None):
+    if provider != "CoreMLExecutionProvider":
+        return provider
+    options = {
+        "ModelFormat": "MLProgram",
+        "MLComputeUnits": "ALL",
+        "RequireStaticInputShapes": "0",
+        "EnableOnSubgraphs": "0",
+    }
+    if coreml_cache_dir is not None:
+        options["ModelCacheDirectory"] = str(coreml_cache_dir)
+    return provider, options
+
+
+def _emit_polarformer_progress(
+    progress_callback: PolarFormerProgressCallback | None,
+    stage: str,
+    message: str,
+    start: float,
+    end: float,
+    processed_chunks: int,
+    total_chunks: int,
+):
+    if progress_callback is None:
+        return
+    span = max(0.0, end - start)
+    ratio = min(1.0, max(0.0, processed_chunks / max(1, total_chunks)))
+    progress_callback(stage, message, round(start + span * ratio, 4))
+
+
+def _check_cancelled(cancel_callback: CancelCallback | None):
+    if cancel_callback is not None:
+        cancel_callback()
 
 
 def _duplicate_mono_channel(audio):
