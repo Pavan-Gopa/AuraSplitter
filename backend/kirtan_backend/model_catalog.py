@@ -53,7 +53,7 @@ class ModelCatalogEntry:
     def backend_label(self) -> str:
         if self.backend == "mlx":
             return "MLX"
-        if self.backend == "demucs_onnx":
+        if self.backend in {"demucs_onnx", "polarformer_onnx"}:
             return "ONNX/CoreML"
         return self.backend
 
@@ -153,6 +153,24 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         source_url="https://huggingface.co/pcunwa/BS-Roformer-Leap",
         checkpoint_url=hf_resolve("pcunwa/BS-Roformer-Leap", "Xe/bs_leap_xe_inst.ckpt"),
         config_url=hf_resolve("pcunwa/BS-Roformer-Leap", "Xe/leap_xe_config_inst.yaml"),
+    ),
+    ModelCatalogEntry(
+        id="polarformer_vocal",
+        title="Kirtan Vocal Max",
+        technical_title="BS PolarFormer 124-band",
+        filename="bs_polarformer_fp16.onnx",
+        config_filename="model_bs_polarformer_float16.yaml",
+        model_type="ONNX/CoreML",
+        architecture="BS-PolarFormer",
+        backend="polarformer_onnx",
+        summary="Leaderboard BS PolarFormer vocal / instrumental split with stronger MVSep vocals SDR than Leap Xe.",
+        expected_stems=("vocals", "instrumental"),
+        target_stem="vocals",
+        scores={"vocals": 12.0230, "instrumental": 18.3304},
+        license="MIT",
+        source_url="https://huggingface.co/bgkb/bs_polarformer",
+        checkpoint_url=hf_resolve("bgkb/bs_polarformer", "bs_polarformer_fp16.onnx"),
+        config_url=hf_resolve("bgkb/bs_polarformer", "model_bs_polarformer_float16.yaml"),
     ),
     ModelCatalogEntry(
         id="becruily_deux",
@@ -508,10 +526,8 @@ def ensure_model_pack_assets(
                 f"{experimental.title} is cataloged but not runnable yet: {experimental.summary}"
             )
         return None
-    if entry.backend != "mlx":
-        return entry
     if not entry.enabled:
-        raise ValueError(f"{entry.title} is not enabled for the MLX backend")
+        raise ValueError(f"{entry.title} is not enabled for the {entry.backend_label} backend")
 
     destination_dir = Path(model_dir).expanduser()
     destination_dir.mkdir(parents=True, exist_ok=True)

@@ -24,6 +24,7 @@ MLX/Metal.
     and selected MVSep Mega 53 single-target
     models for lead vocal, back vocal, drums, sitar, and piano.
   - ONNX/CoreML presets:
+    `Kirtan Vocal Max` for BS PolarFormer vocal / instrumental separation,
     `Kirtan Stems Pro` for vocals, drums, bass, and other, and
     `Kirtan Stems Max` for vocals, drums, bass, guitar, piano, and other.
 - Model picker with the full live model catalog exposed by the backend, using
@@ -84,8 +85,9 @@ MLX/Metal.
 - `torch` is installed into `.venv` only so `.ckpt` RoFormer models can be
   converted to MLX safetensors on first use. Inference is still MLX/Metal.
 - `demucs-onnx` and `onnxruntime` are installed for the optional ONNX/CoreML
-  presets. They use their own local cache under the KirtanSplitter model folder
-  and do not replace the MLX path.
+  presets. Demucs uses its own local cache under the KirtanSplitter model
+  folder; PolarFormer downloads its ONNX model and YAML config into the same
+  visible model folder as the other KirtanSplitter models.
 
 Install external tools:
 
@@ -197,12 +199,11 @@ MDX, VR, and Demucs models on MLX.
 
 Model Pack V1 exposes MLX-compatible models through `mlx-audio-separator`:
 BS-RoFormer, MelBand RoFormer, and MDX23C/MDXC-style checkpoints with YAML
-configs. It also adds a separate ONNX/CoreML backend for Demucs ONNX models via
-`demucs-onnx`; those presets are routed outside MLX and use ONNX Runtime's
-automatic provider selection, which can choose CoreML on Apple Silicon when the
-runtime supports it.
+configs. It also adds separate ONNX/CoreML backends for Demucs ONNX models via
+`demucs-onnx` and BS PolarFormer via a model-specific STFT/ONNX/iSTFT adapter.
+Those presets are routed outside MLX and use ONNX Runtime provider selection,
+which can choose CoreML on Apple Silicon when the runtime supports it.
 
-Experimental candidates such as BS PolarFormer and generic DrumSep ONNX are
-still cataloged in code but are not exposed as runnable presets until they have
-a model-specific adapter. Generic ONNX files are not interchangeable: each one
-can require different audio windowing, spectrogram inputs, and postprocessing.
+Generic ONNX files are not interchangeable: each one can require different audio
+windowing, spectrogram inputs, and postprocessing. DrumSep ONNX remains
+cataloged as an experimental candidate until it has its own adapter.

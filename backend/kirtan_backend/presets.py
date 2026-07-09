@@ -95,6 +95,13 @@ PRESETS: dict[str, SeparationPreset] = {
         summary=MODEL_PACK_BY_ID["leap_xe_instrumental"].summary,
         expected_stems=MODEL_PACK_BY_ID["leap_xe_instrumental"].expected_stems,
     ),
+    "polarformer_vocal": SeparationPreset(
+        id="polarformer_vocal",
+        title=MODEL_PACK_BY_ID["polarformer_vocal"].title,
+        model_filename=MODEL_PACK_BY_ID["polarformer_vocal"].filename,
+        summary=MODEL_PACK_BY_ID["polarformer_vocal"].summary,
+        expected_stems=MODEL_PACK_BY_ID["polarformer_vocal"].expected_stems,
+    ),
     "becruily_deux": SeparationPreset(
         id="becruily_deux",
         title=MODEL_PACK_BY_ID["becruily_deux"].title,

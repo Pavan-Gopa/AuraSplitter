@@ -2,7 +2,10 @@ import sys
 import types
 from pathlib import Path
 
-from kirtan_backend.onnx_backend import DemucsOnnxBackend, onnx_runtime_status
+import numpy as np
+import soundfile as sf
+
+from kirtan_backend.onnx_backend import DemucsOnnxBackend, PolarFormerOnnxBackend, onnx_runtime_status
 
 
 def test_onnx_runtime_status_reports_available_providers(monkeypatch):
@@ -50,3 +53,65 @@ def test_demucs_onnx_backend_uses_project_model_cache_and_writes_stem_files(tmp_
     assert calls[0][2]["providers"] == "auto"
     assert calls[0][2]["progress"] is False
     assert calls[0][2]["output_format"] == "wav"
+
+
+def test_polarformer_onnx_backend_writes_vocals_and_instrumental_files(tmp_path, monkeypatch):
+    input_path = tmp_path / "mix.wav"
+    sample_rate = 44100
+    samples = np.zeros((4096, 2), dtype=np.float32)
+    samples[:, 0] = 0.1
+    samples[:, 1] = -0.1
+    sf.write(input_path, samples, sample_rate)
+
+    output_dir = tmp_path / "out"
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "bs_polarformer_fp16.onnx").write_bytes(b"fake onnx")
+    (model_dir / "model_bs_polarformer_float16.yaml").write_text(
+        """
+audio:
+  sample_rate: 44100
+model:
+  stereo: true
+  stft_n_fft: 16
+  stft_hop_length: 8
+  stft_win_length: 16
+  stft_normalized: false
+inference:
+  chunk_size: 512
+  batch_size: 1
+  num_overlap: 2
+""",
+        encoding="utf-8",
+    )
+
+    class FakeInferenceSession:
+        def __init__(self, path, providers):
+            self.path = path
+            self.providers = providers
+
+        def run(self, _outputs, inputs):
+            features = inputs["stft_features"]
+            frames = features.shape[1]
+            feature_count = features.shape[2] // 2
+            mask = np.zeros((1, 1, feature_count, frames, 2), dtype=np.float32)
+            mask[..., 0] = 1.0
+            return [mask]
+
+    fake_ort = types.SimpleNamespace(
+        get_available_providers=lambda: ["CPUExecutionProvider"],
+        InferenceSession=FakeInferenceSession,
+    )
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+    backend = PolarFormerOnnxBackend(model_dir=str(model_dir))
+    files = backend.separate(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        output_format="WAV",
+        model="bs_polarformer_fp16.onnx",
+        config_filename="model_bs_polarformer_float16.yaml",
+    )
+
+    assert [Path(file).name for file in files] == ["vocals.wav", "instrumental.wav"]
+    assert all(Path(file).exists() for file in files)

@@ -23,7 +23,7 @@ from .model_catalog import (
     get_model_pack_entry,
     metadata_for_model_stem,
 )
-from .onnx_backend import DemucsOnnxBackend, onnx_runtime_status
+from .onnx_backend import DemucsOnnxBackend, PolarFormerOnnxBackend, onnx_runtime_status
 from .render_estimates import estimate_render_time, record_render_benchmark
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 from .presets import preset_list
@@ -211,6 +211,15 @@ class MlxSeparatorEngine:
         catalog_entry = get_model_pack_entry(job.model_filename)
         if catalog_entry and catalog_entry.backend == "demucs_onnx":
             return self._separate_with_demucs_onnx(
+                job=job,
+                progress=progress,
+                input_path=input_path,
+                output_dir=output_dir,
+                source_format=source_format,
+                catalog_entry=catalog_entry,
+            )
+        if catalog_entry and catalog_entry.backend == "polarformer_onnx":
+            return self._separate_with_polarformer_onnx(
                 job=job,
                 progress=progress,
                 input_path=input_path,
@@ -798,6 +807,78 @@ class MlxSeparatorEngine:
             "elapsedSeconds": round(elapsed, 2),
             "files": files,
             "metrics": {"backend": 1.0},
+            "modelCache": self.model_cache(),
+            "settings": {
+                "chunkDuration": job.chunk_duration,
+                "mdxcSegmentSize": job.mdxc_segment_size,
+                "mdxcOverlap": job.mdxc_overlap,
+                "mdxcBatchSize": job.mdxc_batch_size,
+                "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
+                "speedMode": job.speed_mode,
+            },
+        }
+
+    def _separate_with_polarformer_onnx(
+        self,
+        job: SeparationJob,
+        progress: ProgressCallback,
+        input_path: Path,
+        output_dir: Path,
+        source_format: AudioFormatSpec,
+        catalog_entry,
+    ) -> dict:
+        started = time.perf_counter()
+        started_at = time.time()
+        progress(
+            "loading",
+            f"Preparing {catalog_entry.title} ONNX/CoreML backend",
+            0.05,
+            self.runtime_stats(),
+        )
+        ensure_model_pack_assets(job.model_filename, self.model_dir, self.logger)
+        backend = PolarFormerOnnxBackend(self.model_dir, logger=self.logger)
+        self._raise_if_cancelled()
+        output_files = self._with_heartbeat(
+            start=0.08,
+            end=0.92,
+            stage="separating",
+            message=f"Running {catalog_entry.title} ONNX/CoreML separation",
+            progress=progress,
+            work=lambda: backend.separate(
+                input_path=str(input_path),
+                output_dir=str(output_dir),
+                output_format=job.output_format,
+                model=catalog_entry.runner_model or catalog_entry.filename,
+                config_filename=catalog_entry.config_filename,
+            ),
+        )
+        self._raise_if_cancelled()
+        progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
+        output_files = self._conform_outputs_to_source_format(output_files, source_format)
+        output_files = self._finalize_output_files(job, output_files, input_path)
+        if not output_files:
+            raise RuntimeError("PolarFormer ONNX/CoreML backend completed but did not create any output stems.")
+
+        elapsed = time.perf_counter() - started
+        completed_at = time.time()
+        self._record_render_benchmark(job, input_path, elapsed)
+        files = [self._file_result(path) for path in output_files]
+        missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
+        if missing_files:
+            raise RuntimeError(
+                "PolarFormer ONNX/CoreML backend returned output paths, but no audio data was written: "
+                + ", ".join(missing_files)
+            )
+
+        progress("complete", "Done", 1.0, self.runtime_stats())
+        return {
+            "model": job.model_filename,
+            "preset": job.preset,
+            "startedAt": started_at,
+            "completedAt": completed_at,
+            "elapsedSeconds": round(elapsed, 2),
+            "files": files,
+            "metrics": getattr(backend, "last_perf_metrics", None) or {"backend": 1.0},
             "modelCache": self.model_cache(),
             "settings": {
                 "chunkDuration": job.chunk_duration,
