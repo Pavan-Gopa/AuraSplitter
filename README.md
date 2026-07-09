@@ -24,7 +24,7 @@ MLX/Metal.
     and selected MVSep Mega 53 single-target
     models for lead vocal, back vocal, drums, sitar, and piano.
   - ONNX/CoreML presets:
-    `Kirtan Vocal Max` for BS PolarFormer vocal / instrumental separation,
+    `Kirtan Vocal Max` cataloging BS PolarFormer vocal / instrumental separation,
     `Kirtan Stems Pro` for vocals, drums, bass, and other, and
     `Kirtan Stems Max` for vocals, drums, bass, guitar, piano, and other.
 - Model picker with the full live model catalog exposed by the backend, using
@@ -210,7 +210,12 @@ configs. It also adds separate ONNX/CoreML backends for Demucs ONNX models via
 Those presets are routed outside MLX and use ONNX Runtime provider selection,
 which can choose CoreML on Apple Silicon when the runtime supports it.
 PolarFormer uses a dedicated CoreML cache under the visible model folder and
-reports real chunk-level progress instead of a synthetic long-running heartbeat.
+reports real chunk-level progress instead of a synthetic long-running heartbeat
+when a CoreML session is available. The current public BS PolarFormer ONNX
+checkpoint has unbounded dynamic dimensions that CoreML cannot compile on this
+machine; CPU fallback is intentionally disabled because it takes hours. Keep it
+cataloged for a future static CoreML/MLX export, and use the MLX RoFormer presets
+for production runs.
 
 Generic ONNX files are not interchangeable: each one can require different audio
 windowing, spectrogram inputs, and postprocessing. DrumSep ONNX remains

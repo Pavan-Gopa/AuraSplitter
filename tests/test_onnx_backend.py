@@ -3,6 +3,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from kirtan_backend.onnx_backend import DemucsOnnxBackend, PolarFormerOnnxBackend, onnx_runtime_status
@@ -99,7 +100,7 @@ inference:
             return [mask]
 
     fake_ort = types.SimpleNamespace(
-        get_available_providers=lambda: ["CPUExecutionProvider"],
+        get_available_providers=lambda: ["CoreMLExecutionProvider", "CPUExecutionProvider"],
         InferenceSession=FakeInferenceSession,
     )
     monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
@@ -143,7 +144,34 @@ def test_polarformer_onnx_backend_requests_coreml_all_compute_units_with_cache(t
     assert providers[0][1]["MLComputeUnits"] == "ALL"
     assert providers[0][1]["ModelFormat"] == "MLProgram"
     assert providers[0][1]["ModelCacheDirectory"] == str(model_dir / "onnx" / "coreml-cache")
-    assert providers[-1] == "CPUExecutionProvider"
+    assert all(provider != "CPUExecutionProvider" for provider in providers)
+
+
+def test_polarformer_onnx_backend_fails_fast_instead_of_cpu_fallback_when_coreml_session_fails(tmp_path, monkeypatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    model_path = model_dir / "bs_polarformer_fp16.onnx"
+    model_path.write_bytes(b"fake onnx")
+    calls = []
+
+    class FakeInferenceSession:
+        def __init__(self, path, providers):
+            calls.append((path, providers))
+            raise RuntimeError("CoreML cannot compile unbounded dynamic dimensions")
+
+    fake_ort = types.SimpleNamespace(
+        get_available_providers=lambda: ["CoreMLExecutionProvider", "CPUExecutionProvider"],
+        InferenceSession=FakeInferenceSession,
+    )
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+    backend = PolarFormerOnnxBackend(model_dir=str(model_dir))
+    with pytest.raises(RuntimeError, match="cannot run on CoreML"):
+        backend._create_session(model_path)
+
+    assert len(calls) == 1
+    assert calls[0][1] != ["CPUExecutionProvider"]
+    assert all(provider != "CPUExecutionProvider" for provider in calls[0][1])
 
 
 def test_polarformer_onnx_backend_reports_real_chunk_progress(tmp_path, monkeypatch):
@@ -190,7 +218,7 @@ inference:
             return [mask]
 
     fake_ort = types.SimpleNamespace(
-        get_available_providers=lambda: ["CPUExecutionProvider"],
+        get_available_providers=lambda: ["CoreMLExecutionProvider", "CPUExecutionProvider"],
         InferenceSession=FakeInferenceSession,
     )
     monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)

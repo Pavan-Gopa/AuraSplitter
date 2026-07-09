@@ -163,7 +163,10 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         model_type="ONNX/CoreML",
         architecture="BS-PolarFormer",
         backend="polarformer_onnx",
-        summary="Leaderboard BS PolarFormer vocal / instrumental split with stronger MVSep vocals SDR than Leap Xe.",
+        summary=(
+            "Leaderboard BS PolarFormer vocal / instrumental split. The public ONNX checkpoint currently "
+            "needs a static CoreML/MLX export before it can run as a fast Apple Silicon preset."
+        ),
         expected_stems=("vocals", "instrumental"),
         target_stem="vocals",
         scores={"vocals": 12.0230, "instrumental": 18.3304},

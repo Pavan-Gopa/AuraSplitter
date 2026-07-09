@@ -276,7 +276,11 @@ class PolarFormerOnnxBackend:
         if total_samples <= 0:
             raise RuntimeError("PolarFormer input has no audio samples.")
 
+        if progress_callback is not None:
+            progress_callback("loading", "Compiling PolarFormer CoreML session", min(progress_start, 0.07))
         session = self._create_session(model_path)
+        if progress_callback is not None:
+            progress_callback("loading", "PolarFormer CoreML session ready", progress_start)
         result = np.zeros((2, total_samples), dtype=np.float32)
         count = np.zeros(total_samples, dtype=np.float32)
         total_chunks = max(1, (total_samples + step - 1) // step)
@@ -328,14 +332,24 @@ class PolarFormerOnnxBackend:
             list(ort.get_available_providers()),
             coreml_cache_dir=self.coreml_cache_dir,
         )
+        if not providers:
+            raise RuntimeError(
+                "Kirtan Vocal Max cannot run because ONNX Runtime does not expose "
+                "CoreMLExecutionProvider. CPU fallback is disabled for PolarFormer "
+                "because this model takes hours without CoreML/Neural Engine."
+            )
         self.logger.info("Creating PolarFormer ONNX Runtime session providers=%s", providers)
         try:
             return ort.InferenceSession(str(model_path), providers=providers)
-        except Exception:
-            if providers != ["CPUExecutionProvider"] and "CPUExecutionProvider" in providers:
-                self.logger.warning("PolarFormer CoreML session failed; retrying with CPUExecutionProvider.")
-                return ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-            raise
+        except Exception as exc:
+            self.logger.exception("PolarFormer CoreML session failed; CPU fallback disabled.")
+            raise RuntimeError(
+                "Kirtan Vocal Max cannot run on CoreML/Neural Engine with the current "
+                "BS PolarFormer ONNX checkpoint. CoreML reported unsupported dynamic "
+                "or unbounded tensor shapes. CPU fallback is disabled because it would "
+                "run for hours; use Kirtan Vocal Elite or another MLX preset until a "
+                "static CoreML/MLX export is added."
+            ) from exc
 
     def _prepare_stft(self, audio, config: dict):
         import torch
@@ -436,17 +450,9 @@ class PolarFormerOnnxBackend:
 
 
 def _ordered_onnx_providers(providers: list[str], coreml_cache_dir: Path | None = None) -> list:
-    ordered = [
-        _provider_spec(candidate, coreml_cache_dir)
-        for candidate in (
-            "CoreMLExecutionProvider",
-            "CUDAExecutionProvider",
-            "DmlExecutionProvider",
-            "CPUExecutionProvider",
-        )
-        if candidate in providers
-    ]
-    return ordered or providers
+    if "CoreMLExecutionProvider" in providers:
+        return [_provider_spec("CoreMLExecutionProvider", coreml_cache_dir)]
+    return []
 
 
 def _provider_spec(provider: str, coreml_cache_dir: Path | None):
