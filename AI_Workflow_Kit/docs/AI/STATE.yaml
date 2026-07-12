@@ -3,10 +3,10 @@
 
 current_step: K7
 step_description: >
-  On-device Accelerate/vDSP STFT + peaks for typical tracks; optional hybrid
-  fallback to backend binary/progressive for huge files; document policy;
-  quality comparable for preview (not bit-identical); tests for dimensions/smoke.
-  No separation engine changes.
+  RETRY after Gemini CHANGES_REQUESTED (attempts=1).
+  Code for vDSP local analysis largely present; formal handoff missing.
+  Fix STATE to waiting_review + next_actor verification after verifying K7
+  complete (local analyzer + hybrid policy + wiring + tests). No K8 scope.
 
 target_files:
   - Sources/KirtanSplitterApp/Models/LocalAudioAnalyzer.swift
@@ -18,6 +18,7 @@ target_files:
   - tests/KirtanSplitterAppTests/LocalAudioAnalyzerTests.swift
   - tests/KirtanSplitterAppTests/AudioAnalysisMetadataTests.swift
   - PERF_BASELINE.md
+  - AI_Workflow_Kit/docs/AI/STATE.yaml
 
 completed_steps:
   - K0
@@ -30,7 +31,7 @@ completed_steps:
 
 implementation:
   status: pending
-  attempts: 0
+  attempts: 1
 
 review:
   status: pending
