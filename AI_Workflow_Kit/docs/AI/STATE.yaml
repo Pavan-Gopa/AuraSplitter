@@ -1,44 +1,47 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K4
+current_step: K5
 step_description: >
-  Binary ksbin analysis payload: backend writes header + float32 waveform +
-  float32 row-major spectrogram; JSON returns metadata + binaryPayloadPath;
-  Swift mmap/read, delete temp, fill AudioAnalysis; round-trip tests. No
-  progressive multi-phase (K5) required — one-shot binary is OK.
+  Progressive preview: phases waveform_preview → waveform_full →
+  spectrogram_chunk(s) or low-res then HQ; protocol progress events; Swift UI
+  paints early + shimmer/loading; do not block on full HQ before first paint.
+  No full vDSP rewrite (K7).
 
 target_files:
   - backend/kirtan_backend/audio_analysis.py
   - backend/kirtan_backend/protocol.py
   - Sources/KirtanSplitterApp/Services/BackendClient.swift
+  - Sources/KirtanSplitterApp/Views/AudioPreviewPane.swift
+  - Sources/KirtanSplitterApp/Models/AudioPreviewAnalysisCache.swift
   - Sources/KirtanSplitterApp/Models/AudioAnalysisModels.swift
   - tests/test_audio_analysis.py
   - tests/test_backend_protocol.py
-  - tests/KirtanSplitterAppTests/AudioAnalysisMetadataTests.swift
+  - tests/KirtanSplitterAppTests/AudioPreviewAnalysisCacheTests.swift
 
 completed_steps:
   - K0
   - K1
   - K2
   - K3
+  - K4
 
 implementation:
-  status: waiting_review
-  attempts: 1
+  status: pending
+  attempts: 0
 
 review:
-  status: approved
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator
+next_actor: implementation
 
 track: OPT_PERF
 
 checkpoint:
   last_pre_tag: opt/pre-K4
-  last_post_tag: opt/K3-done
-  last_commit: e9fee11
+  last_post_tag: opt/K4-done
+  last_commit: 554333a
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
