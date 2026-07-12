@@ -1,32 +1,14 @@
-# Шаблон проверки (Verification Template)
+# FEEDBACK — OPT_PERF
 
-Verification Engineer (**Gemini 3.5 Flash**) заполняет эту структуру в `FEEDBACK.md` на каждый review.
+## Last closed: K1 — APPROVED (Gemini)
 
-Проверяемый шаг: K1
-Требования шага: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md (K1 — MLX experimental flags + Metal presets)
-
----
-
-### 1. Сборка и интеграция
-- Собирается / тестируется ли проект после этих изменений? (Да)
-- Не нарушают ли изменения протокол backend ↔ Swift, job params, UI bindings? (Нет)
-*Комментарий:* Swift-приложение и Python-бэкенд собираются без ошибок. Все 70 тестов бэкенда (`pytest`) и 48 тестов Swift (`swift test`) проходят успешно. Изменение [BackendClient.swift](file:///Users/pavan/Documents/AI%20Projects/KirtanSplitter/Sources/KirtanSplitterApp/Services/BackendClient.swift) для прокидывания словаря `performanceFlags` в RPC-запросы `startCalibrateJob` и `startSeparationJob` технически не входило в ориентировочный `target_files`, но является обязательным и необходимым звеном интеграции настроек из UI в бэкенд. Протокол взаимодействия и обратная совместимость со старыми сохраненными пресетами полностью сохранены (для `ProcessSettingsSnapshot` написан кастомный декодер, инициализирующий отсутствующие флаги пустым словарем).
-
-### 2. Логика и соответствие плану
-- Выполнены ли все требования **текущего** шага из `OPT_STEPS.md`? (Да)
-- Нет ли самодеятельности (код из K(n+1) на шаге K(n), Post-OPT и т.п.)? (Нет)
-- Соблюдены ли `target_files` (нет правок «заодно» вне списка без нужды)? (Да)
-*Комментарий:* Реализован проброс экспериментальных флагов MLX через структуру `SeparationJob` и RPC-протокол. Созданы два встроенных пресета производительности: **Metal Fast** (с безопасными оптимизациями) и **Metal Max** (с агрессивной компиляцией графов). Изменения в коде не затрагивают кеш моделей (K3), бинарный превью-протокол (K4), прогрессивную загрузку (K5) или CoreML.
-
-### 3. Оптимальность и безопасность
-- Нет ли cold `auto_tune_batch` / 8s probe на hot Separate path? (Да, выключен)
-- Нет ли регрессий memory (лишние полные reload модели, unbounded caches)? (Нет)
-- Preview: нет ли mega-JSON там, где шаг уже требует binary (если применимо)? (Не применимо)
-*Комментарий:* Ключевое требование безопасности выполнено: `auto_tune_batch` по умолчанию установлен в `False` как в `MlxSeparatorEngine._build_performance_params`, так и во встроенных пресетах `Metal Fast`/`Metal Max`. Это предотвращает 8-секундное зависание при разделении аудио на "холодном" пути.
-
-### 4. (если changes_requested) Конкретный список правок
-(Не требуется)
+Metal Fast/Max presets; experimental MLX flags via SeparationJob; auto_tune_batch OFF.
+Post-tag: `opt/K1-done`.
 
 ---
 
-**ИТОГОВЫЙ СТАТУС:** [APPROVED]
+## Active step: K2 — awaiting implementation
+
+No review yet for K2.
+
+**ИТОГОВЫЙ СТАТУС (K2):** [PENDING]

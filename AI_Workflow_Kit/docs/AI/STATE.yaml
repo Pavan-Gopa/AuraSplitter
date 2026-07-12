@@ -1,43 +1,40 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K1
+current_step: K2
 step_description: >
-  MLX experimental performance flags out of hardcode; Metal Fast / Metal Max
-  process presets; auto_tune_batch default OFF; wire SeparationJob + Swift
-  process presets; pytest/swift as needed. No warm cache (K3), no binary preview.
+  Single ffprobe for source audio format (not 4 probes); spectrogram values
+  row-major (bin rows) matching Metal texture; remove CPU transpose in
+  MetalSpectrogramTexturePayload when layout matches; tests for analysis layout
+  and format probe. No binary protocol (K4), no progressive (K5).
 
 target_files:
   - backend/kirtan_backend/engine.py
-  - backend/kirtan_backend/jobs.py
-  - backend/kirtan_backend/process_presets.py
-  - Sources/KirtanSplitterApp/Models/ProcessSettingsPreset.swift
-  - Sources/KirtanSplitterApp/Models/BackendModels.swift
-  - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
-  - tests/test_process_presets.py
-  - tests/test_backend_protocol.py
-  - tests/KirtanSplitterAppTests/ProcessSettingsPresetTests.swift
-  - script/benchmark_models.py
+  - backend/kirtan_backend/audio_analysis.py
+  - Sources/KirtanSplitterApp/Models/MetalSpectrogramTexturePayload.swift
+  - tests/test_audio_analysis.py
+  - tests/KirtanSplitterAppTests/MetalSpectrogramTextureTests.swift
 
 completed_steps:
   - K0
+  - K1
 
 implementation:
-  status: waiting_review      # pending | in_progress | waiting_review | idle
+  status: pending
   attempts: 0
 
 review:
-  status: approved            # pending | approved | changes_requested
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator     # implementation | verification | orchestrator | human
+next_actor: implementation
 
 track: OPT_PERF
 
 checkpoint:
   last_pre_tag: opt/pre-K1
-  last_post_tag: opt/K0-done
-  last_commit: 66ab765
+  last_post_tag: opt/K1-done
+  last_commit: 07ab936
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
