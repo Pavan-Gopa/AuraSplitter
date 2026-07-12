@@ -100,6 +100,24 @@ The cost is dominated by ffmpeg decode + the per-column STFT loop in
 scales sub-linearly with duration because most time is fixed decode/setup
 overhead. K2/K5/K7 are expected to move this number.
 
+### K7 — local-first hybrid policy
+
+`BackendClient.analyzeAudio` now checks `LocalAudioAnalyzer.canAnalyzeLocally`
+before hitting the backend. If the source file is **≤ 200 MB** it runs fully
+on-device via Accelerate/vDSP (`LocalAudioAnalyzer.analyze`): decode PCM → mono
+mix → vDSP FFT radix2 STFT → log-normalize into the same `SpectrogramData`
+(row-major bin rows) and `AudioAnalysis` shape the backend produces. This
+removes the Python round-trip for typical tracks (RX-class preview).
+
+**Fallback:** files **> 200 MB** (or any local-analysis failure) fall through to
+the existing backend progressive path (`analyze_audio` with ksbin binary
+payload), so huge/atypical files keep working. No separation-engine or backend
+MLX changes were made in K7.
+
+Expected effect: preview `analyze_audio` latency for typical tracks drops to
+~0 (local), leaving only the huge-file backend path in the `TODO` Separate
+rows above unchanged.
+
 ### How to fill the `TODO` Separate rows
 
 Run scenario 1 once (downloads the model on first use, then separates). Copy

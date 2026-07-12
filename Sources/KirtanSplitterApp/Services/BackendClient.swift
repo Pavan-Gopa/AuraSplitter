@@ -238,6 +238,18 @@ final class BackendClient: ObservableObject {
     }
 
     func analyzeAudio(url: URL) async throws -> AudioAnalysis {
+        if LocalAudioAnalyzer.canAnalyzeLocally(url) {
+            do {
+                let analysis = try await Task.detached(priority: .userInitiated) {
+                    try LocalAudioAnalyzer.analyze(url: url)
+                }.value
+                previewProgress = AudioPreviewProgress(completedWith: analysis)
+                return analysis
+            } catch {
+                // Fall through to the backend progressive path.
+            }
+        }
+
         let requestID = nextRequestID()
         let params: [String: Any] = [
             "path": url.path,

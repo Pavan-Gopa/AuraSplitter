@@ -1,5 +1,12 @@
 import Foundation
 
+/// Metal texture payload for the spectrogram layer.
+///
+/// `SpectrogramData.values` is stored **row-major with frequency bins as rows**
+/// (`values[bin * columns + col]`). Both the backend `analyze_audio` (ksbin)
+/// and the on-device `LocalAudioAnalyzer` (vDSP) produce this exact layout, so
+/// no transpose is needed here — only a `[0, 1]` clamp. `width` maps to time
+/// (columns) and `height` maps to frequency (bins).
 struct MetalSpectrogramTexturePayload: Equatable {
     let width: Int
     let height: Int
