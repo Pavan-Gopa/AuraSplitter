@@ -35,9 +35,9 @@ next_actor: implementation    # implementation | verification | orchestrator | h
 track: OPT_PERF
 
 checkpoint:
-  last_pre_tag: opt/pre-K0    # will become opt/pre-K1 after pre script
+  last_pre_tag: opt/pre-K1
   last_post_tag: opt/K0-done
-  last_commit: e30e9b3
+  last_commit: 66ab765
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
