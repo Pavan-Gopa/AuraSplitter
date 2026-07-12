@@ -20,3 +20,11 @@ Orchestrator (Grok) пишет сюда решения при deadlock (`attempt
 - Docs: `AI_Workflow_Kit/docs/AI/GIT_CHECKPOINTS.md`
 - Rollback: `./script/opt_checkpoint.sh rollback pre Kn` or `git reset --hard opt/pre-Kn`
 - Hy3 must refuse to code if `opt/pre-Kn` missing.
+
+## 2026-07-12 — OPT_PERF closed
+
+- K0–K8 all Gemini-approved; post tags `opt/K0-done` … `opt/K8-done` on GitHub.
+- K7 had one CHANGES_REQUESTED cycle (STATE handoff only), then approved.
+- Track set to `OPT_DONE`, `next_actor: human`.
+- Post-OPT backlog remains optional (CoreML ONNX/ANE, colormap LUT, metal waveform).
+

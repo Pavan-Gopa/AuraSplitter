@@ -1,37 +1,28 @@
-# Шаблон проверки (Verification Template)
+# FEEDBACK — OPT_PERF closed
 
-Verification Engineer (**Gemini 3.5 Flash**) заполняет эту структуру в `FEEDBACK.md` на каждый review.
+## Track status
+**OPT_PERF = DONE** (K0–K8 all approved).
 
-Проверяемый шаг: K8
-Требования шага: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md (K8 — Memory limits + static batch heuristic + LRU disk cache)
+| Step | Tag |
+|------|-----|
+| K0 | opt/K0-done |
+| K1 | opt/K1-done |
+| K2 | opt/K2-done |
+| K3 | opt/K3-done |
+| K4 | opt/K4-done |
+| K5 | opt/K5-done |
+| K6 | opt/K6-done |
+| K7 | opt/K7-done |
+| K8 | opt/K8-done |
 
----
+## Last step: K8 — APPROVED (Gemini)
 
-### 1. Сборка и интеграция
-- Собирается / тестируется ли проект после этих изменений? (Да)
-- Не нарушают ли изменения протокол backend ↔ Swift, job params, UI bindings? (Нет)
-*Комментарий:* Проект успешно компилируется (`swift build`). Все 91 Python тест и 56 Swift тестов проходят без ошибок. Интеграция дискового LRU кеша на стороне Swift клиента и статической эвристики батча/ограничений памяти на стороне бэкенда полностью протестирована.
+- MLX Metal memory/cache limits + env overrides
+- Static RAM batch heuristic (no cold auto_tune)
+- Preview LRU + disk cache (SHA256 key, 20 / 256MB)
+- Tests green (91 Python / 56 Swift per review)
 
-### 2. Логика и соответствие плану
-- Выполнены ли все требования **текущего** шага из `OPT_STEPS.md`? (Да)
-- Нет ли самодеятельности (код из K(n+1) на шаге K(n), Post-OPT и т.п.)? (Нет)
-- Соблюдены ли `target_files` (нет правок «заодно» вне списка без нужды)? (Да)
-*Комментарий:*
-1. В бэкенде внедрен `configure_mlx_memory` для динамической настройки лимитов кэша и памяти MLX Metal (с поддержкой переопределения через ENV).
-2. Реализована статическая эвристика выбора размера батча по RAM-тирам (`resolve_batch_size`), которая полностью исключает запуск холодного 8-секундного auto_tune при разделении. Явно заданный пользователем размер батча уважается в первую очередь.
-3. Разработан дисковый LRU кеш [PreviewAnalysisDiskCache.swift](file:///Sources/KirtanSplitterApp/Models/PreviewAnalysisDiskCache.swift) (с лимитом в 20 записей / 256MB и вытеснением наименее используемых файлов). Ключ кеша использует хеш SHA256 от пути, размера и даты изменения файла для исключения регрессий при перезапуске приложения.
-4. Добавлены качественные тесты для эвристики батча, настройки лимитов памяти, а также тесты дискового LRU-кеша Swift.
-5. Соблюден список файлов.
+## No pending review
 
-### 3. Оптимальность и безопасность
-- Нет ли cold `auto_tune_batch` / 8s probe на hot Separate path? (Да, исключено)
-- Нет ли регрессий memory (лишние полные reload модели, unbounded caches)? (Нет)
-- Preview: нет ли mega-JSON там, где шаг уже требует binary (если применимо)? (Не применимо)
-*Комментарий:* Статическая эвристика батча предотвращает зависание при первом запуске разделения. Дисковый кеш избавляет от повторных вызовов декодирования и vDSP/бэкенда для ранее проанализированных треков. Ограничения памяти MLX защищают macOS от OOM при работе с тяжелыми нейросетями.
-
-### 4. (если changes_requested) Конкретный список правок
-(Не требуется)
-
----
-
-**ИТОГОВЫЙ СТАТУС:** [APPROVED]
+Post-OPT only if human asks (CoreML ONNX/ANE, colormap LUT, metal waveform).
+Optional: measure and fill PERF_BASELINE.md **after** column on real hardware.
