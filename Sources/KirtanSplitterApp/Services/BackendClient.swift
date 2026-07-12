@@ -243,9 +243,18 @@ final class BackendClient: ObservableObject {
                 "waveformPoints": AudioPreviewAnalysisResolution.waveformPoints,
                 "spectrogramColumns": AudioPreviewAnalysisResolution.spectrogramColumns,
                 "spectrogramBins": AudioPreviewAnalysisResolution.spectrogramBins,
+                "binaryPayload": true,
             ]
         )
-        return try decodeObject(AudioAnalysis.self, from: result)
+        var analysis = try decodeObject(AudioAnalysis.self, from: result)
+        if let payloadPath = analysis.binaryPayloadPath {
+            let payloadURL = URL(fileURLWithPath: payloadPath)
+            let payload = try AudioAnalysis.readKsbin(at: payloadURL)
+            analysis.waveformPeaks = payload.waveformPeaks
+            analysis.spectrogram = payload.spectrogram
+            try? FileManager.default.removeItem(at: payloadURL)
+        }
+        return analysis
     }
 
     func deleteModelCacheItem(_ item: ModelCacheItem) async {

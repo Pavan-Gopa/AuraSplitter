@@ -226,7 +226,7 @@ struct ComparisonPane: View {
                     if let analysis {
                         MetalSpectrogramView(
                             sourceID: analysis.path,
-                            spectrogram: analysis.spectrogram,
+                            spectrogram: analysis.spectrogram!,
                             viewport: viewport,
                             intensity: layerSettings.spectrumIntensity
                         )
@@ -303,7 +303,7 @@ struct ComparisonPane: View {
         drawWaveform(
             context: &context,
             plotRect: plotRect,
-            peaks: analysis.waveformPeaks,
+            peaks: analysis.waveformPeaks!,
             clipped: analysis.clipped,
             intensity: layerSettings.waveformIntensity
         )

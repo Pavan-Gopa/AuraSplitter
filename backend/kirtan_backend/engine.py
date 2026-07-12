@@ -176,8 +176,8 @@ class MlxSeparatorEngine:
     def delete_model_group_source(self, group_id: str) -> dict:
         return delete_model_group_source(self.model_dir, group_id)
 
-    def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
-        return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins)
+    def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224, binary_payload: bool = True) -> dict:
+        return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins, binary_payload=binary_payload)
 
     def render_estimate(self, params: dict, model_filename: str) -> dict:
         duration_seconds = params.get("durationSeconds") or params.get("duration_seconds")

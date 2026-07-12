@@ -31,4 +31,39 @@ final class AudioAnalysisMetadataTests: XCTestCase {
         XCTAssertEqual(analysis.separationModelName, "Kirtan Pro")
         XCTAssertEqual(analysis.separationModelLabel, "Kirtan Pro")
     }
+
+    func testAudioAnalysisReadsKsbinPayload() throws {
+        let waveform: [Float32] = [0.0, 0.5, 1.0, 0.25]
+        let columns = 8
+        let bins = 4
+        var spectrogram = [Float32](repeating: 0, count: columns * bins)
+        for bin in 0..<bins {
+            for column in 0..<columns {
+                spectrogram[bin * columns + column] = Float32((bin * columns + column) % 7) / 7.0
+            }
+        }
+
+        var data = Data()
+        data.append(1)
+        var waveformCount = UInt32(waveform.count).littleEndian
+        var columnsValue = UInt32(columns).littleEndian
+        var binsValue = UInt32(bins).littleEndian
+        data.append(Data(bytes: &waveformCount, count: MemoryLayout<UInt32>.size))
+        data.append(Data(bytes: &columnsValue, count: MemoryLayout<UInt32>.size))
+        data.append(Data(bytes: &binsValue, count: MemoryLayout<UInt32>.size))
+        data.append(waveform.withUnsafeBytes { Data($0) })
+        data.append(spectrogram.withUnsafeBytes { Data($0) })
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kirtan-ksbin-test-\(UUID().uuidString).ksbin")
+        try data.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let payload = try AudioAnalysis.readKsbin(at: url)
+        XCTAssertEqual(payload.waveformPeaks.count, 4)
+        XCTAssertEqual(payload.spectrogram.columns, columns)
+        XCTAssertEqual(payload.spectrogram.bins, bins)
+        XCTAssertEqual(payload.spectrogram.values.count, columns * bins)
+        XCTAssertEqual(payload.waveformPeaks[1], 0.5, accuracy: 1e-6)
+    }
 }

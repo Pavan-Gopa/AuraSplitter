@@ -95,6 +95,7 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             waveform_points = int(request.params.get("waveformPoints", 8192))
             spectrogram_columns = int(request.params.get("spectrogramColumns", 8192))
             spectrogram_bins = int(request.params.get("spectrogramBins", 224))
+            binary_payload = bool(request.params.get("binaryPayload", True))
             return response(
                 request.id,
                 engine.analyze_audio(
@@ -102,6 +103,7 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
                     waveform_points=waveform_points,
                     spectrogram_columns=spectrogram_columns,
                     spectrogram_bins=spectrogram_bins,
+                    binary_payload=binary_payload,
                 ),
             ), events
 

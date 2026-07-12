@@ -9,6 +9,7 @@ import pytest
 
 import kirtan_backend.engine as engine_module
 import kirtan_backend.model_catalog as model_catalog
+from kirtan_backend import audio_analysis
 from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
@@ -539,10 +540,44 @@ def test_analyze_audio_returns_preview_data(tmp_path):
     assert result["durationSeconds"] > 0
     assert result["peakDb"] <= 0
     assert result["clipped"] is False
-    assert len(result["waveformPeaks"]) == 64
-    assert result["spectrogram"]["columns"] == 24
-    assert result["spectrogram"]["bins"] == 16
-    assert len(result["spectrogram"]["values"]) == 24 * 16
+    # Happy path streams the heavy arrays through a binary ksbin payload instead
+    # of inlining them in the JSON response.
+    assert "waveformPeaks" not in result
+    assert "spectrogram" not in result
+    assert "binaryPayloadPath" in result
+    payload = audio_analysis.read_analysis_ksbin(result["binaryPayloadPath"])
+    assert len(payload["waveformPeaks"]) == 64
+    assert payload["spectrogram"]["columns"] == 24
+    assert payload["spectrogram"]["bins"] == 16
+    assert len(payload["spectrogram"]["values"]) == 24 * 16
+
+
+def test_analyze_audio_falls_back_to_inline_arrays_without_binary_payload(tmp_path):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+
+    response, events = handle_request(
+        BackendRequest(
+            id="r-analyze-inline",
+            method="analyze_audio",
+            params={
+                "path": str(input_path),
+                "waveformPoints": 32,
+                "spectrogramColumns": 12,
+                "spectrogramBins": 8,
+                "binaryPayload": False,
+            },
+        ),
+        engine=MlxSeparatorEngine(model_dir=str(tmp_path / "models")),
+    )
+
+    assert events == []
+    result = response["result"]
+    assert "binaryPayloadPath" not in result
+    assert len(result["waveformPeaks"]) == 32
+    assert result["spectrogram"]["columns"] == 12
+    assert result["spectrogram"]["bins"] == 8
+    assert len(result["spectrogram"]["values"]) == 12 * 8
 
 
 def test_separate_rejects_missing_input_path(tmp_path):

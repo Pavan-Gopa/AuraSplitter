@@ -3,6 +3,8 @@ import subprocess
 import wave
 from pathlib import Path
 
+import pytest
+
 import numpy as np
 
 from kirtan_backend import audio_analysis
@@ -160,3 +162,46 @@ def test_source_audio_format_uses_single_ffprobe_json_probe(monkeypatch, tmp_pat
     assert spec.sample_rate == 44100
     assert spec.bit_depth == 16
     assert spec.codec_name == "pcm_s16le"
+
+
+def test_write_and_read_analysis_ksbin_round_trips_layout():
+    waveform = [0.0, 0.5, 1.0, 0.25]
+    columns = 8
+    bins = 4
+    spectrogram = [float((b * columns + c) % 7) / 7.0 for b in range(bins) for c in range(columns)]
+
+    path = audio_analysis.write_analysis_ksbin(waveform, spectrogram, columns, bins)
+    try:
+        payload = audio_analysis.read_analysis_ksbin(path)
+    finally:
+        Path(path).unlink()
+
+    assert payload["spectrogram"]["columns"] == columns
+    assert payload["spectrogram"]["bins"] == bins
+    assert payload["waveformPeaks"] == pytest.approx(waveform)
+    assert payload["spectrogram"]["values"] == pytest.approx(spectrogram)
+
+
+def test_analyze_audio_writes_ksbin_in_happy_path(tmp_path):
+    source = tmp_path / "source.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(22_050)
+        wav.writeframes(b"\x00\x00" * 2205)
+
+    result = audio_analysis.analyze_audio(str(source), waveform_points=16, spectrogram_columns=24, spectrogram_bins=8)
+
+    assert "waveformPeaks" not in result
+    assert "spectrogram" not in result
+    assert "binaryPayloadPath" in result
+    try:
+        payload = audio_analysis.read_analysis_ksbin(result["binaryPayloadPath"])
+    finally:
+        Path(result["binaryPayloadPath"]).unlink()
+
+    assert len(payload["waveformPeaks"]) == 16
+    assert payload["spectrogram"]["columns"] == 24
+    assert payload["spectrogram"]["bins"] == 8
+    assert len(payload["spectrogram"]["values"]) == 24 * 8
+

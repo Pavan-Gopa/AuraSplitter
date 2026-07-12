@@ -2,13 +2,64 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import struct
 import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
 
 
-def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224) -> dict:
+KSBIN_VERSION = 1
+_KSBIN_HEADER = struct.Struct("<BIII")
+_KSBIN_HEADER_SIZE = _KSBIN_HEADER.size
+
+
+def write_analysis_ksbin(waveform: list[float], spectrogram: list[float], columns: int, bins: int) -> str:
+    waveform_array = np.asarray(waveform, dtype=np.float32)
+    spectrogram_array = np.asarray(spectrogram, dtype=np.float32)
+    fd, path = tempfile.mkstemp(suffix=".ksbin", prefix="kirtan-preview-")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(_KSBIN_HEADER.pack(KSBIN_VERSION, waveform_array.size, int(columns), int(bins)))
+            handle.write(waveform_array.tobytes())
+            handle.write(spectrogram_array.tobytes())
+    except BaseException:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def read_analysis_ksbin(path: str) -> dict:
+    with open(path, "rb") as handle:
+        header = handle.read(_KSBIN_HEADER_SIZE)
+        if len(header) < _KSBIN_HEADER_SIZE:
+            raise ValueError("ksbin payload is truncated")
+        version, waveform_count, columns, bins = _KSBIN_HEADER.unpack(header)
+        if version != KSBIN_VERSION:
+            raise ValueError(f"Unsupported ksbin version: {version}")
+        waveform_bytes = handle.read(int(waveform_count) * 4)
+        spectrogram_bytes = handle.read(int(columns) * int(bins) * 4)
+    waveform = np.frombuffer(waveform_bytes, dtype=np.float32).astype(np.float64).tolist()
+    spectrogram = np.frombuffer(spectrogram_bytes, dtype=np.float32).astype(np.float64).tolist()
+    return {
+        "version": version,
+        "waveformPeaks": waveform,
+        "spectrogram": {"columns": columns, "bins": bins, "values": spectrogram},
+    }
+
+
+def analyze_audio(
+    path: str,
+    waveform_points: int = 8192,
+    spectrogram_columns: int = 8192,
+    spectrogram_bins: int = 224,
+    binary_payload: bool = True,
+) -> dict:
     audio_path = Path(path).expanduser()
     if not audio_path.exists():
         raise FileNotFoundError(f"Audio file does not exist: {audio_path}")
@@ -21,7 +72,7 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
     waveform = _waveform_peaks(preview_samples, waveform_points)
     spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins, sample_rate=preview_sample_rate)
 
-    result = {
+    result: dict = {
         "path": str(audio_path),
         "filename": audio_path.name,
         "durationSeconds": round(info["durationSeconds"], 3),
@@ -30,14 +81,17 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
         "bitDepth": info["bitDepth"],
         "peakDb": round(peak_db, 2),
         "clipped": peak_db >= -0.1,
-        "waveformPeaks": waveform,
-        "spectrogram": {
+    }
+    if binary_payload:
+        result["binaryPayloadPath"] = write_analysis_ksbin(waveform, spectrogram, spectrogram_columns, spectrogram_bins)
+    else:
+        result["waveformPeaks"] = waveform
+        result["spectrogram"] = {
             "columns": spectrogram_columns,
             "bins": spectrogram_bins,
             # values are row-major, bin rows: values[bin * columns + column].
             "values": spectrogram,
-        },
-    }
+        }
     result.update(separation_metadata)
     return result
 
