@@ -44,6 +44,7 @@ final class BackendClient: ObservableObject {
     @Published var lastSummary: SeparationSummary?
     @Published var renderEstimate: RenderEstimate?
     @Published var backendLogPath: String?
+    @Published var previewProgress: AudioPreviewProgress?
 
     private var process: Process?
     private var connection: NWConnection?
@@ -55,6 +56,7 @@ final class BackendClient: ObservableObject {
     private var isTelemetryRequestInFlight = false
     private var backendPaths: BackendPaths?
     private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
+    private var analysisProgressSinks: [String: ([String: Any]) -> Void] = [:]
 
     var isBusy: Bool {
         isProcessing || isCancelling
@@ -236,25 +238,76 @@ final class BackendClient: ObservableObject {
     }
 
     func analyzeAudio(url: URL) async throws -> AudioAnalysis {
-        let result = try await sendRequest(
-            method: "analyze_audio",
-            params: [
-                "path": url.path,
-                "waveformPoints": AudioPreviewAnalysisResolution.waveformPoints,
-                "spectrogramColumns": AudioPreviewAnalysisResolution.spectrogramColumns,
-                "spectrogramBins": AudioPreviewAnalysisResolution.spectrogramBins,
-                "binaryPayload": true,
-            ]
-        )
+        let requestID = nextRequestID()
+        let params: [String: Any] = [
+            "path": url.path,
+            "waveformPoints": AudioPreviewAnalysisResolution.waveformPoints,
+            "spectrogramColumns": AudioPreviewAnalysisResolution.spectrogramColumns,
+            "spectrogramBins": AudioPreviewAnalysisResolution.spectrogramBins,
+            "binaryPayload": true,
+            "progressive": true,
+        ]
+
+        let progress = AudioPreviewProgress(path: url.path)
+        previewProgress = progress
+        analysisProgressSinks[requestID] = { [weak self] message in
+            self?.applyAnalysisProgress(message)
+        }
+        defer {
+            analysisProgressSinks.removeValue(forKey: requestID)
+            previewProgress?.phase = .complete
+            previewProgress?.isSpectrogramLoading = false
+        }
+
+        let result = try await sendRequest(method: "analyze_audio", params: params, requestID: requestID)
         var analysis = try decodeObject(AudioAnalysis.self, from: result)
         if let payloadPath = analysis.binaryPayloadPath {
-            let payloadURL = URL(fileURLWithPath: payloadPath)
-            let payload = try AudioAnalysis.readKsbin(at: payloadURL)
+            let payload = try AudioAnalysis.readKsbin(at: URL(fileURLWithPath: payloadPath))
             analysis.waveformPeaks = payload.waveformPeaks
             analysis.spectrogram = payload.spectrogram
-            try? FileManager.default.removeItem(at: payloadURL)
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: payloadPath))
         }
+        previewProgress = AudioPreviewProgress(completedWith: analysis)
         return analysis
+    }
+
+    private func applyAnalysisProgress(_ message: [String: Any]) {
+        guard var progress = previewProgress else { return }
+        let payload = message["result"] as? [String: Any] ?? [:]
+        let phase = payload["phase"] as? String ?? ""
+        switch phase {
+        case "waveform_preview":
+            progress.phase = .waveformPreview
+            if let waveform = payload["waveformPeaks"] as? [Double] {
+                progress.previewWaveform = waveform
+            }
+            progress.durationSeconds = payload["durationSeconds"] as? Double ?? progress.durationSeconds
+            progress.channels = payload["channels"] as? Int ?? progress.channels
+            progress.sampleRate = payload["sampleRate"] as? Int ?? progress.sampleRate
+            progress.peakDb = payload["peakDb"] as? Double ?? progress.peakDb
+            progress.clipped = payload["clipped"] as? Bool ?? progress.clipped
+        case "waveform_full":
+            progress.phase = .waveformFull
+            if let path = payload["binaryPayloadPath"] as? String,
+               let payload = try? AudioAnalysis.readKsbin(at: URL(fileURLWithPath: path)) {
+                progress.fullWaveform = payload.waveformPeaks
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+            }
+        case "spectrogram_chunk":
+            progress.phase = .spectrogramChunking
+            if let path = payload["binaryPayloadPath"] as? String,
+               let chunk = try? AudioAnalysis.readKsbin(at: URL(fileURLWithPath: path)) {
+                let spec = chunk.spectrogram
+                let start = payload["columnsStart"] as? Int ?? 0
+                let totalColumns = payload["totalColumns"] as? Int ?? spec.columns
+                let totalBins = payload["bins"] as? Int ?? spec.bins
+                progress.applySpectrogramChunk(spec, columnsStart: start, totalColumns: totalColumns, totalBins: totalBins)
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: path))
+            }
+        default:
+            break
+        }
+        previewProgress = progress
     }
 
     func deleteModelCacheItem(_ item: ModelCacheItem) async {
@@ -715,6 +768,9 @@ final class BackendClient: ObservableObject {
                 if let cacheSummary = snapshot.modelCache {
                     mergeModelCacheSummary(cacheSummary)
                 }
+            }
+            if let requestID, let sink = analysisProgressSinks[requestID] {
+                sink(message)
             }
             refreshBackendLogFromFile()
 

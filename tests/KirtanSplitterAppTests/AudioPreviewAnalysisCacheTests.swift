@@ -49,4 +49,34 @@ final class AudioPreviewAnalysisCacheTests: XCTestCase {
             spectrogram: SpectrogramData(columns: 1, bins: 2, values: [0.1, 0.2])
         )
     }
+
+    func testAudioPreviewProgressAssemblesSpectrogramChunksInColumnOrder() {
+        var progress = AudioPreviewProgress(path: "/tmp/prog.wav")
+        progress.previewWaveform = [0.0, 1.0]
+
+        let totalColumns = 4
+        let bins = 2
+        // Chunk 0 covers columns [0, 2): values laid out row-major bin rows.
+        let chunk0 = SpectrogramData(columns: 2, bins: bins, values: [0.1, 0.2, 0.3, 0.4])
+        progress.applySpectrogramChunk(chunk0, columnsStart: 0, totalColumns: totalColumns, totalBins: bins)
+        // Chunk 1 covers columns [2, 4).
+        let chunk1 = SpectrogramData(columns: 2, bins: bins, values: [0.5, 0.6, 0.7, 0.8])
+        progress.applySpectrogramChunk(chunk1, columnsStart: 2, totalColumns: totalColumns, totalBins: bins)
+
+        let assembled = progress.partialSpectrogram!
+        XCTAssertEqual(assembled.columns, totalColumns)
+        XCTAssertEqual(assembled.bins, bins)
+        XCTAssertEqual(assembled.values, [0.1, 0.2, 0.5, 0.6, 0.3, 0.4, 0.7, 0.8])
+        XCTAssertFalse(progress.isSpectrogramLoading)
+    }
+
+    func testAudioPreviewProgressCompletedWithAnalysisMirrorsFullAnalysis() {
+        let analysis = makeAnalysis(path: "/tmp/done.wav")
+        let progress = AudioPreviewProgress(completedWith: analysis)
+
+        XCTAssertTrue(progress.isComplete)
+        XCTAssertEqual(progress.currentWaveform, [0.1, 0.2])
+        XCTAssertEqual(progress.partialSpectrogram?.values, [0.1, 0.2])
+        XCTAssertFalse(progress.isSpectrogramLoading)
+    }
 }

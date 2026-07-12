@@ -5,6 +5,7 @@ struct AudioPreviewPane: View {
     let analysis: AudioAnalysis?
     let analysisError: String?
     let isAnalyzing: Bool
+    let previewProgress: AudioPreviewProgress?
     @ObservedObject var player: AudioPreviewPlayer
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
@@ -109,11 +110,23 @@ struct AudioPreviewPane: View {
                     .frame(width: plotRect.width, height: plotRect.height)
                     .position(x: plotRect.midX, y: plotRect.midY)
                     .allowsHitTesting(false)
+                } else if let progress = previewProgress, let spectrogram = progress.partialSpectrogram {
+                    MetalSpectrogramView(
+                        sourceID: progress.path,
+                        spectrogram: spectrogram,
+                        viewport: viewport,
+                        intensity: layerSettings.spectrumIntensity
+                    )
+                    .frame(width: plotRect.width, height: plotRect.height)
+                    .position(x: plotRect.midX, y: plotRect.midY)
+                    .allowsHitTesting(false)
                 }
 
                 Canvas { context, size in
                     if let analysis {
                         drawAnalysisOverlay(context: &context, size: size, analysis: analysis)
+                    } else if let progress = previewProgress, let waveform = progress.currentWaveform, !waveform.isEmpty {
+                        drawProgressiveOverlay(context: &context, size: size, progress: progress, waveform: waveform)
                     } else {
                         drawPlaceholder(context: &context, size: size, message: isAnalyzing ? nil : "No source loaded")
                     }
@@ -148,6 +161,12 @@ struct AudioPreviewPane: View {
                             .foregroundStyle(.secondary)
                     }
                     .padding(10)
+                }
+
+                if let progress = previewProgress, progress.isSpectrogramLoading, progress.partialSpectrogram == nil {
+                    SpectrogramShimmer()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -302,6 +321,20 @@ struct AudioPreviewPane: View {
         )
         drawAxisLabels(context: &context, plotRect: plotRect, analysis: analysis)
         drawPlayhead(context: &context, plotRect: plotRect, analysis: analysis)
+    }
+
+    private func drawProgressiveOverlay(context: inout GraphicsContext, size: CGSize, progress: AudioPreviewProgress, waveform: [Double]) {
+        let plotRect = plotRect(for: size)
+        guard plotRect.width > 8, plotRect.height > 8 else { return }
+
+        drawGrid(context: &context, plotRect: plotRect, duration: progress.durationSeconds)
+        drawWaveform(
+            context: &context,
+            plotRect: plotRect,
+            peaks: waveform,
+            clipped: progress.clipped,
+            intensity: layerSettings.waveformIntensity
+        )
     }
 
     private func plotRect(for size: CGSize) -> CGRect {
@@ -624,5 +657,25 @@ final class AudioPreviewInteractionNSView: NSView {
 
     private func location(for event: NSEvent) -> CGPoint {
         convert(event.locationInWindow, from: nil)
+    }
+}
+
+private struct SpectrogramShimmer: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geometry in
+            LinearGradient(
+                colors: [.clear, Color.white.opacity(0.05), .clear],
+                startPoint: UnitPoint(x: phase, y: 0),
+                endPoint: UnitPoint(x: phase + 0.4, y: 0)
+            )
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .onAppear {
+                withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                    phase = 1.0
+                }
+            }
+        }
     }
 }

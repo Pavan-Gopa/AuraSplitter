@@ -88,3 +88,64 @@ extension AudioAnalysis {
         )
     }
 }
+
+enum AudioPreviewPhase: String, Codable, Equatable {
+    case idle
+    case waveformPreview
+    case waveformFull
+    case spectrogramChunking
+    case complete
+}
+
+struct AudioPreviewProgress {
+    let path: String
+    var phase: AudioPreviewPhase = .waveformPreview
+    var previewWaveform: [Double]?
+    var fullWaveform: [Double]?
+    var partialSpectrogram: SpectrogramData?
+    var isSpectrogramLoading: Bool = true
+    var durationSeconds: Double = 0
+    var channels: Int = 0
+    var sampleRate: Int = 0
+    var peakDb: Double = 0
+    var clipped: Bool = false
+
+    var isComplete: Bool { phase == .complete }
+    var currentWaveform: [Double]? { fullWaveform ?? previewWaveform }
+
+    init(path: String) {
+        self.path = path
+    }
+
+    init(completedWith analysis: AudioAnalysis) {
+        self.path = analysis.path
+        self.phase = .complete
+        self.fullWaveform = analysis.waveformPeaks
+        self.previewWaveform = analysis.waveformPeaks
+        self.partialSpectrogram = analysis.spectrogram
+        self.isSpectrogramLoading = false
+        self.durationSeconds = analysis.durationSeconds
+        self.channels = analysis.channels
+        self.sampleRate = analysis.sampleRate
+        self.peakDb = analysis.peakDb
+        self.clipped = analysis.clipped
+    }
+
+    mutating func applySpectrogramChunk(_ chunk: SpectrogramData, columnsStart: Int, totalColumns: Int, totalBins: Int) {
+        let count = chunk.columns
+        var values = partialSpectrogram?.values ?? []
+        if values.count != totalColumns * totalBins {
+            values = [Double](repeating: 0, count: totalColumns * totalBins)
+        }
+        var index = 0
+        for bin in 0..<totalBins {
+            let base = bin * totalColumns + columnsStart
+            for local in 0..<count {
+                values[base + local] = chunk.values[index]
+                index += 1
+            }
+        }
+        partialSpectrogram = SpectrogramData(columns: totalColumns, bins: totalBins, values: values)
+        isSpectrogramLoading = false
+    }
+}

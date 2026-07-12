@@ -96,6 +96,30 @@ def handle_request(request: BackendRequest, engine, emit_event=None) -> tuple[di
             spectrogram_columns = int(request.params.get("spectrogramColumns", 8192))
             spectrogram_bins = int(request.params.get("spectrogramBins", 224))
             binary_payload = bool(request.params.get("binaryPayload", True))
+            progressive = bool(request.params.get("progressive", False))
+            if progressive:
+                def emit(stage: str, message: str, progress: float, result=None):
+                    event = {
+                        "type": "progress",
+                        "id": request.id,
+                        "stage": stage,
+                        "message": message,
+                        "progress": round(min(1.0, max(0.0, float(progress))), 3),
+                    }
+                    if result is not None:
+                        event["result"] = result
+                    events.append(event)
+                    if emit_event is not None:
+                        emit_event(event)
+
+                result = engine.analyze_audio_progressive(
+                    str(audio_path),
+                    waveform_points=waveform_points,
+                    spectrogram_columns=spectrogram_columns,
+                    spectrogram_bins=spectrogram_bins,
+                    emit=emit,
+                )
+                return response(request.id, result), events
             return response(
                 request.id,
                 engine.analyze_audio(

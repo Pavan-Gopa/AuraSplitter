@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .audio_analysis import analyze_audio, _bit_depth_from_stream
+from .audio_analysis import analyze_audio, analyze_audio_progressive, _bit_depth_from_stream
 from .jobs import SeparationJob
 from .model_catalog import (
     attach_model_pack_to_separator,
@@ -178,6 +178,9 @@ class MlxSeparatorEngine:
 
     def analyze_audio(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224, binary_payload: bool = True) -> dict:
         return analyze_audio(path, waveform_points, spectrogram_columns, spectrogram_bins, binary_payload=binary_payload)
+
+    def analyze_audio_progressive(self, path: str, waveform_points: int = 8192, spectrogram_columns: int = 8192, spectrogram_bins: int = 224, emit=None) -> dict:
+        return analyze_audio_progressive(path, waveform_points, spectrogram_columns, spectrogram_bins, emit=emit)
 
     def render_estimate(self, params: dict, model_filename: str) -> dict:
         duration_seconds = params.get("durationSeconds") or params.get("duration_seconds")

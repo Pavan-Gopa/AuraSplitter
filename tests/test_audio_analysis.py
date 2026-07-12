@@ -205,3 +205,44 @@ def test_analyze_audio_writes_ksbin_in_happy_path(tmp_path):
     assert payload["spectrogram"]["bins"] == 8
     assert len(payload["spectrogram"]["values"]) == 24 * 8
 
+
+def test_analyze_audio_progressive_emits_ordered_phases(tmp_path):
+    source = tmp_path / "source.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(22_050)
+        wav.writeframes(b"\x00\x00" * 2205)
+
+    phases: list[str] = []
+    payload_paths: list[str] = []
+
+    def emit(stage, message, progress, result=None):
+        if result is not None:
+            phases.append(result["phase"])
+            if "binaryPayloadPath" in result:
+                payload_paths.append(result["binaryPayloadPath"])
+
+    final = audio_analysis.analyze_audio_progressive(
+        str(source),
+        waveform_points=32,
+        spectrogram_columns=16,
+        spectrogram_bins=8,
+        emit=emit,
+    )
+
+    assert phases[0] == "waveform_preview"
+    assert phases[1] == "waveform_full"
+    assert all(phase == "spectrogram_chunk" for phase in phases[2:])
+    assert final["phase"] == "complete"
+    assert "binaryPayloadPath" in final
+
+    # Chunks cover every column exactly once with no gaps.
+    covered = 0
+    for path in payload_paths[1:]:
+        chunk = audio_analysis.read_analysis_ksbin(path)
+        covered += chunk["spectrogram"]["columns"]
+        Path(path).unlink()
+    assert covered == 16
+    Path(final["binaryPayloadPath"]).unlink()
+

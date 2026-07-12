@@ -96,6 +96,111 @@ def analyze_audio(
     return result
 
 
+def analyze_audio_progressive(
+    path: str,
+    waveform_points: int = 8192,
+    spectrogram_columns: int = 8192,
+    spectrogram_bins: int = 224,
+    emit=None,
+) -> dict:
+    """Stream a preview in phases so the UI can paint before the HQ spectrogram is ready.
+
+    Emits (via ``emit(stage, message, progress, result)``) in order:
+      waveform_preview  -> fast metadata + coarse waveform (no spectrogram)
+      waveform_full     -> binary ksbin with the full-resolution waveform
+      spectrogram_chunk -> N column-chunks of the spectrogram as binary ksbin
+    and finally returns the complete result dict (metadata + full ksbin path),
+    matching the one-shot K4 payload so the client can fill ``AudioAnalysis``.
+    """
+    audio_path = Path(path).expanduser()
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Audio file does not exist: {audio_path}")
+
+    info = _ffprobe_audio_info(audio_path)
+    separation_metadata = _kirtan_splitter_metadata(info.get("tags") or {})
+    preview_sample_rate = 22050
+    preview_samples = _decode_mono_float(audio_path, sample_rate=preview_sample_rate)
+    peak_db = _peak_db_from_samples(preview_samples)
+
+    base_meta = {
+        "path": str(audio_path),
+        "filename": audio_path.name,
+        "durationSeconds": round(info["durationSeconds"], 3),
+        "channels": info["channels"],
+        "sampleRate": info["sampleRate"],
+        "bitDepth": info["bitDepth"],
+        "peakDb": round(peak_db, 2),
+        "clipped": peak_db >= -0.1,
+    }
+
+    preview_points = 512
+    preview_waveform = _waveform_peaks(preview_samples, preview_points)
+    if emit is not None:
+        emit(
+            "waveform_preview",
+            "Preview waveform",
+            0.05,
+            {
+                "phase": "waveform_preview",
+                **base_meta,
+                "waveformPeaks": preview_waveform,
+            },
+        )
+
+    full_waveform = _waveform_peaks(preview_samples, waveform_points)
+    if emit is not None:
+        wave_path = write_analysis_ksbin(full_waveform, [], 0, 0)
+        emit(
+            "waveform_full",
+            "Full waveform",
+            0.25,
+            {
+                "phase": "waveform_full",
+                "binaryPayloadPath": wave_path,
+                "waveformPointCount": len(full_waveform),
+            },
+        )
+
+    spectrogram = _spectrogram(preview_samples, spectrogram_columns, spectrogram_bins, sample_rate=preview_sample_rate)
+
+    total_chunks = 8
+    chunk_size = max(1, (spectrogram_columns + total_chunks - 1) // total_chunks)
+    matrix = np.asarray(spectrogram, dtype=np.float32).reshape(spectrogram_bins, spectrogram_columns)
+    for idx in range(total_chunks):
+        start = idx * chunk_size
+        if start >= spectrogram_columns:
+            break
+        end = min(spectrogram_columns, start + chunk_size)
+        count = end - start
+        chunk_values = matrix[:, start:end].reshape(-1).tolist()
+        chunk_path = write_analysis_ksbin([], chunk_values, count, spectrogram_bins)
+        if emit is not None:
+            emit(
+                "spectrogram_chunk",
+                f"Spectrogram {idx + 1}/{total_chunks}",
+                0.3 + 0.6 * (idx + 1) / total_chunks,
+                {
+                    "phase": "spectrogram_chunk",
+                    "chunkIndex": idx,
+                    "totalChunks": total_chunks,
+                    "columnsStart": start,
+                    "columnsCount": count,
+                    "totalColumns": spectrogram_columns,
+                    "bins": spectrogram_bins,
+                    "binaryPayloadPath": chunk_path,
+                },
+            )
+
+    full_path = write_analysis_ksbin(full_waveform, spectrogram, spectrogram_columns, spectrogram_bins)
+    result = {
+        **base_meta,
+        "phase": "complete",
+        "binaryPayloadPath": full_path,
+    }
+    result.update(separation_metadata)
+    return result
+
+
 def _ffprobe_audio_info(path: Path) -> dict:
     output = subprocess.check_output(
         [

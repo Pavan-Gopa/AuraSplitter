@@ -580,6 +580,65 @@ def test_analyze_audio_falls_back_to_inline_arrays_without_binary_payload(tmp_pa
     assert len(result["spectrogram"]["values"]) == 12 * 8
 
 
+def test_analyze_audio_progressive_emits_ordered_phases(tmp_path):
+    input_path = tmp_path / "mono.wav"
+    _write_silent_wav(input_path, channels=1)
+
+    response, events = handle_request(
+        BackendRequest(
+            id="r-analyze-progressive",
+            method="analyze_audio",
+            params={
+                "path": str(input_path),
+                "waveformPoints": 64,
+                "spectrogramColumns": 24,
+                "spectrogramBins": 16,
+                "progressive": True,
+            },
+        ),
+        engine=MlxSeparatorEngine(model_dir=str(tmp_path / "models")),
+    )
+
+    assert response["type"] == "response"
+    result = response["result"]
+    assert result["phase"] == "complete"
+    assert "binaryPayloadPath" in result
+    assert "spectrogram" not in result  # not inlined in happy path
+    assert "waveformPeaks" not in result
+
+    # Events arrive in phase order: preview -> full -> chunks.
+    assert len(events) >= 3
+    assert events[0]["type"] == "progress"
+    assert events[0]["result"]["phase"] == "waveform_preview"
+    assert "waveformPeaks" in events[0]["result"]
+    assert "spectrogram" not in events[0]["result"]
+
+    assert events[1]["result"]["phase"] == "waveform_full"
+    assert "binaryPayloadPath" in events[1]["result"]
+
+    chunk_events = [e for e in events if e["result"]["phase"] == "spectrogram_chunk"]
+    assert len(chunk_events) >= 1
+    expected_index = 0
+    covered_columns = 0
+    for event in chunk_events:
+        payload = event["result"]
+        assert payload["chunkIndex"] == expected_index
+        expected_index += 1
+        covered_columns += payload["columnsCount"]
+        chunk = audio_analysis.read_analysis_ksbin(payload["binaryPayloadPath"])
+        assert chunk["spectrogram"]["columns"] == payload["columnsCount"]
+        assert chunk["spectrogram"]["bins"] == payload["bins"]
+        assert payload["columnsStart"] + payload["columnsCount"] <= 24
+        Path(payload["binaryPayloadPath"]).unlink()
+    assert covered_columns == 24
+
+    # Final payload assembles to the same spectrogram as the chunk payloads imply.
+    full = audio_analysis.read_analysis_ksbin(result["binaryPayloadPath"])
+    assert full["spectrogram"]["columns"] == 24
+    assert full["spectrogram"]["bins"] == 16
+    Path(result["binaryPayloadPath"]).unlink()
+
+
 def test_separate_rejects_missing_input_path(tmp_path):
     response, events = handle_request(
         BackendRequest(

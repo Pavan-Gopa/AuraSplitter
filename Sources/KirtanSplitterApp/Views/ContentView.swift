@@ -142,6 +142,7 @@ struct ContentView: View {
                     analysis: previewAnalysis,
                     analysisError: previewAnalysisError,
                     isAnalyzing: isAnalyzingPreview,
+                    previewProgress: backend.previewProgress,
                     player: audioPreviewPlayer
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
