@@ -1,38 +1,43 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K0
+current_step: K1
 step_description: >
-  Establish measurable baseline before optimizations.
-  Create PERF_BASELINE.md with verify commands (pytest, swift build/test,
-  benchmark_models) and a timing table (separate 1st track, separate 2nd same
-  model, analyze_audio) with "до" column as TODO or measured values.
-  No product behavior changes.
+  MLX experimental performance flags out of hardcode; Metal Fast / Metal Max
+  process presets; auto_tune_batch default OFF; wire SeparationJob + Swift
+  process presets; pytest/swift as needed. No warm cache (K3), no binary preview.
 
 target_files:
-  - PERF_BASELINE.md
-  # optional only if tiny help text needed for baseline docs:
-  # - script/benchmark_models.py
+  - backend/kirtan_backend/engine.py
+  - backend/kirtan_backend/jobs.py
+  - backend/kirtan_backend/process_presets.py
+  - Sources/KirtanSplitterApp/Models/ProcessSettingsPreset.swift
+  - Sources/KirtanSplitterApp/Models/BackendModels.swift
+  - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
+  - tests/test_process_presets.py
+  - tests/test_backend_protocol.py
+  - tests/KirtanSplitterAppTests/ProcessSettingsPresetTests.swift
+  - script/benchmark_models.py
 
-completed_steps: []
+completed_steps:
+  - K0
 
 implementation:
-  status: waiting_review      # pending | in_progress | waiting_review | idle
+  status: pending             # pending | in_progress | waiting_review | idle
   attempts: 0
 
 review:
-  status: approved            # pending | approved | changes_requested
+  status: pending             # pending | approved | changes_requested
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator     # implementation | verification | orchestrator | human
+next_actor: implementation    # implementation | verification | orchestrator | human
 
 track: OPT_PERF
 
-# Updated by Orchestrator when running ./script/opt_checkpoint.sh
 checkpoint:
-  last_pre_tag: opt/pre-K0
-  last_post_tag: null
-  last_commit: 77f8558
+  last_pre_tag: opt/pre-K0    # will become opt/pre-K1 after pre script
+  last_post_tag: opt/K0-done
+  last_commit: e30e9b3
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
