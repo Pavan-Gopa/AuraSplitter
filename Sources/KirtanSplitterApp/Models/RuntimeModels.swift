@@ -7,6 +7,7 @@ struct RuntimeSnapshot: Codable, Equatable {
     let process: ProcessStats
     let gpu: GPUStats
     let coreML: CoreMLStats?
+    let modelHot: Bool?
     let modelCache: ModelCacheSummary?
 }
 

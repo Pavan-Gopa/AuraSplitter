@@ -69,6 +69,7 @@ struct WorkspaceWidgetRailView: View {
         WidgetPanel(title: "System", systemImage: "gauge") {
             VStack(alignment: .leading, spacing: 8) {
                 StatusLine(title: "Backend", value: backend.isReady ? "Ready" : "Starting", tint: backend.isReady ? .green : .orange)
+                StatusLine(title: "Model", value: modelCacheStateText, tint: modelCacheTint)
                 MiniGauge(title: "CPU", detail: cpuDetail, value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
                 MiniGauge(title: "Memory", detail: memoryDetail, value: backend.runtimeStats?.memory.usedPercent ?? 0, tint: .purple)
                 MiniGauge(title: "GPU", detail: gpuDetail, value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
@@ -97,6 +98,15 @@ struct WorkspaceWidgetRailView: View {
 
     private var modelCount: Int {
         backend.modelCache?.groups?.count ?? backend.runtimeStats?.modelCache?.groupCount ?? backend.models.count
+    }
+
+    private var modelCacheStateText: String {
+        guard let hot = backend.runtimeStats?.modelHot else { return "waiting" }
+        return hot ? "Hot" : "Cold"
+    }
+
+    private var modelCacheTint: Color {
+        backend.runtimeStats?.modelHot == true ? .green : .secondary
     }
 
     private var cpuDetail: String {

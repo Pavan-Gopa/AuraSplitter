@@ -1075,6 +1075,163 @@ def test_engine_reports_model_load_state_for_converted_and_first_run_models(tmp_
     assert engine._model_load_message("BS-Roformer-SW.ckpt") == "Using converted MLX model"
 
 
+def test_engine_reuses_cached_separator_for_same_fingerprint(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+    loads = []
+
+    class CacheSeparator:
+        def __init__(self, *args, output_dir=None, **kwargs):
+            self.output_dir = Path(output_dir) if output_dir else Path.cwd()
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            loads.append(model_filename)
+            return None
+
+        def separate(self, audio_path):
+            output = self.output_dir / "stereo_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, CacheSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    job = SeparationJob(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        model_filename="BS-Roformer-SW.ckpt",
+        preset="kirtan_pro",
+        output_format="WAV",
+    )
+
+    first = engine.separate(job, progress=lambda *_args: None)
+    second = engine.separate(job, progress=lambda *_args: None)
+
+    # Same fingerprint -> only the first (cold) run loads the model.
+    assert len(loads) == 1
+    assert first["modelHot"] is False
+    assert second["modelHot"] is True
+
+
+def test_engine_reloads_separator_when_fingerprint_changes(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+    loads = []
+
+    class CacheSeparator:
+        def __init__(self, *args, output_dir=None, **kwargs):
+            self.output_dir = Path(output_dir) if output_dir else Path.cwd()
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            loads.append(model_filename)
+            return None
+
+        def separate(self, audio_path):
+            output = self.output_dir / "stereo_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, CacheSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    base = dict(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        model_filename="BS-Roformer-SW.ckpt",
+        preset="kirtan_pro",
+        output_format="WAV",
+    )
+    engine.separate(SeparationJob(**base, mdxc_segment_size=512), progress=lambda *_args: None)
+    # Different segment size -> different fingerprint -> cold reload.
+    engine.separate(SeparationJob(**base, mdxc_segment_size=1024), progress=lambda *_args: None)
+
+    assert len(loads) == 2
+
+
+def test_engine_invalidates_separator_cache_on_cancel(tmp_path, monkeypatch):
+    input_path = tmp_path / "stereo.wav"
+    _write_silent_wav(input_path, channels=2)
+    model_dir = tmp_path / "models"
+    output_dir = tmp_path / "out"
+    loads = []
+
+    class CacheSeparator:
+        def __init__(self, *args, output_dir=None, **kwargs):
+            self.output_dir = Path(output_dir) if output_dir else Path.cwd()
+            self.last_perf_metrics = {}
+
+        def load_model(self, model_filename):
+            loads.append(model_filename)
+            return None
+
+        def separate(self, audio_path):
+            output = self.output_dir / "stereo_(vocals).wav"
+            _write_silent_wav(output, channels=2)
+            return [str(output)]
+
+    _install_fake_separator(monkeypatch, CacheSeparator)
+    engine = MlxSeparatorEngine(model_dir=str(model_dir))
+    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
+    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
+
+    job = SeparationJob(
+        input_path=str(input_path),
+        output_dir=str(output_dir),
+        model_filename="BS-Roformer-SW.ckpt",
+        preset="kirtan_pro",
+        output_format="WAV",
+    )
+    engine.separate(job, progress=lambda *_args: None)
+    engine.cancel_current("User aborted")
+    engine.separate(job, progress=lambda *_args: None)
+
+    # Cancel invalidated the cache, so the second run is cold again.
+    assert len(loads) == 2
+
+
+def test_engine_separator_fingerprint_distinguishes_parameters():
+    job_a = SeparationJob(
+        input_path="/tmp/a.wav",
+        output_dir="/tmp/out",
+        model_filename="BS-Roformer-SW.ckpt",
+        preset="kirtan_pro",
+        mdxc_segment_size=512,
+        mdxc_batch_size=1,
+        speed_mode="latency_safe_v3",
+    )
+    job_b = SeparationJob(
+        input_path="/tmp/b.wav",
+        output_dir="/tmp/out",
+        model_filename="BS-Roformer-SW.ckpt",
+        preset="kirtan_pro",
+        mdxc_segment_size=1024,
+        mdxc_batch_size=1,
+        speed_mode="latency_safe_v3",
+    )
+    engine = MlxSeparatorEngine(model_dir="/tmp/models")
+
+    assert engine._separator_fingerprint(job_a) != engine._separator_fingerprint(job_b)
+    assert engine._separator_fingerprint(job_a) == engine._separator_fingerprint(job_a)
+
+
+def test_engine_runtime_stats_reports_model_hot_flag(tmp_path):
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+    assert engine.runtime_stats()["modelHot"] is False
+
+    engine._cached_separator = object()
+    assert engine.runtime_stats()["modelHot"] is True
+
+
 def _install_fake_separator(monkeypatch, separator_class):
     monkeypatch.setitem(
         sys.modules,

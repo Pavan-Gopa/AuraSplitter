@@ -118,6 +118,12 @@ class MlxSeparatorEngine:
         self._cancel_reason = "User cancelled current operation"
         Path(self.model_dir).mkdir(parents=True, exist_ok=True)
 
+        # Warm Separator cache (K3): reuse the loaded Separator for the same
+        # model + parameter fingerprint instead of reloading on every separate.
+        self._cached_separator = None
+        self._cached_model_filename = None
+        self._cached_fingerprint = None
+
     def health(self) -> dict:
         import mlx.core as mx
         import mlx_audio_separator
@@ -157,7 +163,9 @@ class MlxSeparatorEngine:
         return preset_list(self.model_dir)
 
     def runtime_stats(self) -> dict:
-        return runtime_stats(self.model_dir)
+        stats = runtime_stats(self.model_dir)
+        stats["modelHot"] = self._cached_separator is not None
+        return stats
 
     def model_cache(self) -> dict:
         return model_cache(self.model_dir)
@@ -191,6 +199,7 @@ class MlxSeparatorEngine:
     def cancel_current(self, reason: str = "User cancelled current operation") -> dict:
         self._cancel_reason = reason
         self._cancel_event.set()
+        self.invalidate_model_cache(f"cancel: {reason}")
         self.logger.info("Cancellation requested: %s", reason)
         return {
             "cancelled": True,
@@ -209,18 +218,9 @@ class MlxSeparatorEngine:
         output_dir.mkdir(parents=True, exist_ok=True)
         source_format = self._source_audio_format(input_path)
 
-        progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
         started_at = time.time()
 
-        performance_params = self._build_performance_params(job)
-        mdxc_params = {
-            "segment_size": job.mdxc_segment_size,
-            "override_model_segment_size": job.mdxc_override_model_segment_size,
-            "batch_size": job.mdxc_batch_size,
-            "overlap": job.mdxc_overlap,
-            "pitch_shift": 0,
-        }
         self.logger.info(
             "Starting separation input=%s output_dir=%s model=%s preset=%s "
             "output_format=%s chunk_duration=%s mdxc_segment_size=%s "
@@ -247,31 +247,9 @@ class MlxSeparatorEngine:
         )
 
         self._raise_if_cancelled()
-        separator = Separator(
-            model_file_dir=self.model_dir,
-            output_dir=str(output_dir),
-            output_format=job.output_format,
-            normalization_threshold=job.normalization,
-            amplification_threshold=job.amplification,
-            chunk_duration=job.chunk_duration,
-            mdxc_params=mdxc_params,
-            performance_params=performance_params,
-            save_converted_safetensors=job.save_converted_safetensors,
-        )
-        if hasattr(separator, "_set_strict_separation_errors"):
-            separator._set_strict_separation_errors(True)
-
-        self._with_heartbeat(
-            start=0.06,
-            end=0.28,
-            stage="loading",
-            message=self._model_load_message(job.model_filename),
-            progress=progress,
-            work=lambda: self._load_model(separator, job.model_filename),
-        )
-
+        separator, model_hot = self._get_or_load_separator(job, progress)
+        separator.output_dir = output_dir
         self._raise_if_cancelled()
-        progress("model_ready", "Model ready", 0.30, self.runtime_stats())
         with self._stereo_input_path(input_path, progress, channels=source_format.channels) as separator_input_path:
             self._raise_if_cancelled()
             output_files = self._with_heartbeat(
@@ -311,6 +289,7 @@ class MlxSeparatorEngine:
             "elapsedSeconds": round(elapsed, 2),
             "files": files,
             "metrics": getattr(separator, "last_perf_metrics", None),
+            "modelHot": model_hot,
             "modelCache": self.model_cache(),
             "settings": {
                 "chunkDuration": job.chunk_duration,
@@ -347,6 +326,93 @@ class MlxSeparatorEngine:
             "write_workers": job.write_workers,
             **base,
         }
+
+    def _separator_fingerprint(self, job: SeparationJob) -> str:
+        perf = job.performance_flags or {}
+        perf_key = "|".join(f"{key}={perf.get(key)}" for key in sorted(perf.keys()))
+        return "|".join(
+            [
+                job.model_filename or "",
+                str(job.mdxc_segment_size),
+                str(job.mdxc_override_model_segment_size),
+                str(job.mdxc_batch_size),
+                str(job.mdxc_overlap),
+                str(job.speed_mode or ""),
+                str(job.cache_clear_policy or ""),
+                str(job.output_format or ""),
+                str(job.chunk_duration),
+                str(job.save_converted_safetensors),
+                perf_key,
+            ]
+        )
+
+    def invalidate_model_cache(self, reason: str = "") -> None:
+        if self._cached_separator is not None:
+            self.logger.info("Invalidating Separator cache: %s", reason or "requested")
+        self._cached_separator = None
+        self._cached_model_filename = None
+        self._cached_fingerprint = None
+
+    def _get_or_load_separator(
+        self, job: SeparationJob, progress: ProgressCallback
+    ) -> tuple[object, bool]:
+        from mlx_audio_separator import Separator
+
+        fingerprint = self._separator_fingerprint(job)
+        if (
+            self._cached_separator is not None
+            and self._cached_model_filename == job.model_filename
+            and self._cached_fingerprint == fingerprint
+        ):
+            self.logger.info("Reusing cached Separator for %s (warm cache hit)", job.model_filename)
+            progress("loading", "Reusing loaded model (warm cache)", 0.30, self.runtime_stats())
+            return self._cached_separator, True
+
+        if self._cached_separator is not None:
+            self.logger.info(
+                "Discarding cached Separator: fingerprint changed (cached=%r, requested=%r)",
+                self._cached_fingerprint,
+                fingerprint,
+            )
+
+        performance_params = self._build_performance_params(job)
+        mdxc_params = {
+            "segment_size": job.mdxc_segment_size,
+            "override_model_segment_size": job.mdxc_override_model_segment_size,
+            "batch_size": job.mdxc_batch_size,
+            "overlap": job.mdxc_overlap,
+            "pitch_shift": 0,
+        }
+        separator = Separator(
+            model_file_dir=self.model_dir,
+            output_dir=str(self.model_dir),
+            output_format=job.output_format,
+            normalization_threshold=job.normalization,
+            amplification_threshold=job.amplification,
+            chunk_duration=job.chunk_duration,
+            mdxc_params=mdxc_params,
+            performance_params=performance_params,
+            save_converted_safetensors=job.save_converted_safetensors,
+        )
+        if hasattr(separator, "_set_strict_separation_errors"):
+            separator._set_strict_separation_errors(True)
+
+        progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
+        self._with_heartbeat(
+            start=0.06,
+            end=0.28,
+            stage="loading",
+            message=self._model_load_message(job.model_filename),
+            progress=progress,
+            work=lambda: self._load_model(separator, job.model_filename),
+        )
+        self._raise_if_cancelled()
+        progress("model_ready", "Model ready", 0.30, self.runtime_stats())
+
+        self._cached_separator = separator
+        self._cached_model_filename = job.model_filename
+        self._cached_fingerprint = fingerprint
+        return separator, False
 
     def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):
         stop = threading.Event()
