@@ -34,6 +34,7 @@ def analyze_audio(path: str, waveform_points: int = 8192, spectrogram_columns: i
         "spectrogram": {
             "columns": spectrogram_columns,
             "bins": spectrogram_bins,
+            # values are row-major, bin rows: values[bin * columns + column].
             "values": spectrogram,
         },
     }
@@ -170,6 +171,14 @@ def _peak_db_from_samples(samples: np.ndarray) -> float:
 
 
 def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int = 22050) -> list[float]:
+    """Compute a normalized log-magnitude spectrogram.
+
+    Returns a flat ``list[float]`` laid out **row-major with bin rows**:
+    ``values[bin * columns + column]`` for ``bin in 0..bins``, ``column in
+    0..columns``. This matches the row-major layout a Metal texture expects
+    (``width=columns``, ``height=bins``), so the client can upload it without
+    a CPU transpose.
+    """
     columns = max(1, int(columns))
     bins = max(1, int(bins))
     if samples.size == 0:
@@ -230,7 +239,8 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
     matrix = (matrix - floor) / (ceiling - floor)
     matrix = np.clip(matrix, 0, 1)
     matrix = np.power(matrix, 0.72)
-    return [round(float(value), 4) for value in matrix.reshape(-1)]
+    # Row-major, bin rows: values[bin * columns + column]. See docstring.
+    return [round(float(value), 4) for value in matrix.T.reshape(-1)]
 
 
 def _next_power_of_two(value: int) -> int:

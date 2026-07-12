@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .audio_analysis import analyze_audio
+from .audio_analysis import analyze_audio, _bit_depth_from_stream
 from .jobs import SeparationJob
 from .model_catalog import (
     attach_model_pack_to_separator,
@@ -407,11 +407,45 @@ class MlxSeparatorEngine:
             yield prepared_path
 
     def _source_audio_format(self, input_path: Path) -> AudioFormatSpec:
+        # One ffprobe JSON call for all fields (channels / sample_rate /
+        # bit_depth / codec_name) — not four separate probes.
+        try:
+            output = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=channels,sample_rate,bits_per_raw_sample,bits_per_sample,sample_fmt,codec_name",
+                    "-of",
+                    "json",
+                    str(input_path),
+                ],
+                text=True,
+                timeout=20,
+            )
+            payload = json.loads(output)
+            stream = (payload.get("streams") or [{}])[0]
+        except Exception as exc:
+            self.logger.warning("Could not inspect source audio format for %s: %s", input_path, exc)
+            return AudioFormatSpec(
+                channels=None,
+                sample_rate=None,
+                bit_depth=None,
+                codec_name=None,
+            )
+
+        channels = int(stream.get("channels") or 0) or None
+        sample_rate = int(stream.get("sample_rate") or 0) or None
+        bit_depth = _bit_depth_from_stream(stream)
+        codec_name = stream.get("codec_name") or None
         return AudioFormatSpec(
-            channels=self._audio_channel_count(input_path),
-            sample_rate=self._audio_sample_rate(input_path),
-            bit_depth=self._audio_bit_depth(input_path),
-            codec_name=self._audio_codec_name(input_path),
+            channels=channels,
+            sample_rate=sample_rate,
+            bit_depth=bit_depth,
+            codec_name=codec_name,
         )
 
     def _conform_outputs_to_source_format(

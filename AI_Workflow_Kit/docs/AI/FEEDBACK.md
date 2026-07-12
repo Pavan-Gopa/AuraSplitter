@@ -1,14 +1,37 @@
-# FEEDBACK — OPT_PERF
+# Шаблон проверки (Verification Template)
 
-## Last closed: K1 — APPROVED (Gemini)
+Verification Engineer (**Gemini 3.5 Flash**) заполняет эту структуру в `FEEDBACK.md` на каждый review.
 
-Metal Fast/Max presets; experimental MLX flags via SeparationJob; auto_tune_batch OFF.
-Post-tag: `opt/K1-done`.
+Проверяемый шаг: K2
+Требования шага: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md (K2 — Single ffprobe + row-major spectrogram)
 
 ---
 
-## Active step: K2 — awaiting implementation
+### 1. Сборка и интеграция
+- Собирается / тестируется ли проект после этих изменений? (Да)
+- Не нарушают ли изменения протокол backend ↔ Swift, job params, UI bindings? (Нет)
+*Комментарий:* Проект успешно собирается (`swift build`), все юнит-тесты Python (`72 passed`) и Swift (`48 passed`) зеленые. Изменения согласуются между бэкендом и клиентом (бэкенд шлет row-major данные спектрограммы по строкам бинов, а Swift считывает их линейно без дополнительной транспозиции).
 
-No review yet for K2.
+### 2. Логика и соответствие плану
+- Выполнены ли все требования **текущего** шага из `OPT_STEPS.md`? (Да)
+- Нет ли самодеятельности (код из K(n+1) на шаге K(n), Post-OPT и т.п.)? (Нет)
+- Соблюдены ли `target_files` (нет правок «заодно» вне списка без нужды)? (Да)
+*Комментарий:* 
+1. В `_source_audio_format` бэкенда теперь выполняется ровно один вызов `ffprobe` с получением JSON для извлечения всех свойств аудиоформата, вместо 4 последовательных вызовов.
+2. В `_spectrogram` возвращаемый массив спектрограммы теперь имеет плоскую row-major структуру по строкам бинов: `values[bin * columns + column]` (для этого матрица NumPy транспонируется `.T` перед уплощением).
+3. В `MetalSpectrogramTexturePayload.swift` полностью убрана CPU-транспозиция `column * bins + bin`, данные копируются линейно в один проход.
+4. Добавлены качественные тесты как на стороне бэкенда (`test_spectrogram_values_use_row_major_bin_row_layout`, `test_source_audio_format_uses_single_ffprobe_json_probe`), так и на стороне Swift (`testTexturePayloadKeepsDimensionsAndCopiesRowMajorValuesStraightThrough`).
+5. Изменены только файлы из `target_files`.
 
-**ИТОГОВЫЙ СТАТУС (K2):** [PENDING]
+### 3. Оптимальность и безопасность
+- Нет ли cold `auto_tune_batch` / 8s probe на hot Separate path? (Не применимо)
+- Нет ли регрессий memory (лишние полные reload модели, unbounded caches)? (Нет)
+- Preview: нет ли mega-JSON там, где шаг уже требует binary (если применимо)? (Не применимо)
+*Комментарий:* Устранена вычислительная нагрузка и беспорядочный доступ к памяти O(N) в Swift-коде во время разбора спектрограммы. Продублированные вызовы `ffprobe` (которые создавали лишние процессы в ОС на каждый импортируемый аудиофайл) заменены на один процесс с JSON-выводом, что ускоряет стадию анализа. 
+
+### 4. (если changes_requested) Конкретный список правок
+(Не требуется)
+
+---
+
+**ИТОГОВЫЙ СТАТУС:** [APPROVED]

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import wave
 from pathlib import Path
@@ -6,6 +7,7 @@ import numpy as np
 
 from kirtan_backend import audio_analysis
 from kirtan_backend.audio_analysis import _spectrogram
+from kirtan_backend.engine import MlxSeparatorEngine
 
 
 def _sine(frequency: float, sample_rate: int = 22_050, seconds: float = 1.0) -> np.ndarray:
@@ -14,8 +16,9 @@ def _sine(frequency: float, sample_rate: int = 22_050, seconds: float = 1.0) -> 
 
 
 def _dominant_bin(values: list[float], columns: int, bins: int) -> int:
-    matrix = np.array(values, dtype=np.float32).reshape(columns, bins)
-    return int(np.argmax(matrix.mean(axis=0)))
+    # Spectrogram values are row-major with bin rows: (bins, columns).
+    matrix = np.array(values, dtype=np.float32).reshape(bins, columns)
+    return int(np.argmax(matrix.mean(axis=1)))
 
 
 def test_spectrogram_places_higher_frequency_above_lower_frequency():
@@ -97,3 +100,63 @@ def test_analyze_audio_returns_kirtan_splitter_model_metadata(tmp_path):
     assert result["separationModelCheckpoint"] == "BS-Roformer-SW.ckpt"
     assert result["separationPresetID"] == "kirtan_pro"
     assert result["separationProcessPresetTitle"] == "Heavy 1024"
+
+
+def test_spectrogram_values_use_row_major_bin_row_layout():
+    columns = 48
+    bins = 24
+
+    values = _spectrogram(_sine(3_520), columns=columns, bins=bins, sample_rate=22_050)
+
+    # Row-major, bin rows: values[bin * columns + column]. Under this layout a
+    # single frequency bin maps to one contiguous run of samples (per column),
+    # not a stride scattered across the whole array (which a column-major
+    # flatten would produce). The dominant tone bin is checked; its interior
+    # columns (excluding the symmetric first/last-column edge artifact) must
+    # form a single contiguous run.
+    arr = np.array(values, dtype=np.float32).reshape(bins, columns)
+    threshold = float(arr.max()) * 0.6
+    dominant_bin = int(np.argmax(arr.mean(axis=1)))
+    assert arr[dominant_bin].max() > threshold
+
+    run = [
+        i
+        for i, v in enumerate(values)
+        if (i // columns) == dominant_bin
+        and 1 <= (i % columns) <= columns - 2
+        and v > threshold
+    ]
+    assert run == list(range(dominant_bin * columns + 1, dominant_bin * columns + columns - 1))
+
+
+def test_source_audio_format_uses_single_ffprobe_json_probe(monkeypatch, tmp_path):
+    engine = MlxSeparatorEngine(str(tmp_path))
+    probe_calls: list[list[str]] = []
+
+    def fake_check_output(args, *args_, **kwargs):
+        probe_calls.append(list(args))
+        return json.dumps(
+            {
+                "streams": [
+                    {
+                        "channels": 2,
+                        "sample_rate": 44100,
+                        "bits_per_raw_sample": 16,
+                        "sample_fmt": "s16",
+                        "codec_name": "pcm_s16le",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+
+    spec = engine._source_audio_format(Path(tmp_path / "song.wav"))
+
+    # Exactly one probe, and it is a single JSON probe (not four scalar probes).
+    assert len(probe_calls) == 1
+    assert "json" in probe_calls[0]
+    assert spec.channels == 2
+    assert spec.sample_rate == 44100
+    assert spec.bit_depth == 16
+    assert spec.codec_name == "pcm_s16le"
