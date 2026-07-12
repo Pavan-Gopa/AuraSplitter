@@ -1,23 +1,20 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K5
+current_step: K6
 step_description: >
-  Progressive preview: phases waveform_preview → waveform_full →
-  spectrogram_chunk(s) or low-res then HQ; protocol progress events; Swift UI
-  paints early + shimmer/loading; do not block on full HQ before first paint.
-  No full vDSP rewrite (K7).
+  Design tokens (KSTheme / DesignTokens.swift); replace hardcoded RGB in main
+  chrome (header, rail, preview frame, key list rows); clearer loading/analyzing
+  if cheap. No functional separation changes; no full redesign; no vDSP/CoreML.
 
 target_files:
-  - backend/kirtan_backend/audio_analysis.py
-  - backend/kirtan_backend/protocol.py
-  - Sources/KirtanSplitterApp/Services/BackendClient.swift
+  - Sources/KirtanSplitterApp/Models/DesignTokens.swift
+  - Sources/KirtanSplitterApp/Views/ContentView.swift
+  - Sources/KirtanSplitterApp/Views/WorkspaceWidgetRailView.swift
   - Sources/KirtanSplitterApp/Views/AudioPreviewPane.swift
-  - Sources/KirtanSplitterApp/Models/AudioPreviewAnalysisCache.swift
-  - Sources/KirtanSplitterApp/Models/AudioAnalysisModels.swift
-  - tests/test_audio_analysis.py
-  - tests/test_backend_protocol.py
-  - tests/KirtanSplitterAppTests/AudioPreviewAnalysisCacheTests.swift
+  - Sources/KirtanSplitterApp/Views/SourceResultOverviewView.swift
+  - Sources/KirtanSplitterApp/Views/ResultsPaneView.swift
+  - Package.swift
 
 completed_steps:
   - K0
@@ -25,23 +22,24 @@ completed_steps:
   - K2
   - K3
   - K4
+  - K5
 
 implementation:
-  status: waiting_review
-  attempts: 1
+  status: pending
+  attempts: 0
 
 review:
-  status: approved
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator
+next_actor: implementation
 
 track: OPT_PERF
 
 checkpoint:
   last_pre_tag: opt/pre-K5
-  last_post_tag: opt/K4-done
-  last_commit: f1e2335
+  last_post_tag: opt/K5-done
+  last_commit: 0bc660c
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
