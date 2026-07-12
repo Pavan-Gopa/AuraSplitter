@@ -1,24 +1,25 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K7
+current_step: K8
 step_description: >
-  RETRY after Gemini CHANGES_REQUESTED (attempts=1).
-  Code for vDSP local analysis largely present; formal handoff missing.
-  Fix STATE to waiting_review + next_actor verification after verifying K7
-  complete (local analyzer + hybrid policy + wiring + tests). No K8 scope.
+  MLX metal memory/cache limits with env overrides; static batch heuristic by
+  RAM (1/2/4) — NO cold auto_tune on Separate; preview analysis LRU + disk
+  cache under Application Support/Caches; tests for heuristic/eviction if
+  unit-testable. Final OPT step before OPT_DONE.
 
 target_files:
-  - Sources/KirtanSplitterApp/Models/LocalAudioAnalyzer.swift
-  - Sources/KirtanSplitterApp/Models/AudioAnalysisModels.swift
-  - Sources/KirtanSplitterApp/Models/MetalSpectrogramTexturePayload.swift
+  - backend/kirtan_backend/engine.py
+  - backend/kirtan_backend/runtime.py
+  - backend/kirtan_backend/jobs.py
+  - Sources/KirtanSplitterApp/Models/AudioPreviewAnalysisCache.swift
+  - Sources/KirtanSplitterApp/Models/PreviewAnalysisDiskCache.swift
   - Sources/KirtanSplitterApp/Services/BackendClient.swift
   - Sources/KirtanSplitterApp/Views/ContentView.swift
-  - Sources/KirtanSplitterApp/Views/AudioPreviewPane.swift
-  - tests/KirtanSplitterAppTests/LocalAudioAnalyzerTests.swift
-  - tests/KirtanSplitterAppTests/AudioAnalysisMetadataTests.swift
+  - tests/test_backend_protocol.py
+  - tests/test_runtime_gpu.py
+  - tests/KirtanSplitterAppTests/AudioPreviewAnalysisCacheTests.swift
   - PERF_BASELINE.md
-  - AI_Workflow_Kit/docs/AI/STATE.yaml
 
 completed_steps:
   - K0
@@ -28,23 +29,24 @@ completed_steps:
   - K4
   - K5
   - K6
+  - K7
 
 implementation:
-  status: waiting_review
-  attempts: 1
+  status: pending
+  attempts: 0
 
 review:
-  status: approved
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator
+next_actor: implementation
 
 track: OPT_PERF
 
 checkpoint:
   last_pre_tag: opt/pre-K7
-  last_post_tag: opt/K6-done
-  last_commit: 95cc89c
+  last_post_tag: opt/K7-done
+  last_commit: 59e6fbb
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
