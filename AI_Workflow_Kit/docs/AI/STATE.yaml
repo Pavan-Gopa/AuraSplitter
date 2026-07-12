@@ -32,9 +32,9 @@ next_actor: implementation
 track: OPT_PERF
 
 checkpoint:
-  last_pre_tag: opt/pre-K1
+  last_pre_tag: opt/pre-K2
   last_post_tag: opt/K1-done
-  last_commit: 07ab936
+  last_commit: 455d8ad
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
