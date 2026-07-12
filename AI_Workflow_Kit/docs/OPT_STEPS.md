@@ -9,9 +9,18 @@
 
 | Роль | Модель | Действие |
 |------|--------|----------|
-| Orchestrator | Grok | `STATE.yaml`, конфликты, next step |
-| Implementation Engineer | **Hy3 / Hi3** | код только в `target_files` |
+| Orchestrator | Grok | `STATE.yaml`, конфликты, next step, **git pre/post checkpoints** |
+| Implementation Engineer | **Hy3 / Hi3** | код только в `target_files` (требует `opt/pre-Kn`) |
 | Verification Engineer | **Gemini 3.5 Flash** | `FEEDBACK.md` + `review.status` |
+
+## Git (каждый шаг)
+
+```bash
+./script/opt_checkpoint.sh pre  Kn          # ДО реализации
+./script/opt_checkpoint.sh post Kn "…"    # ПОСЛЕ approve
+```
+
+Tags: `opt/pre-Kn`, `opt/Kn-done`. Docs: `AI_Workflow_Kit/docs/AI/GIT_CHECKPOINTS.md`.
 
 ---
 

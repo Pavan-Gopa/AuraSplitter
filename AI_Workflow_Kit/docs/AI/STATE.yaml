@@ -30,9 +30,9 @@ track: OPT_PERF
 
 # Updated by Orchestrator when running ./script/opt_checkpoint.sh
 checkpoint:
-  last_pre_tag: null          # e.g. opt/pre-K0
-  last_post_tag: null         # e.g. opt/K0-done
-  last_commit: null           # short sha after last checkpoint push
+  last_pre_tag: opt/pre-K0
+  last_post_tag: null
+  last_commit: 77f8558
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
