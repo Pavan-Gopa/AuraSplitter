@@ -17,14 +17,14 @@ target_files:
 completed_steps: []
 
 implementation:
-  status: pending             # pending | in_progress | waiting_review | idle
+  status: waiting_review      # pending | in_progress | waiting_review | idle
   attempts: 0
 
 review:
-  status: pending             # pending | approved | changes_requested
+  status: approved            # pending | approved | changes_requested
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: implementation    # implementation | verification | orchestrator | human
+next_actor: orchestrator     # implementation | verification | orchestrator | human
 
 track: OPT_PERF
 
