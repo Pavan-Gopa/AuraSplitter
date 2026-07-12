@@ -18,7 +18,11 @@ struct AudioPreviewPane: View {
             Divider()
             previewCanvas
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.015, green: 0.018, blue: 0.026))
+                .background(KSTheme.canvasBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: KSTheme.radiusLG)
+                        .strokeBorder(KSTheme.hairline, lineWidth: 1)
+                )
         }
         .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
         .onChange(of: analysis?.path) { newPath in
@@ -98,7 +102,7 @@ struct AudioPreviewPane: View {
         GeometryReader { geometry in
             let plotRect = plotRect(for: geometry.size)
             ZStack(alignment: .topLeading) {
-                Color(red: 0.015, green: 0.018, blue: 0.026)
+                KSTheme.canvasBackground
 
                 if let analysis {
                     MetalSpectrogramView(
@@ -375,7 +379,7 @@ struct AudioPreviewPane: View {
             bottomPoints.append(CGPoint(x: x, y: centerY + amplitude))
         }
 
-        let color = clipped ? Color(red: 1.0, green: 0.22, blue: 0.20) : Color(red: 0.18, green: 0.55, blue: 1.0)
+        let color = clipped ? KSTheme.clippingRed : KSTheme.waveformBlue
         let fillOpacity = min(0.55, 0.28 * intensity)
         let lineOpacity = min(1.0, 0.95 * intensity)
         let lineWidth = 0.8 + min(1.2, intensity) * 0.35
@@ -467,7 +471,7 @@ struct AudioPreviewPane: View {
         let labelX = plotRect.maxX + 22
         let centerY = plotRect.midY
         let halfHeight = plotRect.height / 2
-        let tickColor = Color(red: 1.0, green: 0.18, blue: 0.32)
+        let tickColor = KSTheme.decibelPink
         var labelPositions = [centerY]
 
         drawText("dB", font: .caption2, color: .secondary, context: &context, at: CGPoint(x: labelX, y: plotRect.minY - 5), anchor: .leading)
@@ -531,10 +535,10 @@ struct AudioPreviewPane: View {
         var line = Path()
         line.move(to: CGPoint(x: x, y: plotRect.minY - 7))
         line.addLine(to: CGPoint(x: x, y: plotRect.maxY))
-        context.stroke(line, with: .color(Color(red: 1.0, green: 0.74, blue: 0.18)), lineWidth: 1.5)
+        context.stroke(line, with: .color(KSTheme.playheadAmber), lineWidth: 1.5)
 
         let knobRect = CGRect(x: x - 5, y: plotRect.minY - 11, width: 10, height: 10)
-        context.fill(Path(ellipseIn: knobRect), with: .color(Color(red: 1.0, green: 0.74, blue: 0.18)))
+        context.fill(Path(ellipseIn: knobRect), with: .color(KSTheme.playheadAmber))
     }
 
     private func samplePeaks(_ peaks: [Double], index: Double) -> CGFloat {
@@ -666,7 +670,7 @@ private struct SpectrogramShimmer: View {
     var body: some View {
         GeometryReader { geometry in
             LinearGradient(
-                colors: [.clear, Color.white.opacity(0.05), .clear],
+                colors: KSTheme.shimmerColors,
                 startPoint: UnitPoint(x: phase, y: 0),
                 endPoint: UnitPoint(x: phase + 0.4, y: 0)
             )

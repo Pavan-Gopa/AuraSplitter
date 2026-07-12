@@ -178,12 +178,12 @@ private struct BatchSourceRow: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
             }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
-        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
     }
 }
 
@@ -321,7 +321,7 @@ private struct ResultStemRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
         .contextMenu {
             if selectedStemPaths.count >= 2 {
                 Button(action: compareAction) {

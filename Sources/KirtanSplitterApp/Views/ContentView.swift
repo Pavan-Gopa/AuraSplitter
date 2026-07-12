@@ -868,7 +868,7 @@ private struct ModelPresetDropdown: View {
             }
             .padding(.horizontal, 9)
             .frame(height: 27)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: KSTheme.radiusSM, style: .continuous))
         }
         .buttonStyle(ModelPresetDropdownButtonStyle(isOpen: isPresented))
         .disabled(isDisabled)
@@ -1016,7 +1016,7 @@ private struct ModelPresetDropdownRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM, style: .continuous))
         .help(state.helpText)
     }
 }
@@ -1051,9 +1051,9 @@ private struct ModelPresetDropdownButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(Color.primary)
-            .background(backgroundColor(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(backgroundColor(isPressed: configuration.isPressed), in: RoundedRectangle(cornerRadius: KSTheme.radiusSM, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: KSTheme.radiusSM, style: .continuous)
                     .stroke(isOpen ? Color.orange.opacity(0.65) : Color.secondary.opacity(0.22), lineWidth: 1)
             }
     }
