@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 def _bool_param(value) -> bool:
@@ -31,6 +31,7 @@ class SeparationJob:
     normalization: float = 0.9
     amplification: float = 0.0
     save_converted_safetensors: bool = True
+    performance_flags: dict = field(default_factory=dict)
     process_preset_id: str = "builtin.default"
     process_preset_title: str = "Default"
 
@@ -76,6 +77,7 @@ class SeparationJob:
             normalization=float(params.get("normalization", 0.9)),
             amplification=float(params.get("amplification", 0.0)),
             save_converted_safetensors=bool(params.get("saveConvertedSafetensors", True)),
+            performance_flags=dict(params.get("performanceFlags") or {}),
             process_preset_id=str(params.get("processPresetID", params.get("process_preset_id", "builtin.default"))),
             process_preset_title=str(
                 params.get("processPresetTitle", params.get("process_preset_title", "Default"))

@@ -77,6 +77,7 @@ struct SeparationSettings: Equatable, Codable {
     var mdxcBatchSize: Int = 1
     var mdxcOverrideModelSegmentSize = false
     var saveConvertedSafetensors = true
+    var performanceFlags: [String: Bool] = [:]
 
     var chunkDurationForBackend: Double? {
         chunkDuration > 0 ? chunkDuration : nil

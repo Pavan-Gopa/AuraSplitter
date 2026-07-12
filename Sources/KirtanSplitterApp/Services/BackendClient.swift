@@ -296,6 +296,7 @@ final class BackendClient: ObservableObject {
             "mdxcOverlap": settings.mdxcOverlap,
             "mdxcBatchSize": settings.mdxcBatchSize,
             "speedMode": settings.speedMode,
+            "performanceFlags": settings.performanceFlags,
         ]
         if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {
             params["modelFilename"] = modelOverride
@@ -343,6 +344,7 @@ final class BackendClient: ObservableObject {
             "mdxcBatchSize": settings.mdxcBatchSize,
             "mdxcOverrideModelSegmentSize": settings.effectiveMDXCOverrideModelSegmentSize,
             "saveConvertedSafetensors": settings.saveConvertedSafetensors,
+            "performanceFlags": settings.performanceFlags,
             "processPresetID": processPreset?.id ?? "builtin.default",
             "processPresetTitle": processPreset?.title ?? "Default",
         ]

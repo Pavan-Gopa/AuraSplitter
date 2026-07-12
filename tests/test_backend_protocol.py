@@ -362,6 +362,51 @@ def test_separate_accepts_snake_case_mdxc_parameters(tmp_path):
     assert engine.calls[0].mdxc_override_model_segment_size is False
 
 
+def test_separate_carries_performance_flags_into_job(tmp_path):
+    engine = FakeEngine()
+    request = BackendRequest(
+        id="r3-flags",
+        method="separate",
+        params={
+            "inputPath": "/tmp/mix.wav",
+            "outputDir": str(tmp_path),
+            "preset": "kirtan_pro",
+            "performanceFlags": {
+                "experimental_roformer_fast_norm": True,
+                "experimental_roformer_compile_fullgraph": True,
+                "experimental_flac_fast_write": True,
+            },
+        },
+    )
+
+    response, _events = handle_request(request, engine=engine)
+
+    assert response["type"] == "response"
+    assert engine.calls[0].performance_flags == {
+        "experimental_roformer_fast_norm": True,
+        "experimental_roformer_compile_fullgraph": True,
+        "experimental_flac_fast_write": True,
+    }
+
+
+def test_separate_defaults_performance_flags_to_empty_dict(tmp_path):
+    engine = FakeEngine()
+    request = BackendRequest(
+        id="r3-noflags",
+        method="separate",
+        params={
+            "inputPath": "/tmp/mix.wav",
+            "outputDir": str(tmp_path),
+            "preset": "kirtan_pro",
+        },
+    )
+
+    response, _events = handle_request(request, engine=engine)
+
+    assert response["type"] == "response"
+    assert engine.calls[0].performance_flags == {}
+
+
 def test_separate_streams_progress_when_emit_callback_is_provided(tmp_path):
     streamed = []
     response, events = handle_request(

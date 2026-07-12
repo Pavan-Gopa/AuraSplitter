@@ -213,17 +213,7 @@ class MlxSeparatorEngine:
         started = time.perf_counter()
         started_at = time.time()
 
-        performance_params = {
-            "speed_mode": job.speed_mode,
-            "cache_clear_policy": job.cache_clear_policy,
-            "write_workers": job.write_workers,
-            "experimental_roformer_fast_norm": False,
-            "experimental_roformer_grouped_band_split": False,
-            "experimental_roformer_grouped_mask_estimator": False,
-            "experimental_roformer_fused_overlap_add": False,
-            "experimental_roformer_compile_fullgraph": False,
-            "experimental_flac_fast_write": job.output_format == "FLAC",
-        }
+        performance_params = self._build_performance_params(job)
         mdxc_params = {
             "segment_size": job.mdxc_segment_size,
             "override_model_segment_size": job.mdxc_override_model_segment_size,
@@ -335,6 +325,28 @@ class MlxSeparatorEngine:
     def _raise_if_cancelled(self):
         if self._cancel_event.is_set():
             raise BackendOperationCancelled(self._cancel_reason)
+
+    def _build_performance_params(self, job: SeparationJob) -> dict:
+        # Defaults reproduce the previous hard-coded behavior. Any experimental
+        # flag supplied via job.performance_flags (e.g. from a Metal Fast / Metal
+        # Max process preset) overrides the default. auto_tune_batch stays OFF
+        # unless a caller explicitly opts in — never on the hot Separate path.
+        base = {
+            "experimental_roformer_fast_norm": False,
+            "experimental_roformer_grouped_band_split": False,
+            "experimental_roformer_grouped_mask_estimator": False,
+            "experimental_roformer_fused_overlap_add": False,
+            "experimental_roformer_compile_fullgraph": False,
+            "experimental_flac_fast_write": job.output_format == "FLAC",
+            "auto_tune_batch": False,
+        }
+        base.update(dict(job.performance_flags or {}))
+        return {
+            "speed_mode": job.speed_mode,
+            "cache_clear_policy": job.cache_clear_policy,
+            "write_workers": job.write_workers,
+            **base,
+        }
 
     def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):
         stop = threading.Event()

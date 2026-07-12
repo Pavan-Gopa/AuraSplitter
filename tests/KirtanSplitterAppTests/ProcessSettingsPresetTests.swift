@@ -57,6 +57,61 @@ final class ProcessSettingsPresetTests: XCTestCase {
         XCTAssertTrue(extreme?.snapshot.mdxcOverrideModelSegmentSize == true)
     }
 
+    func testBuiltInMetalPresetsExistAndCarryPerformanceFlags() {
+        let fast = ProcessSettingsPreset.builtIn.first { $0.id == "metal.fast" }
+        let max = ProcessSettingsPreset.builtIn.first { $0.id == "metal.max" }
+
+        XCTAssertEqual(fast?.title, "Metal Fast")
+        XCTAssertEqual(max?.title, "Metal Max")
+
+        XCTAssertTrue(fast?.snapshot.performanceFlags["experimental_roformer_fast_norm"] == true)
+        XCTAssertNil(fast?.snapshot.performanceFlags["experimental_roformer_compile_fullgraph"])
+
+        XCTAssertTrue(max?.snapshot.performanceFlags["experimental_roformer_compile_fullgraph"] == true)
+        // auto_tune_batch must never be enabled by a Metal preset.
+        XCTAssertNil(max?.snapshot.performanceFlags["auto_tune_batch"])
+    }
+
+    func testSnapshotAppliesPerformanceFlagsWithoutChangingModelChoice() {
+        var source = SeparationSettings()
+        source.performanceFlags = ["experimental_roformer_fast_norm": true]
+
+        var target = SeparationSettings()
+        target.presetID = "viperx_vocal"
+        target.modelOverride = "custom.ckpt"
+
+        ProcessSettingsSnapshot(settings: source).apply(to: &target)
+
+        XCTAssertEqual(target.presetID, "viperx_vocal")
+        XCTAssertEqual(target.modelOverride, "custom.ckpt")
+        XCTAssertEqual(target.performanceFlags, ["experimental_roformer_fast_norm": true])
+    }
+
+    func testSnapshotDecodesWhenPerformanceFlagsAbsent(legacyData: Data? = nil) {
+        // Pre-K1 custom presets were persisted without performanceFlags.
+        let json = """
+        {
+          "id": "custom.legacy",
+          "title": "Legacy",
+          "isBuiltIn": false,
+          "snapshot": {
+            "outputFormat": "WAV",
+            "speedMode": "latency_safe_v3",
+            "chunkDuration": 30,
+            "mdxcSegmentSize": 512,
+            "mdxcOverlap": 8,
+            "mdxcBatchSize": 1,
+            "mdxcOverrideModelSegmentSize": false,
+            "saveConvertedSafetensors": true
+          }
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let preset = try? decoder.decode(ProcessSettingsPreset.self, from: json)
+        XCTAssertEqual(preset?.snapshot.performanceFlags, [:])
+    }
+
     private func presetSettings(segmentSize: Int) -> SeparationSettings {
         var settings = SeparationSettings()
         settings.mdxcSegmentSize = segmentSize

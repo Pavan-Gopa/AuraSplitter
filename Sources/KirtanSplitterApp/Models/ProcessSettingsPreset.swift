@@ -9,6 +9,7 @@ struct ProcessSettingsSnapshot: Codable, Equatable {
     var mdxcBatchSize: Int
     var mdxcOverrideModelSegmentSize: Bool
     var saveConvertedSafetensors: Bool
+    var performanceFlags: [String: Bool]
 
     init(settings: SeparationSettings) {
         outputFormat = settings.outputFormat
@@ -19,6 +20,7 @@ struct ProcessSettingsSnapshot: Codable, Equatable {
         mdxcBatchSize = settings.mdxcBatchSize
         mdxcOverrideModelSegmentSize = settings.mdxcOverrideModelSegmentSize
         saveConvertedSafetensors = settings.saveConvertedSafetensors
+        performanceFlags = settings.performanceFlags
     }
 
     func apply(to settings: inout SeparationSettings) {
@@ -30,6 +32,40 @@ struct ProcessSettingsSnapshot: Codable, Equatable {
         settings.mdxcBatchSize = mdxcBatchSize
         settings.mdxcOverrideModelSegmentSize = mdxcOverrideModelSegmentSize
         settings.saveConvertedSafetensors = saveConvertedSafetensors
+        settings.performanceFlags = performanceFlags
+    }
+
+    // Custom Codable so pre-K1 custom presets (saved without performanceFlags)
+    // still decode instead of being dropped on load.
+    private enum CodingKeys: String, CodingKey {
+        case outputFormat, speedMode, chunkDuration, mdxcSegmentSize, mdxcOverlap
+        case mdxcBatchSize, mdxcOverrideModelSegmentSize, saveConvertedSafetensors, performanceFlags
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        outputFormat = try c.decode(String.self, forKey: .outputFormat)
+        speedMode = try c.decode(String.self, forKey: .speedMode)
+        chunkDuration = try c.decode(Double.self, forKey: .chunkDuration)
+        mdxcSegmentSize = try c.decode(Int.self, forKey: .mdxcSegmentSize)
+        mdxcOverlap = try c.decode(Int.self, forKey: .mdxcOverlap)
+        mdxcBatchSize = try c.decode(Int.self, forKey: .mdxcBatchSize)
+        mdxcOverrideModelSegmentSize = try c.decode(Bool.self, forKey: .mdxcOverrideModelSegmentSize)
+        saveConvertedSafetensors = try c.decode(Bool.self, forKey: .saveConvertedSafetensors)
+        performanceFlags = try c.decodeIfPresent([String: Bool].self, forKey: .performanceFlags) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(outputFormat, forKey: .outputFormat)
+        try c.encode(speedMode, forKey: .speedMode)
+        try c.encode(chunkDuration, forKey: .chunkDuration)
+        try c.encode(mdxcSegmentSize, forKey: .mdxcSegmentSize)
+        try c.encode(mdxcOverlap, forKey: .mdxcOverlap)
+        try c.encode(mdxcBatchSize, forKey: .mdxcBatchSize)
+        try c.encode(mdxcOverrideModelSegmentSize, forKey: .mdxcOverrideModelSegmentSize)
+        try c.encode(saveConvertedSafetensors, forKey: .saveConvertedSafetensors)
+        try c.encode(performanceFlags, forKey: .performanceFlags)
     }
 }
 
@@ -66,6 +102,18 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
             snapshot: ProcessSettingsSnapshot(settings: extremeSettings),
             isBuiltIn: true
         ),
+        ProcessSettingsPreset(
+            id: "metal.fast",
+            title: "Metal Fast",
+            snapshot: ProcessSettingsSnapshot(settings: metalFastSettings),
+            isBuiltIn: true
+        ),
+        ProcessSettingsPreset(
+            id: "metal.max",
+            title: "Metal Max",
+            snapshot: ProcessSettingsSnapshot(settings: metalMaxSettings),
+            isBuiltIn: true
+        ),
     ]
 
     private static var fastSettings: SeparationSettings {
@@ -93,6 +141,51 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.mdxcBatchSize = 1
         settings.mdxcOverrideModelSegmentSize = true
         settings.speedMode = "latency_safe_v3"
+        return settings
+    }
+
+    private static var metalFastSettings: SeparationSettings {
+        var settings = SeparationSettings()
+        settings.mdxcSegmentSize = 512
+        settings.mdxcOverlap = 8
+        settings.mdxcBatchSize = 1
+        settings.mdxcOverrideModelSegmentSize = true
+        settings.speedMode = "latency_safe_v3"
+        settings.performanceFlags = [
+            "experimental_roformer_fast_norm": true,
+            "experimental_roformer_grouped_band_split": true,
+            "experimental_roformer_grouped_mask_estimator": true,
+            "experimental_roformer_fused_overlap_add": true,
+            "experimental_flac_fast_write": true,
+        ]
+        return settings
+    }
+
+    private static var metalMaxSettings: SeparationSettings {
+        var settings = SeparationSettings()
+        settings.mdxcSegmentSize = 1024
+        settings.mdxcOverlap = 10
+        settings.mdxcBatchSize = 2
+        settings.mdxcOverrideModelSegmentSize = true
+        settings.speedMode = "latency_safe_v3"
+        settings.performanceFlags = [
+            "experimental_roformer_fast_norm": true,
+            "experimental_roformer_grouped_band_split": true,
+            "experimental_roformer_grouped_mask_estimator": true,
+            "experimental_roformer_fused_overlap_add": true,
+            "experimental_roformer_compile_fullgraph": true,
+            "experimental_compile_model_forward": true,
+            "experimental_compile_shapeless": true,
+            "experimental_roformer_static_compiled_demix": true,
+            "experimental_mlx_stream_pipeline": true,
+            "experimental_roformer_grouped_weight_cache": true,
+            "experimental_roformer_chunk_gather_batching": true,
+            "experimental_roformer_ola_simd_tuning": true,
+            "experimental_mdxc_defer_batch_eval": true,
+            "experimental_mdxc_precompute_gather_idx": true,
+            "experimental_vectorized_chunking": true,
+            "experimental_flac_fast_write": true,
+        ]
         return settings
     }
 }
