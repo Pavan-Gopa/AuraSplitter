@@ -1,40 +1,43 @@
 # OPT_PERF track — orchestrated by Grok
 # Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
 
-current_step: K2
+current_step: K3
 step_description: >
-  Single ffprobe for source audio format (not 4 probes); spectrogram values
-  row-major (bin rows) matching Metal texture; remove CPU transpose in
-  MetalSpectrogramTexturePayload when layout matches; tests for analysis layout
-  and format probe. No binary protocol (K4), no progressive (K5).
+  Warm Separator cache: reuse loaded Separator for same model fingerprint
+  (segment/batch/speed/perf flags); invalidate on model change / OOM / cancel
+  restart; optional modelHot in runtime stats/UI; unit/fake-engine tests for
+  hit/miss. No binary preview (K4), progressive (K5), or CoreML.
 
 target_files:
   - backend/kirtan_backend/engine.py
-  - backend/kirtan_backend/audio_analysis.py
-  - Sources/KirtanSplitterApp/Models/MetalSpectrogramTexturePayload.swift
-  - tests/test_audio_analysis.py
-  - tests/KirtanSplitterAppTests/MetalSpectrogramTextureTests.swift
+  - backend/kirtan_backend/runtime.py
+  - backend/kirtan_backend/protocol.py
+  - tests/test_backend_protocol.py
+  - Sources/KirtanSplitterApp/Views/WorkspaceWidgetRailView.swift
+  - Sources/KirtanSplitterApp/Models/RuntimeModels.swift
+  - Sources/KirtanSplitterApp/Services/BackendClient.swift
 
 completed_steps:
   - K0
   - K1
+  - K2
 
 implementation:
-  status: waiting_review
+  status: pending
   attempts: 0
 
 review:
-  status: approved
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: orchestrator
+next_actor: implementation
 
 track: OPT_PERF
 
 checkpoint:
   last_pre_tag: opt/pre-K2
-  last_post_tag: opt/K1-done
-  last_commit: 455d8ad
+  last_post_tag: opt/K2-done
+  last_commit: fa32663
 
 plan_files:
   - OPTIMIZATION_PLAN_GROK.md
