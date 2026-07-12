@@ -195,7 +195,6 @@ def test_list_presets_exposes_kirtan_focused_defaults():
         "lead_back_bve_gonza",
         "drumsep_mdx23c_5stem",
         "mega_lead_vocal",
-        "demucs_onnx_stems",
     }.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
     assert PRESETS["vocal_clean"].model_filename == "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
@@ -253,11 +252,9 @@ def test_model_pack_presets_use_user_friendly_kirtan_titles():
 
     assert PRESETS["hyperace_v2_vocal"].title == "Kirtan Vocal Pro"
     assert PRESETS["hyperace_v2_instrumental"].title == "Kirtan Instrument Pro"
-    assert PRESETS["polarformer_vocal"].title == "Kirtan Vocal Max"
     assert PRESETS["lead_back_bve_gonza"].title == "Kirtan Lead / Back"
     assert PRESETS["drumsep_mdx23c_5stem"].title == "Kirtan Drum Split"
     assert PRESETS["mega_back_vocal"].title == "Kirtan Back Vocal"
-    assert PRESETS["demucs_onnx_stems"].title == "Kirtan Stems Pro"
 
     for preset in PRESETS.values():
         for token in technical_tokens:
@@ -683,7 +680,7 @@ def test_engine_does_not_leak_temporary_stereo_marker_into_mono_output_names(tmp
     )
 
     output_path = Path(result["files"][0]["path"])
-    assert output_path.name == "01MAIN_V_(Vocals).wav"
+    assert output_path.name == "01MAIN_V_(Vocals)_Kirtan Pro.wav"
     assert "stereo" not in output_path.name.lower()
     assert _audio_channels(output_path) == 1
 
@@ -961,9 +958,6 @@ def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
     downloaded = {model["filename"]: model["isDownloaded"] for model in models}
     assert names["bs_roformer_voc_hyperacev2.ckpt"] == "Kirtan Vocal Pro"
     assert names["mel_band_roformer_bve_gonza.ckpt"] == "Kirtan Lead / Back"
-    assert names["htdemucs_ft.onnx"] == "Kirtan Stems Pro"
-    assert downloaded["htdemucs_ft.onnx"] is False
-    assert "model_bs_polarformer_float16.ckpt" not in names
 
 
 def test_engine_downloads_model_pack_assets_before_loading(tmp_path, monkeypatch):
@@ -1021,121 +1015,6 @@ def test_engine_downloads_model_pack_assets_before_loading(tmp_path, monkeypatch
         "bs_roformer_voc_hyperacev2.ckpt",
         "bs_roformer_voc_hyperacev2.yaml",
     }
-
-
-def test_engine_routes_demucs_onnx_presets_to_onnx_backend(tmp_path, monkeypatch):
-    input_path = tmp_path / "stereo.wav"
-    _write_silent_wav(input_path, channels=2)
-    output_dir = tmp_path / "out"
-    model_dir = tmp_path / "models"
-    calls = []
-
-    class FakeOnnxBackend:
-        def __init__(self, model_dir, logger=None):
-            calls.append(("init", model_dir))
-
-        def separate(self, input_path, output_dir, output_format, model):
-            calls.append(("separate", Path(input_path), Path(output_dir), output_format, model))
-            output = Path(output_dir) / "vocals.wav"
-            _write_silent_wav(output, channels=2)
-            return [str(output)]
-
-    monkeypatch.setattr(engine_module, "DemucsOnnxBackend", FakeOnnxBackend)
-    engine = MlxSeparatorEngine(model_dir=str(model_dir))
-    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
-    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
-
-    result = engine.separate(
-        SeparationJob(
-            input_path=str(input_path),
-            output_dir=str(output_dir),
-            model_filename="htdemucs_ft.onnx",
-            preset="demucs_onnx_stems",
-            output_format="WAV",
-        ),
-        progress=lambda *_args: None,
-    )
-
-    assert calls[0] == ("init", str(model_dir))
-    assert calls[1] == ("separate", input_path, output_dir, "WAV", "htdemucs_ft")
-    assert result["model"] == "htdemucs_ft.onnx"
-    assert result["files"][0]["stem"] == "vocals"
-
-
-def test_engine_routes_polarformer_presets_to_polarformer_backend(tmp_path, monkeypatch):
-    input_path = tmp_path / "stereo.wav"
-    _write_silent_wav(input_path, channels=2)
-    output_dir = tmp_path / "out"
-    model_dir = tmp_path / "models"
-    calls = []
-
-    class FakePolarFormerBackend:
-        def __init__(self, model_dir, logger=None):
-            calls.append(("init", model_dir))
-
-        def separate(
-            self,
-            input_path,
-            output_dir,
-            output_format,
-            model,
-            config_filename,
-            progress_callback=None,
-            progress_start=None,
-            progress_end=None,
-            cancel_callback=None,
-        ):
-            calls.append(
-                (
-                    "separate",
-                    Path(input_path),
-                    Path(output_dir),
-                    output_format,
-                    model,
-                    config_filename,
-                    callable(progress_callback),
-                    progress_start,
-                    progress_end,
-                    callable(cancel_callback),
-                )
-            )
-            output = Path(output_dir) / "vocals.wav"
-            _write_silent_wav(output, channels=2)
-            return [str(output)]
-
-    monkeypatch.setattr(engine_module, "ensure_model_pack_assets", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(engine_module, "PolarFormerOnnxBackend", FakePolarFormerBackend)
-    engine = MlxSeparatorEngine(model_dir=str(model_dir))
-    monkeypatch.setattr(engine, "runtime_stats", lambda: {})
-    monkeypatch.setattr(engine, "model_cache", lambda: {"items": [], "totalBytes": 0, "modelDir": str(model_dir)})
-
-    result = engine.separate(
-        SeparationJob(
-            input_path=str(input_path),
-            output_dir=str(output_dir),
-            model_filename="bs_polarformer_fp16.onnx",
-            preset="polarformer_vocal",
-            output_format="WAV",
-        ),
-        progress=lambda *_args: None,
-    )
-
-    assert calls[0] == ("init", str(model_dir))
-    assert calls[1] == (
-        "separate",
-        input_path,
-        output_dir,
-        "WAV",
-        "bs_polarformer_fp16.onnx",
-        "model_bs_polarformer_float16.yaml",
-        True,
-        0.08,
-        0.92,
-        True,
-    )
-    assert result["model"] == "bs_polarformer_fp16.onnx"
-    assert result["files"][0]["stem"] == "vocals"
-
 
 def test_engine_reports_model_load_state_for_converted_and_first_run_models(tmp_path):
     engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))

@@ -137,11 +137,6 @@ def test_model_cache_groups_include_available_models_that_are_not_downloaded(tmp
     assert groups["Kirtan Vocal Elite"]["hasSource"] is False
     assert groups["Kirtan Vocal Elite"]["localState"] == "not_downloaded"
     assert groups["Kirtan Vocal Elite"]["totalBytes"] == 0
-    assert groups["Kirtan Vocal Max"]["technicalName"] == "BS PolarFormer 124-band"
-    assert groups["Kirtan Vocal Max"]["architecture"] == "BS-PolarFormer"
-    assert groups["Kirtan Vocal Max"]["backend"] == "ONNX/CoreML"
-    assert groups["Kirtan Vocal Max"]["localState"] == "not_downloaded"
-    assert groups["Kirtan Stems Pro"]["backend"] == "ONNX/CoreML"
 
 
 def test_model_cache_groups_include_every_header_preset_name(tmp_path):

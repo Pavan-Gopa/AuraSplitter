@@ -95,13 +95,6 @@ PRESETS: dict[str, SeparationPreset] = {
         summary=MODEL_PACK_BY_ID["leap_xe_instrumental"].summary,
         expected_stems=MODEL_PACK_BY_ID["leap_xe_instrumental"].expected_stems,
     ),
-    "polarformer_vocal": SeparationPreset(
-        id="polarformer_vocal",
-        title=MODEL_PACK_BY_ID["polarformer_vocal"].title,
-        model_filename=MODEL_PACK_BY_ID["polarformer_vocal"].filename,
-        summary=MODEL_PACK_BY_ID["polarformer_vocal"].summary,
-        expected_stems=MODEL_PACK_BY_ID["polarformer_vocal"].expected_stems,
-    ),
     "becruily_deux": SeparationPreset(
         id="becruily_deux",
         title=MODEL_PACK_BY_ID["becruily_deux"].title,
@@ -164,20 +157,6 @@ PRESETS: dict[str, SeparationPreset] = {
         model_filename=MODEL_PACK_BY_ID["mega_piano"].filename,
         summary=MODEL_PACK_BY_ID["mega_piano"].summary,
         expected_stems=MODEL_PACK_BY_ID["mega_piano"].expected_stems,
-    ),
-    "demucs_onnx_stems": SeparationPreset(
-        id="demucs_onnx_stems",
-        title=MODEL_PACK_BY_ID["demucs_onnx_stems"].title,
-        model_filename=MODEL_PACK_BY_ID["demucs_onnx_stems"].filename,
-        summary=MODEL_PACK_BY_ID["demucs_onnx_stems"].summary,
-        expected_stems=MODEL_PACK_BY_ID["demucs_onnx_stems"].expected_stems,
-    ),
-    "demucs_onnx_six_stems": SeparationPreset(
-        id="demucs_onnx_six_stems",
-        title=MODEL_PACK_BY_ID["demucs_onnx_six_stems"].title,
-        model_filename=MODEL_PACK_BY_ID["demucs_onnx_six_stems"].filename,
-        summary=MODEL_PACK_BY_ID["demucs_onnx_six_stems"].summary,
-        expected_stems=MODEL_PACK_BY_ID["demucs_onnx_six_stems"].expected_stems,
     ),
 }
 

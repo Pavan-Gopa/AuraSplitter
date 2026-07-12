@@ -8,6 +8,10 @@ struct ContentView: View {
     @State private var sources: [BatchSourceItem] = []
     @State private var outputDirectory: URL?
     @State private var settings = SeparationSettings()
+    @State private var modelRatings: [String: Int] = (UserDefaults.standard.dictionary(forKey: "KirtanSplitter.modelRatings") as? [String: Int]) ?? [:]
+    @State private var selectedModelIDs: Set<String> = ["kirtan_pro"]
+    @State private var selectedStemPaths: Set<String> = []
+    @State private var isShowingComparison = false
     @State private var selectedProcessPresetID = ProcessSettingsPreset.defaultPresetID
     @State private var resultGroups: [BatchResultGroup] = []
     @State private var previewSelection: AudioPreviewSelection = .none
@@ -35,7 +39,9 @@ struct ContentView: View {
                     hasSelectedSources: hasSelectedSources,
                     isSettingsSidebarOpen: isSettingsSidebarOpen,
                     primaryAction: performPrimaryProcessAction,
-                    settingsAction: toggleSettingsSidebar
+                    settingsAction: toggleSettingsSidebar,
+                    modelRatings: $modelRatings,
+                    selectedModelIDs: $selectedModelIDs
                 )
                 .frame(height: WorkspaceLayoutMetrics.appHeaderHeight)
 
@@ -65,6 +71,20 @@ struct ContentView: View {
 
             if let message = backend.modelSetupMessage {
                 ModelSetupOverlay(message: message)
+            }
+
+            if isShowingComparison {
+                AudioComparisonView(
+                    stems: selectedStemsToCompare,
+                    player: audioPreviewPlayer,
+                    backend: backend,
+                    resultPreviewCache: $resultPreviewCache,
+                    onClose: {
+                        isShowingComparison = false
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                .zIndex(2)
             }
         }
         .frame(minWidth: 1220, minHeight: 700)
@@ -152,7 +172,9 @@ struct ContentView: View {
                 previewSelection: previewSelection,
                 previewSourceAction: previewSource,
                 previewStemAction: previewStem,
-                deleteStemAction: deleteStem
+                deleteStemAction: deleteStem,
+                selectedStemPaths: $selectedStemPaths,
+                compareAction: { isShowingComparison = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -185,6 +207,9 @@ struct ContentView: View {
             get: { settings.presetID },
             set: { presetID in
                 settings.presetID = presetID
+                if !selectedModelIDs.contains(presetID) {
+                    selectedModelIDs = [presetID]
+                }
                 if usesPerSourcePresets {
                     for index in sources.indices where sources[index].isSelectedForProcessing {
                         sources[index].presetID = presetID
@@ -225,6 +250,7 @@ struct ContentView: View {
             source.url.path,
             durationKey,
             settings.presetID,
+            selectedModelIDs.sorted().joined(separator: ","),
             settings.modelOverride ?? "",
             selectedProcessPresetID,
             "\(settings.mdxcSegmentSize)",
@@ -249,13 +275,26 @@ struct ContentView: View {
             return
         }
 
+        let modelsToEstimate = selectedModelIDs.isEmpty ? [settings.presetID] : Array(selectedModelIDs)
+
         do {
-            _ = try await backend.fetchRenderEstimate(
-                inputURL: source.url,
-                durationSeconds: source.analysis?.durationSeconds,
-                settings: settings,
-                processPreset: selectedProcessPreset
-            )
+            var totalEstimate: RenderEstimate? = nil
+            for modelID in modelsToEstimate {
+                var sourceSettings = settings
+                sourceSettings.presetID = modelID
+                let est = try await backend.fetchRenderEstimate(
+                    inputURL: source.url,
+                    durationSeconds: source.analysis?.durationSeconds,
+                    settings: sourceSettings,
+                    processPreset: selectedProcessPreset
+                )
+                if let total = totalEstimate {
+                    totalEstimate = total.adding(est)
+                } else {
+                    totalEstimate = est
+                }
+            }
+            backend.renderEstimate = totalEstimate
         } catch {
             backend.renderEstimate = nil
         }
@@ -306,11 +345,15 @@ struct ContentView: View {
     }
 
     private func previewSource(_ source: BatchSourceItem) {
-        audioPreviewPlayer.stop()
+        let path = source.url.path
+        let previousTime = audioPreviewPlayer.currentTime
+        
         previewSelection = .source(source.id)
         previewAnalysis = source.analysis
         previewAnalysisError = source.analysisError
         isAnalyzingPreview = source.isAnalyzing
+
+        audioPreviewPlayer.seek(path: path, time: previousTime)
 
         if source.analysis == nil, source.analysisError == nil {
             Task {
@@ -320,13 +363,16 @@ struct ContentView: View {
     }
 
     private func previewStem(_ stem: StemFile) {
-        audioPreviewPlayer.stop()
         let path = stem.path
+        let previousTime = audioPreviewPlayer.currentTime
+        
         let selection = AudioPreviewSelection.result(path)
         previewSelection = selection
         previewAnalysis = nil
         previewAnalysisError = nil
         isAnalyzingPreview = false
+
+        audioPreviewPlayer.seek(path: path, time: previousTime)
 
         if applyCachedResultPreview(for: path) {
             return
@@ -457,34 +503,36 @@ struct ContentView: View {
             for source in selectedSources {
                 if Task.isCancelled { break }
 
-                var sourceSettings = settings
-                sourceSettings.presetID = BatchWorkspace.effectivePresetID(
-                    for: source,
-                    sourceCount: sources.count,
-                    globalPresetID: settings.presetID
-                )
+                let modelsToRun = usesPerSourcePresets ? [source.presetID] : (selectedModelIDs.isEmpty ? [settings.presetID] : selectedModelIDs.sorted())
                 let outputDir = resolvedOutputDirectory(for: source.url)
 
-                do {
-                    let nextSummary = try await backend.separate(
-                        inputURL: source.url,
-                        outputDirectory: outputDir,
-                        settings: sourceSettings,
-                        processPreset: selectedProcessPreset
-                    )
-                    await MainActor.run {
-                        upsertResultGroup(sourceURL: source.url, summary: nextSummary)
-                        prewarmResultPreviews(for: nextSummary.files)
+                for modelID in modelsToRun {
+                    if Task.isCancelled { break }
+
+                    var sourceSettings = settings
+                    sourceSettings.presetID = modelID
+
+                    do {
+                        let nextSummary = try await backend.separate(
+                            inputURL: source.url,
+                            outputDirectory: outputDir,
+                            settings: sourceSettings,
+                            processPreset: selectedProcessPreset
+                        )
+                        await MainActor.run {
+                            upsertResultGroup(sourceURL: source.url, summary: nextSummary)
+                            prewarmResultPreviews(for: nextSummary.files)
+                        }
+                    } catch BackendClientError.cancelled {
+                        break
+                    } catch is CancellationError {
+                        break
+                    } catch {
+                        await MainActor.run {
+                            backend.errorMessage = "Failed \(source.fileName): \(error.localizedDescription)"
+                        }
+                        break
                     }
-                } catch BackendClientError.cancelled {
-                    break
-                } catch is CancellationError {
-                    break
-                } catch {
-                    await MainActor.run {
-                        backend.errorMessage = "Failed \(source.fileName): \(error.localizedDescription)"
-                    }
-                    break
                 }
             }
 
@@ -524,14 +572,33 @@ struct ContentView: View {
     }
 
     private func upsertResultGroup(sourceURL: URL, summary: SeparationSummary) {
-        let group = BatchResultGroup(
-            sourceURL: sourceURL,
-            summary: summary,
-            files: summary.files.sorted { $0.stem < $1.stem }
-        )
-        if let index = resultGroups.firstIndex(where: { $0.id == group.id }) {
-            resultGroups[index] = group
+        let newFiles = summary.files
+        
+        if let index = resultGroups.firstIndex(where: { $0.sourceURL == sourceURL }) {
+            var existingFiles = resultGroups[index].files
+            for file in newFiles {
+                if !existingFiles.contains(where: { $0.path == file.path }) {
+                    existingFiles.append(file)
+                }
+            }
+            resultGroups[index].files = existingFiles.sorted {
+                if $0.stem != $1.stem {
+                    return $0.stem < $1.stem
+                }
+                return $0.displayName < $1.displayName
+            }
+            resultGroups[index].summary = summary
         } else {
+            let group = BatchResultGroup(
+                sourceURL: sourceURL,
+                summary: summary,
+                files: newFiles.sorted {
+                    if $0.stem != $1.stem {
+                        return $0.stem < $1.stem
+                    }
+                    return $0.displayName < $1.displayName
+                }
+            )
             resultGroups.append(group)
         }
     }
@@ -575,6 +642,18 @@ struct ContentView: View {
         sources.count > 1
     }
 
+    private var selectedStemsToCompare: [StemFile] {
+        var result: [StemFile] = []
+        for group in resultGroups {
+            for stem in group.files {
+                if selectedStemPaths.contains(stem.path) {
+                    result.append(stem)
+                }
+            }
+        }
+        return result.sorted { $0.displayName < $1.displayName }
+    }
+
     private func isDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
@@ -593,6 +672,8 @@ private struct AppHeaderView: View {
     let isSettingsSidebarOpen: Bool
     let primaryAction: () -> Void
     let settingsAction: () -> Void
+    @Binding var modelRatings: [String: Int]
+    @Binding var selectedModelIDs: Set<String>
     @State private var isModelPresetMenuOpen = false
 
     var body: some View {
@@ -619,10 +700,12 @@ private struct AppHeaderView: View {
 
             ModelPresetDropdown(
                 selection: $modelPresetID,
+                selectedIDs: $selectedModelIDs,
                 isPresented: $isModelPresetMenuOpen,
                 presets: modelPresets,
                 models: backend.models,
                 modelCache: backend.modelCache,
+                modelRatings: $modelRatings,
                 isDisabled: modelPresets.isEmpty || backend.isBusy
             )
             .frame(width: 188)
@@ -739,22 +822,45 @@ private struct AppHeaderView: View {
 
 private struct ModelPresetDropdown: View {
     @Binding var selection: String
+    @Binding var selectedIDs: Set<String>
     @Binding var isPresented: Bool
     let presets: [SeparationPreset]
     let models: [SeparatorModel]
     let modelCache: ModelCache?
+    @Binding var modelRatings: [String: Int]
     let isDisabled: Bool
+
+    @State private var ratingFilter: Int = 0
 
     var body: some View {
         Button {
             isPresented.toggle()
         } label: {
             HStack(spacing: 8) {
-                Text(selectedPreset?.title ?? "Model")
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                ModelPresetStatusIndicators(state: selectedState)
+                if selectedIDs.count > 1 {
+                    Text("Multi (\(selectedIDs.count))")
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(selectedPreset?.title ?? "Model")
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    if let selectedPreset, let rating = modelRatings[selectedPreset.id], rating > 0 {
+                        HStack(spacing: 1) {
+                            ForEach(1...rating, id: \.self) { _ in
+                                Image(systemName: "star.fill")
+                                    .foregroundStyle(.orange)
+                                    .font(.system(size: 9))
+                            }
+                        }
+                    }
+                    
+                    ModelPresetStatusIndicators(state: selectedState)
+                }
+                
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
@@ -767,28 +873,83 @@ private struct ModelPresetDropdown: View {
         .disabled(isDisabled)
         .help(selectedState.helpText)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(presets) { preset in
-                        let state = ModelPresetMenuState(preset: preset, models: models, modelCache: modelCache)
-                        Button {
-                            selection = preset.id
-                            isPresented = false
-                        } label: {
-                            ModelPresetDropdownRow(
-                                title: preset.title,
-                                state: state,
-                                isSelected: preset.id == selection
-                            )
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Text("Filter:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $ratingFilter) {
+                        Text("All").tag(0)
+                        Text("★★★").tag(3)
+                        Text("★★+").tag(2)
+                        Text("★+").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+                
+                Divider()
+                
+                ScrollView {
+                    let filteredPresets = presets.filter { preset in
+                        let rating = modelRatings[preset.id] ?? 0
+                        switch ratingFilter {
+                        case 3: return rating == 3
+                        case 2: return rating >= 2
+                        case 1: return rating >= 1
+                        default: return true
                         }
-                        .buttonStyle(.plain)
-                        .help(state.helpText)
+                    }
+                    
+                    if filteredPresets.isEmpty {
+                        Text("No models match this filter")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 20)
+                            .padding(.horizontal, 12)
+                    } else {
+                        LazyVStack(spacing: 2) {
+                            ForEach(filteredPresets) { preset in
+                                let state = ModelPresetMenuState(preset: preset, models: models, modelCache: modelCache)
+                                ModelPresetDropdownRow(
+                                    title: preset.title,
+                                    state: state,
+                                    isSelected: selectedIDs.contains(preset.id),
+                                    rating: modelRatings[preset.id] ?? 0,
+                                    onSelectName: {
+                                        selectedIDs = [preset.id]
+                                        selection = preset.id
+                                        isPresented = false
+                                    },
+                                    onToggleCheckbox: {
+                                        if selectedIDs.contains(preset.id) {
+                                            if selectedIDs.count > 1 {
+                                                selectedIDs.remove(preset.id)
+                                                if selection == preset.id {
+                                                    selection = selectedIDs.first ?? ""
+                                                }
+                                            }
+                                        } else {
+                                            selectedIDs.insert(preset.id)
+                                            selection = preset.id
+                                        }
+                                    },
+                                    onRatingChanged: { newRating in
+                                        modelRatings[preset.id] = newRating
+                                        UserDefaults.standard.set(modelRatings, forKey: "KirtanSplitter.modelRatings")
+                                    }
+                                )
+                            }
+                        }
+                        .padding(6)
                     }
                 }
-                .padding(6)
+                .frame(maxHeight: 520)
             }
-            .frame(width: WorkspaceLayoutMetrics.modelPresetMenuPopoverWidth)
-            .frame(maxHeight: 520)
+            .frame(width: 320)
         }
         .accessibilityLabel("Model preset")
     }
@@ -809,18 +970,47 @@ private struct ModelPresetDropdownRow: View {
     let title: String
     let state: ModelPresetMenuState
     let isSelected: Bool
+    let rating: Int
+    let onSelectName: () -> Void
+    let onToggleCheckbox: () -> Void
+    let onRatingChanged: (Int) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "checkmark")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.primary)
-                .opacity(isSelected ? 1 : 0)
-                .frame(width: 14)
-            Text(title)
-                .font(.callout)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onToggleCheckbox) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(isSelected ? Color.orange : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(action: onSelectName) {
+                Text(title)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            HStack(spacing: 2) {
+                ForEach(1...3, id: \.self) { star in
+                    Button {
+                        onRatingChanged(rating == star ? 0 : star)
+                    } label: {
+                        Image(systemName: star <= rating ? "star.fill" : "star")
+                            .foregroundStyle(star <= rating ? .orange : .secondary.opacity(0.4))
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(.trailing, 4)
+
             ModelPresetStatusIndicators(state: state)
         }
         .padding(.horizontal, 8)

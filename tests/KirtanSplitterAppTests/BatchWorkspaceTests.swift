@@ -87,6 +87,20 @@ final class BatchWorkspaceTests: XCTestCase {
         XCTAssertEqual(presetID, "per_file")
     }
 
+    func testStemFileDisplayNameParsingWithModelAndPresetSuffix() throws {
+        let vocalsNoSuffix = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals).wav", sizeBytes: 100)
+        XCTAssertEqual(vocalsNoSuffix.displayName, "Vocals")
+
+        let vocalsWithModel = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals)_Kirtan Pro.wav", sizeBytes: 100)
+        XCTAssertEqual(vocalsWithModel.displayName, "Vocals (Kirtan Pro)")
+
+        let vocalsWithModelAndPreset = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals)_Kirtan Pro_Heavy.wav", sizeBytes: 100)
+        XCTAssertEqual(vocalsWithModelAndPreset.displayName, "Vocals (Kirtan Pro Heavy)")
+
+        let leadVocalsWithSpaces = StemFile(stem: "lead_vocals", path: "/path/to/MySong_(lead vocals)_Kirtan Clean Split_Fast.wav", sizeBytes: 100)
+        XCTAssertEqual(leadVocalsWithSpaces.displayName, "Lead Vocals (Kirtan Clean Split Fast)")
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

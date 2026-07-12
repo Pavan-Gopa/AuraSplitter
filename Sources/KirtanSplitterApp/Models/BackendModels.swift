@@ -36,7 +36,27 @@ struct StemFile: Identifiable, Hashable, Codable {
     let sizeBytes: Int
 
     var displayName: String {
-        stem.replacingOccurrences(of: "_", with: " ").capitalized
+        let baseName = stem.replacingOccurrences(of: "_", with: " ").capitalized
+        let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        
+        let candidates = [
+            "_(" + stem + ")",
+            "_(" + stem.replacingOccurrences(of: "_", with: " ") + ")"
+        ]
+        
+        for candidate in candidates {
+            if let matchRange = fileStem.range(of: candidate) {
+                var modelSuffix = String(fileStem[matchRange.upperBound...])
+                if modelSuffix.hasPrefix("_") {
+                    modelSuffix.removeFirst()
+                }
+                if !modelSuffix.isEmpty {
+                    let cleanedSuffix = modelSuffix.replacingOccurrences(of: "_", with: " ")
+                    return "\(baseName) (\(cleanedSuffix))"
+                }
+            }
+        }
+        return baseName
     }
 
     var fileName: String {
@@ -228,5 +248,21 @@ struct RenderEstimate: Codable, Equatable {
             return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples") - \(baselineGpuCoreCount) -> \(targetGpuCoreCount) GPU cores"
         }
         return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples")"
+    }
+
+    func adding(_ other: RenderEstimate) -> RenderEstimate {
+        let combinedSeconds = (self.estimatedSeconds ?? 0) + (other.estimatedSeconds ?? 0)
+        return RenderEstimate(
+            status: self.isCalibrated && other.isCalibrated ? "calibrated" : "pending",
+            reason: self.reason,
+            modelFilename: self.modelFilename,
+            processPresetID: self.processPresetID,
+            estimatedSeconds: combinedSeconds,
+            audioDurationSeconds: self.audioDurationSeconds,
+            sampleCount: self.sampleCount + other.sampleCount,
+            baselineGpuCoreCount: self.baselineGpuCoreCount,
+            targetGpuCoreCount: self.targetGpuCoreCount,
+            secondsPerAudioSecond: (self.secondsPerAudioSecond ?? 0) + (other.secondsPerAudioSecond ?? 0)
+        )
     }
 }

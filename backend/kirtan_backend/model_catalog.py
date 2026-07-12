@@ -155,27 +155,6 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         config_url=hf_resolve("pcunwa/BS-Roformer-Leap", "Xe/leap_xe_config_inst.yaml"),
     ),
     ModelCatalogEntry(
-        id="polarformer_vocal",
-        title="Kirtan Vocal Max",
-        technical_title="BS PolarFormer 124-band",
-        filename="bs_polarformer_fp16.onnx",
-        config_filename="model_bs_polarformer_float16.yaml",
-        model_type="ONNX/CoreML",
-        architecture="BS-PolarFormer",
-        backend="polarformer_onnx",
-        summary=(
-            "Leaderboard BS PolarFormer vocal / instrumental split. The public ONNX checkpoint currently "
-            "needs a static CoreML/MLX export before it can run as a fast Apple Silicon preset."
-        ),
-        expected_stems=("vocals", "instrumental"),
-        target_stem="vocals",
-        scores={"vocals": 12.0230, "instrumental": 18.3304},
-        license="MIT",
-        source_url="https://huggingface.co/bgkb/bs_polarformer",
-        checkpoint_url=hf_resolve("bgkb/bs_polarformer", "bs_polarformer_fp16.onnx"),
-        config_url=hf_resolve("bgkb/bs_polarformer", "model_bs_polarformer_float16.yaml"),
-    ),
-    ModelCatalogEntry(
         id="becruily_deux",
         title="Kirtan Vocal / Instrumental",
         technical_title="Becruily Deux",
@@ -326,71 +305,9 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         checkpoint_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep.ckpt"),
         config_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep_config.yaml"),
     ),
-    ModelCatalogEntry(
-        id="demucs_onnx_stems",
-        title="Kirtan Stems Pro",
-        technical_title="HT-Demucs FT ONNX",
-        filename="htdemucs_ft.onnx",
-        model_type="ONNX/CoreML",
-        architecture="HT-Demucs",
-        backend="demucs_onnx",
-        runner_model="htdemucs_ft",
-        summary="ONNX/CoreML 4-stem split for vocals, drums, bass, and other instruments.",
-        expected_stems=("vocals", "drums", "bass", "other"),
-        license="MIT",
-        source_url="https://huggingface.co/StemSplitio/htdemucs-ft-onnx",
-    ),
-    ModelCatalogEntry(
-        id="demucs_onnx_six_stems",
-        title="Kirtan Stems Max",
-        technical_title="HT-Demucs 6S ONNX",
-        filename="htdemucs_6s.onnx",
-        model_type="ONNX/CoreML",
-        architecture="HT-Demucs 6-stem",
-        backend="demucs_onnx",
-        runner_model="htdemucs_6s",
-        summary="ONNX/CoreML 6-stem split for vocals, drums, bass, guitar, piano, and other instruments.",
-        expected_stems=("vocals", "drums", "bass", "guitar", "piano", "other"),
-        license="MIT",
-        source_url="https://huggingface.co/StemSplitio/htdemucs-6s-onnx",
-    ),
 )
 
-EXPERIMENTAL_MODEL_CANDIDATES: tuple[ModelCatalogEntry, ...] = (
-    ModelCatalogEntry(
-        id="polarformer_vocal",
-        title="BS PolarFormer 124-band",
-        filename="model_bs_polarformer_float16.ckpt",
-        config_filename="model_bs_polarformer_float16.yaml",
-        model_type="PolarFormer",
-        architecture="BS-PolarFormer",
-        backend="requires_native_polarformer_or_onnx",
-        summary="Leaderboard vocal / instrumental candidate. Needs a PolarFormer/PoPE backend or an ONNX/CoreML runner.",
-        expected_stems=("vocals", "instrumental"),
-        scores={"vocals": 12.0, "instrumental": 18.3},
-        license="MIT",
-        source_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/tag/v1.0.20",
-        checkpoint_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.20/model_bs_polarformer_float16.ckpt",
-        config_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.20/model_bs_polarformer_float16.yaml",
-        enabled=False,
-        status="requires_backend",
-    ),
-    ModelCatalogEntry(
-        id="drumsep_onnx",
-        title="DrumSep ONNX 4-Stem",
-        filename="drumsep.onnx",
-        model_type="ONNX",
-        architecture="DrumSep ONNX",
-        backend="requires_onnxruntime_coreml",
-        summary="Public DrumSep ONNX model for kick, snare, cymbals, and toms. Needs a separate ONNX/CoreML backend.",
-        expected_stems=("kick", "snare", "cymbals", "toms"),
-        license="MIT",
-        source_url="https://huggingface.co/gridshiftstudio/drumsep-onnx",
-        checkpoint_url=hf_resolve("gridshiftstudio/drumsep-onnx", "drumsep.onnx"),
-        enabled=False,
-        status="requires_backend",
-    ),
-)
+EXPERIMENTAL_MODEL_CANDIDATES: tuple[ModelCatalogEntry, ...] = ()
 
 MODEL_PACK_BY_FILENAME = {entry.filename: entry for entry in MODEL_PACK_ENTRIES}
 MODEL_PACK_BY_ID = {entry.id: entry for entry in MODEL_PACK_ENTRIES}
@@ -456,7 +373,13 @@ def get_model_pack_entry(filename: str) -> ModelCatalogEntry | None:
 
 def display_name_for_model(filename: str) -> str | None:
     entry = MODEL_PACK_BY_FILENAME.get(filename) or EXPERIMENTAL_BY_FILENAME.get(filename)
-    return entry.title if entry else None
+    if entry:
+        return entry.title
+    stem = Path(filename).stem
+    builtin = BUILTIN_MODEL_METADATA.get(stem)
+    if builtin:
+        return builtin.get("displayName")
+    return None
 
 
 def metadata_for_model_stem(stem: str) -> dict | None:

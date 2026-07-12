@@ -23,7 +23,7 @@ from .model_catalog import (
     get_model_pack_entry,
     metadata_for_model_stem,
 )
-from .onnx_backend import DemucsOnnxBackend, PolarFormerOnnxBackend, onnx_runtime_status
+from .onnx_backend import onnx_runtime_status
 from .render_estimates import estimate_render_time, record_render_benchmark
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
 from .presets import preset_list
@@ -208,25 +208,6 @@ class MlxSeparatorEngine:
             raise FileNotFoundError(f"Input audio file does not exist: {input_path}")
         output_dir.mkdir(parents=True, exist_ok=True)
         source_format = self._source_audio_format(input_path)
-        catalog_entry = get_model_pack_entry(job.model_filename)
-        if catalog_entry and catalog_entry.backend == "demucs_onnx":
-            return self._separate_with_demucs_onnx(
-                job=job,
-                progress=progress,
-                input_path=input_path,
-                output_dir=output_dir,
-                source_format=source_format,
-                catalog_entry=catalog_entry,
-            )
-        if catalog_entry and catalog_entry.backend == "polarformer_onnx":
-            return self._separate_with_polarformer_onnx(
-                job=job,
-                progress=progress,
-                input_path=input_path,
-                output_dir=output_dir,
-                source_format=source_format,
-                catalog_entry=catalog_entry,
-            )
 
         progress("loading", self._model_load_message(job.model_filename), 0.05, self.runtime_stats())
         started = time.perf_counter()
@@ -462,9 +443,39 @@ class MlxSeparatorEngine:
         return restored
 
     def _finalize_output_files(self, job: SeparationJob, output_files, source_path: Path) -> list[str]:
+        import re
         finalized = []
         for output_file in output_files or []:
             path = self._rename_temporary_stereo_output(Path(output_file), source_path)
+            
+            # Extract display name for the model, or use the stem of job.model_filename
+            model_display = display_name_for_model(job.model_filename)
+            if not model_display:
+                model_display = Path(job.model_filename).stem
+            
+            # Process preset title
+            preset_display = job.process_preset_title or "Default"
+            
+            # Combine them: e.g. "Kirtan Pro_Heavy" or "Kirtan Pro" if no preset/default
+            if preset_display and preset_display.lower() != "default":
+                suffix = f"{model_display}_{preset_display}"
+            else:
+                suffix = model_display
+                
+            # Sanitize suffix (remove illegal filename characters)
+            safe_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix).strip()
+            
+            # Append suffix to output file stem if not already there
+            if safe_suffix and f"_{safe_suffix}" not in path.stem:
+                new_stem = f"{path.stem}_{safe_suffix}"
+                new_path = path.with_name(f"{new_stem}{path.suffix}")
+                try:
+                    new_path.unlink(missing_ok=True)
+                    path.rename(new_path)
+                    path = new_path
+                except Exception as e:
+                    self.logger.warning(f"Failed to rename output file {path} to {new_path}: {e}")
+            
             self._write_output_metadata(path, job)
             finalized.append(str(path))
         return finalized
@@ -747,150 +758,6 @@ class MlxSeparatorEngine:
         attach_model_pack_to_separator(separator)
         ensure_model_pack_assets(filename, self.model_dir, self.logger)
         return separator.load_model(model_filename=filename)
-
-    def _separate_with_demucs_onnx(
-        self,
-        job: SeparationJob,
-        progress: ProgressCallback,
-        input_path: Path,
-        output_dir: Path,
-        source_format: AudioFormatSpec,
-        catalog_entry,
-    ) -> dict:
-        started = time.perf_counter()
-        started_at = time.time()
-        progress(
-            "loading",
-            f"Preparing {catalog_entry.title} ONNX/CoreML backend",
-            0.05,
-            self.runtime_stats(),
-        )
-        backend = DemucsOnnxBackend(self.model_dir, logger=self.logger)
-        self._raise_if_cancelled()
-        output_files = self._with_heartbeat(
-            start=0.08,
-            end=0.92,
-            stage="separating",
-            message=f"Running {catalog_entry.title} ONNX/CoreML separation",
-            progress=progress,
-            work=lambda: backend.separate(
-                input_path=str(input_path),
-                output_dir=str(output_dir),
-                output_format=job.output_format,
-                model=catalog_entry.runner_model or Path(catalog_entry.filename).stem,
-            ),
-        )
-        self._raise_if_cancelled()
-        progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
-        output_files = self._conform_outputs_to_source_format(output_files, source_format)
-        output_files = self._finalize_output_files(job, output_files, input_path)
-        if not output_files:
-            raise RuntimeError("ONNX/CoreML backend completed but did not create any output stems.")
-
-        elapsed = time.perf_counter() - started
-        completed_at = time.time()
-        self._record_render_benchmark(job, input_path, elapsed)
-        files = [self._file_result(path) for path in output_files]
-        missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
-        if missing_files:
-            raise RuntimeError(
-                "ONNX/CoreML backend returned output paths, but no audio data was written: "
-                + ", ".join(missing_files)
-            )
-
-        progress("complete", "Done", 1.0, self.runtime_stats())
-        return {
-            "model": job.model_filename,
-            "preset": job.preset,
-            "startedAt": started_at,
-            "completedAt": completed_at,
-            "elapsedSeconds": round(elapsed, 2),
-            "files": files,
-            "metrics": {"backend": 1.0},
-            "modelCache": self.model_cache(),
-            "settings": {
-                "chunkDuration": job.chunk_duration,
-                "mdxcSegmentSize": job.mdxc_segment_size,
-                "mdxcOverlap": job.mdxc_overlap,
-                "mdxcBatchSize": job.mdxc_batch_size,
-                "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
-                "speedMode": job.speed_mode,
-            },
-        }
-
-    def _separate_with_polarformer_onnx(
-        self,
-        job: SeparationJob,
-        progress: ProgressCallback,
-        input_path: Path,
-        output_dir: Path,
-        source_format: AudioFormatSpec,
-        catalog_entry,
-    ) -> dict:
-        started = time.perf_counter()
-        started_at = time.time()
-        progress(
-            "loading",
-            f"Preparing {catalog_entry.title} ONNX/CoreML backend",
-            0.05,
-            self.runtime_stats(),
-        )
-        ensure_model_pack_assets(job.model_filename, self.model_dir, self.logger)
-        backend = PolarFormerOnnxBackend(self.model_dir, logger=self.logger)
-        self._raise_if_cancelled()
-
-        def polarformer_progress(stage: str, message: str, value: float):
-            self._raise_if_cancelled()
-            progress(stage, message, value, self.runtime_stats())
-
-        output_files = backend.separate(
-            input_path=str(input_path),
-            output_dir=str(output_dir),
-            output_format=job.output_format,
-            model=catalog_entry.runner_model or catalog_entry.filename,
-            config_filename=catalog_entry.config_filename,
-            progress_callback=polarformer_progress,
-            progress_start=0.08,
-            progress_end=0.92,
-            cancel_callback=self._raise_if_cancelled,
-        )
-        self._raise_if_cancelled()
-        progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
-        output_files = self._conform_outputs_to_source_format(output_files, source_format)
-        output_files = self._finalize_output_files(job, output_files, input_path)
-        if not output_files:
-            raise RuntimeError("PolarFormer ONNX/CoreML backend completed but did not create any output stems.")
-
-        elapsed = time.perf_counter() - started
-        completed_at = time.time()
-        self._record_render_benchmark(job, input_path, elapsed)
-        files = [self._file_result(path) for path in output_files]
-        missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
-        if missing_files:
-            raise RuntimeError(
-                "PolarFormer ONNX/CoreML backend returned output paths, but no audio data was written: "
-                + ", ".join(missing_files)
-            )
-
-        progress("complete", "Done", 1.0, self.runtime_stats())
-        return {
-            "model": job.model_filename,
-            "preset": job.preset,
-            "startedAt": started_at,
-            "completedAt": completed_at,
-            "elapsedSeconds": round(elapsed, 2),
-            "files": files,
-            "metrics": getattr(backend, "last_perf_metrics", None) or {"backend": 1.0},
-            "modelCache": self.model_cache(),
-            "settings": {
-                "chunkDuration": job.chunk_duration,
-                "mdxcSegmentSize": job.mdxc_segment_size,
-                "mdxcOverlap": job.mdxc_overlap,
-                "mdxcBatchSize": job.mdxc_batch_size,
-                "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
-                "speedMode": job.speed_mode,
-            },
-        }
 
     def _file_result(self, path_value: str) -> dict:
         path = Path(path_value)

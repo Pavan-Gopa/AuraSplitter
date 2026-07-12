@@ -10,6 +10,8 @@ struct SourceResultOverviewView: View {
     let previewSourceAction: (BatchSourceItem) -> Void
     let previewStemAction: (StemFile) -> Void
     let deleteStemAction: (StemFile) -> Void
+    @Binding var selectedStemPaths: Set<String>
+    let compareAction: () -> Void
 
     var body: some View {
         HStack(spacing: 0) {
@@ -65,7 +67,9 @@ struct SourceResultOverviewView: View {
                                 group: group,
                                 previewSelection: previewSelection,
                                 previewStemAction: previewStemAction,
-                                deleteStemAction: deleteStemAction
+                                deleteStemAction: deleteStemAction,
+                                selectedStemPaths: $selectedStemPaths,
+                                compareAction: compareAction
                             )
                             Divider()
                         }
@@ -221,6 +225,8 @@ private struct ResultGroupView: View {
     let previewSelection: AudioPreviewSelection
     let previewStemAction: (StemFile) -> Void
     let deleteStemAction: (StemFile) -> Void
+    @Binding var selectedStemPaths: Set<String>
+    let compareAction: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -248,6 +254,8 @@ private struct ResultGroupView: View {
                     ResultStemRow(
                         stem: stem,
                         isActive: previewSelection == .result(stem.path),
+                        selectedStemPaths: $selectedStemPaths,
+                        compareAction: compareAction,
                         previewAction: { previewStemAction(stem) },
                         deleteAction: { deleteStemAction(stem) }
                     )
@@ -261,11 +269,17 @@ private struct ResultGroupView: View {
 private struct ResultStemRow: View {
     let stem: StemFile
     let isActive: Bool
+    @Binding var selectedStemPaths: Set<String>
+    let compareAction: () -> Void
     let previewAction: () -> Void
     let deleteAction: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
+            Toggle("", isOn: isSelectedBinding)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
+
             Button(action: previewAction) {
                 HStack(spacing: 10) {
                     Image(systemName: stemIconName)
@@ -308,6 +322,31 @@ private struct ResultStemRow: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+        .contextMenu {
+            if selectedStemPaths.count >= 2 {
+                Button(action: compareAction) {
+                    Label("Compare Selected (\(selectedStemPaths.count))", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                }
+            } else {
+                Button(action: compareAction) {
+                    Label("Compare Selected (Select 2+ stems)", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                }
+                .disabled(true)
+            }
+        }
+    }
+
+    private var isSelectedBinding: Binding<Bool> {
+        Binding(
+            get: { selectedStemPaths.contains(stem.path) },
+            set: { isSelected in
+                if isSelected {
+                    selectedStemPaths.insert(stem.path)
+                } else {
+                    selectedStemPaths.remove(stem.path)
+                }
+            }
+        )
     }
 
     private var stemIconName: String {

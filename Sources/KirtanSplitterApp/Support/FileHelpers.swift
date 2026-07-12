@@ -147,11 +147,11 @@ final class AudioPreviewPlayer: NSObject, ObservableObject {
     }
 
     func seek(path: String, time: Double) {
+        let wasPlaying = isPlaying
         if playingPath != path {
             load(path: path)
         }
         guard audioFile != nil else { return }
-        let wasPlaying = isPlaying
         let clamped = min(max(0, time), duration)
         currentTime = clamped
         playbackStartTime = clamped

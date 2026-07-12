@@ -1,0 +1,43 @@
+# OPT_PERF track — orchestrated by Grok
+# Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
+
+current_step: K0
+step_description: >
+  Establish measurable baseline before optimizations.
+  Create PERF_BASELINE.md with verify commands (pytest, swift build/test,
+  benchmark_models) and a timing table (separate 1st track, separate 2nd same
+  model, analyze_audio) with "до" column as TODO or measured values.
+  No product behavior changes.
+
+target_files:
+  - PERF_BASELINE.md
+  # optional only if tiny help text needed for baseline docs:
+  # - script/benchmark_models.py
+
+completed_steps: []
+
+implementation:
+  status: pending             # pending | in_progress | waiting_review | idle
+  attempts: 0
+
+review:
+  status: pending             # pending | approved | changes_requested
+  last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
+
+next_actor: implementation    # implementation | verification | orchestrator | human
+
+track: OPT_PERF
+
+# Updated by Orchestrator when running ./script/opt_checkpoint.sh
+checkpoint:
+  last_pre_tag: null          # e.g. opt/pre-K0
+  last_post_tag: null         # e.g. opt/K0-done
+  last_commit: null           # short sha after last checkpoint push
+
+plan_files:
+  - OPTIMIZATION_PLAN_GROK.md
+  - OPTIMIZATION_PLAN.md
+  - AI_Workflow_Kit/docs/OPT_STEPS.md
+  - AI_Workflow_Kit/docs/PROJECT_CONTEXT.md
+  - AI_Workflow_Kit/docs/AI/TEAM_CONTRACT.md
+  - AI_Workflow_Kit/docs/AI/GIT_CHECKPOINTS.md

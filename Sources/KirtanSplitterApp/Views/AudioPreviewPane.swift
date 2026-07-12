@@ -9,6 +9,7 @@ struct AudioPreviewPane: View {
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
     @State private var showingLayerSettings = false
+    @State private var previousPath: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,9 +20,28 @@ struct AudioPreviewPane: View {
                 .background(Color(red: 0.015, green: 0.018, blue: 0.026))
         }
         .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
-        .onChange(of: analysis?.path) { _ in
-            viewport.reset()
+        .onChange(of: analysis?.path) { newPath in
+            if let newPath {
+                if let oldPath = previousPath, baseSongName(from: oldPath) == baseSongName(from: newPath) {
+                    // Same song (or its stems) - preserve zoom!
+                } else {
+                    viewport.reset()
+                }
+                previousPath = newPath
+            } else {
+                viewport.reset()
+                previousPath = nil
+            }
         }
+    }
+
+    private func baseSongName(from path: String) -> String {
+        let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let parts = fileStem.components(separatedBy: "_(")
+        if let first = parts.first, !first.isEmpty {
+            return first
+        }
+        return fileStem
     }
 
     private var header: some View {
@@ -507,7 +527,7 @@ struct AudioPreviewPane: View {
     }
 }
 
-private struct AudioPreviewInteractionView: NSViewRepresentable {
+struct AudioPreviewInteractionView: NSViewRepresentable {
     let onSeek: (CGPoint, CGSize) -> Void
     let onScroll: (CGFloat, CGPoint, CGSize) -> Void
     let onMiddleDrag: (CGFloat, CGSize) -> Void
@@ -530,7 +550,7 @@ private struct AudioPreviewInteractionView: NSViewRepresentable {
     }
 }
 
-private final class AudioPreviewInteractionNSView: NSView {
+final class AudioPreviewInteractionNSView: NSView {
     var onSeek: ((CGPoint, CGSize) -> Void)?
     var onScroll: ((CGFloat, CGPoint, CGSize) -> Void)?
     var onMiddleDrag: ((CGFloat, CGSize) -> Void)?
