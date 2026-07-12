@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import re
 import subprocess
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from .model_catalog import metadata_for_model_stem, model_library_metadata_entries
 from .onnx_backend import onnx_runtime_status
@@ -538,3 +541,92 @@ def _is_source_placeholder(path: Path) -> bool:
         return path.read_text(encoding="utf-8", errors="ignore").startswith(SOURCE_PLACEHOLDER_PREFIX)
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# K8 — Metal allocator + static batch heuristic
+# ---------------------------------------------------------------------------
+
+
+def total_physical_memory_bytes() -> int:
+    """Total physical RAM in bytes, or 0 if it cannot be determined."""
+    if hasattr(os, "sysconf"):
+        try:
+            page = os.sysconf("SC_PAGE_SIZE")
+            pages = os.sysconf("SC_PHYS_PAGES")
+            if page and pages:
+                return int(page * pages)
+        except Exception:
+            pass
+    return 0
+
+
+def configure_mlx_memory() -> dict:
+    """Best-effort MLX/Metal memory + cache limits.
+
+    Honors env overrides ``KIRTAN_MLX_MEMORY_LIMIT_BYTES`` and
+    ``KIRTAN_MLX_CACHE_LIMIT_BYTES``. Returns a summary of what was applied
+    (or the reason it was skipped). Never raises — this is an optimization,
+    not a correctness requirement.
+    """
+    result: dict = {"applied": False, "reason": None}
+    try:
+        import mlx.core as mx
+    except Exception as exc:
+        result["reason"] = f"mlx unavailable: {type(exc).__name__}"
+        return result
+
+    if not hasattr(mx, "metal"):
+        result["reason"] = "mlx.metal unavailable"
+        return result
+
+    total = total_physical_memory_bytes()
+    mem_limit = int(os.environ.get("KIRTAN_MLX_MEMORY_LIMIT_BYTES", int(total * 0.8) if total else 0))
+    cache_limit = int(os.environ.get("KIRTAN_MLX_CACHE_LIMIT_BYTES", int(1.5 * 1024 ** 3)))
+    if mem_limit <= 0:
+        result["reason"] = "no memory limit resolvable"
+        return result
+
+    try:
+        mx.metal.set_memory_limit(mem_limit)
+        mx.metal.set_cache_limit(cache_limit)
+        result["applied"] = True
+        result["memoryLimitBytes"] = mem_limit
+        result["cacheLimitBytes"] = cache_limit
+    except Exception as exc:
+        result["reason"] = f"set failed: {type(exc).__name__}: {exc}"
+    return result
+
+
+def resolve_batch_size(
+    total_ram_bytes: int,
+    explicit: int | None = None,
+    tuning_cache_hit: int | None = None,
+) -> int:
+    """Static batch-size heuristic — never runs a cold auto_tune probe.
+
+    Precedence:
+    1. ``KIRTAN_MLX_BATCH_SIZE`` env override (operator force).
+    2. ``explicit`` batch from the job (user / preset intent).
+    3. ``tuning_cache_hit`` (only when an existing lib tuning cache already
+       has a value — never triggers a cold probe).
+    4. RAM tiers: < 16 GB → 1, 16–47 GB → 2, ≥ 48 GB → 4.
+    """
+    env_batch = os.environ.get("KIRTAN_MLX_BATCH_SIZE")
+    if env_batch:
+        try:
+            return max(1, int(env_batch))
+        except (TypeError, ValueError):
+            pass
+
+    if explicit is not None:
+        return max(1, int(explicit))
+    if tuning_cache_hit is not None:
+        return max(1, int(tuning_cache_hit))
+
+    gb = (total_ram_bytes or 0) / (1024 ** 3)
+    if gb >= 48:
+        return 4
+    if gb >= 16:
+        return 2
+    return 1

@@ -118,6 +118,32 @@ Expected effect: preview `analyze_audio` latency for typical tracks drops to
 ~0 (local), leaving only the huge-file backend path in the `TODO` Separate
 rows above unchanged.
 
+### K8 — memory limits + static batch + LRU disk cache
+
+- **Metal allocator:** `runtime.configure_mlx_memory()` runs at engine startup
+  (`MlxSeparatorEngine.__init__`). Applies `mx.metal.set_memory_limit`
+  (default 80% of physical RAM) and `set_cache_limit` (default 1.5 GiB), with
+  env overrides `KIRTAN_MLX_MEMORY_LIMIT_BYTES` / `KIRTAN_MLX_CACHE_LIMIT_BYTES`.
+  Best-effort: never raises if `mlx` is unavailable.
+- **Static batch heuristic:** `runtime.resolve_batch_size(total_ram_bytes,
+  explicit=…)` picks batch by RAM — `<16 GB → 1`, `16–47 GB → 2`, `≥48 GB → 4`
+  — with precedence: `KIRTAN_MLX_BATCH_SIZE` env > explicit job batch
+  (`mdxc_batch_size_explicit`) > lib tuning-cache hit > RAM tier. **No cold
+  `auto_tune_batch` probe** on the hot Separate path (auto_tune stays off;
+  see K1/K4 rules). `SeparationJob.mdxc_batch_size_explicit` records whether
+  the caller requested a batch.
+- **Preview disk cache:** `AudioPreviewAnalysisCache` now reads through / writes
+  through `PreviewAnalysisDiskCache` (NEW), an LRU + disk store under
+  `~/Library/Caches/KirtanSplitter/previews/`, keyed by
+  `SHA256(path|size|mtime|algo|resolution)`, bounded to 20 entries / 256 MB.
+  `ContentView.analyzeSource` also serves a disk-cached preview as a fast path
+  (skips the backend round-trip when the source is unchanged).
+
+Expected effect: lower Metal OOM pressure + faster warm re-preview across
+launches; Separate default batch no longer pinned to 1 on large-RAM machines.
+The `TODO` Separate rows above are unaffected by the disk cache (separate is
+not cached), only by the batch heuristic (faster, not measured here).
+
 ### How to fill the `TODO` Separate rows
 
 Run scenario 1 once (downloads the model on first use, then separates). Copy

@@ -1,5 +1,8 @@
 from kirtan_backend import runtime
 
+import sys
+from types import SimpleNamespace
+
 
 IOREG_GPU_SAMPLE = """
 +-o AGXAcceleratorG16G  <class AGXAcceleratorG16G, id 0x100000453, registered, matched, active, busy 0 (684 ms), retain 96>
@@ -254,3 +257,73 @@ def test_delete_model_cache_item_rejects_paths_outside_model_dir(tmp_path):
         raise AssertionError("Expected ValueError")
 
     assert outside.exists()
+
+
+# ---------------------------------------------------------------------------
+# K8 — Metal allocator + static batch heuristic
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_batch_size_uses_ram_tiers(monkeypatch):
+    monkeypatch.delenv("KIRTAN_MLX_BATCH_SIZE", raising=False)
+    assert runtime.resolve_batch_size(int(8 * 1024 ** 3)) == 1
+    assert runtime.resolve_batch_size(int(24 * 1024 ** 3)) == 2
+    assert runtime.resolve_batch_size(int(64 * 1024 ** 3)) == 4
+
+
+def test_resolve_batch_size_respects_precedence(monkeypatch):
+    monkeypatch.delenv("KIRTAN_MLX_BATCH_SIZE", raising=False)
+    # explicit beats RAM tier
+    assert runtime.resolve_batch_size(int(64 * 1024 ** 3), explicit=1) == 1
+    # tuning cache hit used only when no explicit
+    assert runtime.resolve_batch_size(int(4 * 1024 ** 3), tuning_cache_hit=2) == 2
+    # env override wins over everything
+    monkeypatch.setenv("KIRTAN_MLX_BATCH_SIZE", "4")
+    assert runtime.resolve_batch_size(int(4 * 1024 ** 3), explicit=1, tuning_cache_hit=2) == 4
+    monkeypatch.delenv("KIRTAN_MLX_BATCH_SIZE", raising=False)
+
+
+def test_resolve_batch_size_clamps_to_minimum_one(monkeypatch):
+    monkeypatch.delenv("KIRTAN_MLX_BATCH_SIZE", raising=False)
+    assert runtime.resolve_batch_size(0, explicit=0) == 1
+    assert runtime.resolve_batch_size(0, explicit=-5) == 1
+
+
+def test_configure_mlx_memory_applies_limits_with_env(monkeypatch):
+    import mlx.core as mx
+
+    calls = {}
+
+    def set_memory_limit(value):
+        calls["mem"] = value
+
+    def set_cache_limit(value):
+        calls["cache"] = value
+
+    monkeypatch.setattr(mx.metal, "set_memory_limit", set_memory_limit)
+    monkeypatch.setattr(mx.metal, "set_cache_limit", set_cache_limit)
+    monkeypatch.setenv("KIRTAN_MLX_MEMORY_LIMIT_BYTES", "123456")
+    monkeypatch.setenv("KIRTAN_MLX_CACHE_LIMIT_BYTES", "654321")
+
+    result = runtime.configure_mlx_memory()
+
+    assert result["applied"] is True
+    assert calls["mem"] == 123456
+    assert calls["cache"] == 654321
+    monkeypatch.delenv("KIRTAN_MLX_MEMORY_LIMIT_BYTES", raising=False)
+    monkeypatch.delenv("KIRTAN_MLX_CACHE_LIMIT_BYTES", raising=False)
+
+
+def test_configure_mlx_memory_skips_when_mlx_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "mlx.core", None)
+
+    result = runtime.configure_mlx_memory()
+
+    assert result["applied"] is False
+    assert "mlx" in (result.get("reason") or "").lower()
+
+
+def test_total_physical_memory_bytes_returns_nonnegative_int():
+    value = runtime.total_physical_memory_bytes()
+    assert isinstance(value, int)
+    assert value >= 0

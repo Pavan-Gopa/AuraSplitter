@@ -655,6 +655,50 @@ def test_separate_rejects_missing_input_path(tmp_path):
     assert "inputPath" in response["error"]
 
 
+def test_separation_job_records_explicit_batch_size():
+    explicit = SeparationJob.from_params(
+        {"inputPath": "i", "outputDir": "o", "mdxcBatchSize": 2}, "m.ckpt"
+    )
+    assert explicit.mdxc_batch_size == 2
+    assert explicit.mdxc_batch_size_explicit is True
+
+    default = SeparationJob.from_params({"inputPath": "i", "outputDir": "o"}, "m.ckpt")
+    assert default.mdxc_batch_size == 1
+    assert default.mdxc_batch_size_explicit is False
+
+
+def test_engine_resolves_batch_size_by_ram_and_respects_explicit(monkeypatch, tmp_path):
+    import kirtan_backend.runtime as runtime
+
+    monkeypatch.setattr(runtime, "total_physical_memory_bytes", lambda: int(64 * 1024 ** 3))
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path))
+
+    auto_job = SeparationJob(
+        input_path="x",
+        output_dir="y",
+        model_filename="m.ckpt",
+        preset="kirtan_pro",
+        mdxc_batch_size=1,
+        mdxc_batch_size_explicit=False,
+    )
+    assert engine._resolve_mdxc_batch_size(auto_job) == 4
+
+    explicit_job = SeparationJob(
+        input_path="x",
+        output_dir="y",
+        model_filename="m.ckpt",
+        preset="kirtan_pro",
+        mdxc_batch_size=1,
+        mdxc_batch_size_explicit=True,
+    )
+    assert engine._resolve_mdxc_batch_size(explicit_job) == 1
+
+
+def test_engine_configure_mlx_memory_runs_without_raising(tmp_path):
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path))
+    assert "applied" in engine._mlx_memory_config
+
+
 def test_backend_request_round_trips_json():
     raw = '{"id":"abc","method":"ping","params":{}}'
     request = BackendRequest.from_json(raw)

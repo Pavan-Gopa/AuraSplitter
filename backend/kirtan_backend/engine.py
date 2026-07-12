@@ -124,6 +124,14 @@ class MlxSeparatorEngine:
         self._cached_model_filename = None
         self._cached_fingerprint = None
 
+        # K8: best-effort Metal memory / cache limits at engine startup.
+        try:
+            from . import runtime
+
+            self._mlx_memory_config = runtime.configure_mlx_memory()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._mlx_memory_config = {"applied": False, "reason": f"{type(exc).__name__}: {exc}"}
+
     def health(self) -> dict:
         import mlx.core as mx
         import mlx_audio_separator
@@ -330,15 +338,16 @@ class MlxSeparatorEngine:
             **base,
         }
 
-    def _separator_fingerprint(self, job: SeparationJob) -> str:
+    def _separator_fingerprint(self, job: SeparationJob, batch_size: int | None = None) -> str:
         perf = job.performance_flags or {}
         perf_key = "|".join(f"{key}={perf.get(key)}" for key in sorted(perf.keys()))
+        resolved_batch = job.mdxc_batch_size if batch_size is None else batch_size
         return "|".join(
             [
                 job.model_filename or "",
                 str(job.mdxc_segment_size),
                 str(job.mdxc_override_model_segment_size),
-                str(job.mdxc_batch_size),
+                str(resolved_batch),
                 str(job.mdxc_overlap),
                 str(job.speed_mode or ""),
                 str(job.cache_clear_policy or ""),
@@ -348,6 +357,19 @@ class MlxSeparatorEngine:
                 perf_key,
             ]
         )
+
+    def _total_ram_bytes(self) -> int:
+        from . import runtime
+
+        return runtime.total_physical_memory_bytes()
+
+    def _resolve_mdxc_batch_size(self, job: SeparationJob) -> int:
+        # K8: static RAM heuristic. Never runs a cold auto_tune probe on the
+        # hot Separate path — explicit job intent is always respected.
+        from . import runtime
+
+        explicit = job.mdxc_batch_size if job.mdxc_batch_size_explicit else None
+        return runtime.resolve_batch_size(self._total_ram_bytes(), explicit=explicit)
 
     def invalidate_model_cache(self, reason: str = "") -> None:
         if self._cached_separator is not None:
@@ -361,7 +383,7 @@ class MlxSeparatorEngine:
     ) -> tuple[object, bool]:
         from mlx_audio_separator import Separator
 
-        fingerprint = self._separator_fingerprint(job)
+        fingerprint = self._separator_fingerprint(job, batch_size=self._resolve_mdxc_batch_size(job))
         if (
             self._cached_separator is not None
             and self._cached_model_filename == job.model_filename
@@ -379,10 +401,11 @@ class MlxSeparatorEngine:
             )
 
         performance_params = self._build_performance_params(job)
+        resolved_batch_size = self._resolve_mdxc_batch_size(job)
         mdxc_params = {
             "segment_size": job.mdxc_segment_size,
             "override_model_segment_size": job.mdxc_override_model_segment_size,
-            "batch_size": job.mdxc_batch_size,
+            "batch_size": resolved_batch_size,
             "overlap": job.mdxc_overlap,
             "pitch_shift": 0,
         }

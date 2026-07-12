@@ -24,6 +24,7 @@ class SeparationJob:
     mdxc_segment_size: int = 256
     mdxc_overlap: int = 8
     mdxc_batch_size: int = 1
+    mdxc_batch_size_explicit: bool = False
     mdxc_override_model_segment_size: bool = False
     speed_mode: str = "latency_safe_v3"
     cache_clear_policy: str = "deferred"
@@ -52,7 +53,9 @@ class SeparationJob:
 
         mdxc_segment_size = int(params.get("mdxcSegmentSize", params.get("mdxc_segment_size", 256)))
         mdxc_overlap = int(params.get("mdxcOverlap", params.get("mdxc_overlap", 8)))
-        mdxc_batch_size = int(params.get("mdxcBatchSize", params.get("mdxc_batch_size", 1)))
+        raw_batch = params.get("mdxcBatchSize", params.get("mdxc_batch_size"))
+        mdxc_batch_size = int(raw_batch if raw_batch is not None else 1)
+        mdxc_batch_size_explicit = raw_batch is not None
         mdxc_override = _bool_param(
             params.get(
                 "mdxcOverrideModelSegmentSize",
@@ -70,6 +73,7 @@ class SeparationJob:
             mdxc_segment_size=mdxc_segment_size,
             mdxc_overlap=mdxc_overlap,
             mdxc_batch_size=mdxc_batch_size,
+            mdxc_batch_size_explicit=mdxc_batch_size_explicit,
             mdxc_override_model_segment_size=mdxc_override,
             speed_mode=str(params.get("speedMode", "latency_safe_v3")),
             cache_clear_policy=str(params.get("cacheClearPolicy", "deferred")),

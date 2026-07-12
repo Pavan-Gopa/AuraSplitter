@@ -79,4 +79,44 @@ final class AudioPreviewAnalysisCacheTests: XCTestCase {
         XCTAssertEqual(progress.partialSpectrogram?.values, [0.1, 0.2])
         XCTAssertFalse(progress.isSpectrogramLoading)
     }
+
+    func testDiskCacheRestoresAnalysisAfterMemoryCacheMiss() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("disk-\(UUID().uuidString).wav")
+        FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 0, count: 1024))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let analysis = makeAnalysis(path: url.path)
+
+        var memory = AudioPreviewAnalysisCache()
+        memory.store(analysis, for: analysis.path)
+
+        // A fresh in-memory cache (no entry) should still recover from disk LRU.
+        var fresh = AudioPreviewAnalysisCache()
+        let restored = fresh.analysis(for: analysis.path)
+
+        XCTAssertEqual(restored?.path, analysis.path)
+        XCTAssertEqual(restored?.waveformPeaks, analysis.waveformPeaks)
+    }
+
+    func testDiskCacheEvictsLeastRecentlyUsed() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lru-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let disk = PreviewAnalysisDiskCache(directory: dir)
+
+        let firstURL = dir.appendingPathComponent("s0.wav")
+        FileManager.default.createFile(atPath: firstURL.path, contents: Data(repeating: 0, count: 1024))
+        let lastURL = dir.appendingPathComponent("s21.wav")
+        FileManager.default.createFile(atPath: lastURL.path, contents: Data(repeating: 0, count: 1024))
+
+        // Store 22 analyses; the LRU cap (20) should evict the earliest.
+        for i in 0..<22 {
+            let url = dir.appendingPathComponent("s\(i).wav")
+            FileManager.default.createFile(atPath: url.path, contents: Data(repeating: UInt8(i), count: 1024))
+            disk.store(makeAnalysis(path: url.path))
+        }
+
+        XCTAssertNil(disk.load(path: firstURL.path))
+        XCTAssertNotNil(disk.load(path: lastURL.path))
+    }
 }

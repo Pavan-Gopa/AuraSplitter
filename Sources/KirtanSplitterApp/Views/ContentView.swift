@@ -388,6 +388,21 @@ struct ContentView: View {
     private func analyzeSource(id: String) async {
         guard let index = sources.firstIndex(where: { $0.id == id }) else { return }
         let url = sources[index].url
+
+        // K8: disk-cached preview fast path (skips the backend round-trip
+        // when the source file is unchanged since last analysis).
+        if let cached = PreviewAnalysisDiskCache.shared.load(path: url.path) {
+            sources[index].analysis = cached
+            sources[index].analysisError = nil
+            sources[index].isAnalyzing = false
+            if previewSelection == .source(id) {
+                previewAnalysis = cached
+                previewAnalysisError = nil
+                isAnalyzingPreview = false
+            }
+            return
+        }
+
         sources[index].isAnalyzing = true
         sources[index].analysisError = nil
         if previewSelection == .source(id) {
@@ -401,6 +416,7 @@ struct ContentView: View {
             sources[currentIndex].analysis = analysis
             sources[currentIndex].analysisError = nil
             sources[currentIndex].isAnalyzing = false
+            PreviewAnalysisDiskCache.shared.store(analysis)
             if previewSelection == .source(id) {
                 previewAnalysis = analysis
                 previewAnalysisError = nil
