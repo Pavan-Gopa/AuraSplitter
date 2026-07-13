@@ -2,18 +2,20 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D2
+current_step: D3
 step_description: >
-  Results chrome: stem context menu = Compare only. Row icons order:
-  Info (sheet) → Folder (Reveal) → Trash (Delete). Do not implement D3–D6.
+  Settings Process tab: order Model → Process Settings → Settings Presets.
+  Remove Model Override block; put Speed / Override segment / Keep converted
+  under Advanced disclosure. Do not implement D4–D6.
 
 target_files:
-  - Sources/KirtanSplitterApp/Views/SourceResultOverviewView.swift
-  - Sources/KirtanSplitterApp/Views/ResultsPaneView.swift
+  - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
+  - Sources/KirtanSplitterApp/Views/ContentView.swift
 
 completed_steps:
   - D0
   - D1
+  - D2
 
 implementation:
   status: pending
@@ -36,13 +38,13 @@ prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D2
-  last_post_tag: design/D1-done
-  last_commit: 5ab020d
+  last_post_tag: design/D2-done
+  last_commit: null
 
 git:
-  pre_tag: design/pre-D2
-  post_tag: design/D1-done
-  last_push: "origin design/D1-done + design/pre-D2 + branch"
+  pre_tag: design/pre-D3
+  post_tag: design/D2-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md

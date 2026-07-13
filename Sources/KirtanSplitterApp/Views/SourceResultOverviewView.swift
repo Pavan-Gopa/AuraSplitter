@@ -324,6 +324,14 @@ private struct ResultStemRow: View {
             .buttonStyle(.plain)
 
             Button {
+                openInfo()
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Stem info")
+
+            Button {
                 FileHelpers.reveal(path: stem.path)
             } label: {
                 Image(systemName: "folder")
@@ -342,33 +350,15 @@ private struct ResultStemRow: View {
         .padding(.vertical, 8)
         .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
         .contextMenu {
-            Button {
-                openInfo()
-            } label: {
-                Label("Info…", systemImage: "info.circle")
-            }
-
             if selectedStemPaths.count >= 2 {
                 Button(action: compareAction) {
                     Label("Compare Selected (\(selectedStemPaths.count))", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                 }
             } else {
                 Button(action: compareAction) {
-                    Label("Compare Selected (Select 2+ stems)", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                    Label("Compare (Select 2+ stems)", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
                 }
                 .disabled(true)
-            }
-
-            Button {
-                FileHelpers.reveal(path: stem.path)
-            } label: {
-                Label("Reveal in Finder", systemImage: "folder")
-            }
-
-            Divider()
-
-            Button(role: .destructive, action: deleteAction) {
-                Label("Delete Stem", systemImage: "trash")
             }
         }
         .sheet(isPresented: $showingInfo) {
