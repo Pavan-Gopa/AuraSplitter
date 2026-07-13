@@ -744,7 +744,7 @@ private struct AppHeaderView: View {
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("KirtanSplitter")
+                Text("AuraSplitter")
                     .font(.headline.weight(.semibold))
                     .lineLimit(1)
                 Text(statusText)

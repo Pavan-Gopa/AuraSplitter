@@ -84,7 +84,7 @@ def hf_resolve(repo: str, path: str) -> str:
 MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ModelCatalogEntry(
         id="hyperace_v2_vocal",
-        title="Kirtan Vocal Pro",
+        title="Aura Vocal Pro",
         technical_title="HyperACE v2 Vocal",
         filename="bs_roformer_voc_hyperacev2.ckpt",
         config_filename="bs_roformer_voc_hyperacev2.yaml",
@@ -102,7 +102,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="hyperace_v2_instrumental",
-        title="Kirtan Instrument Pro",
+        title="Aura Instrument Pro",
         technical_title="HyperACE v2 Instrumental",
         filename="bs_roformer_inst_hyperacev2.ckpt",
         config_filename="bs_roformer_inst_hyperacev2.yaml",
@@ -120,7 +120,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="leap_xe_vocal",
-        title="Kirtan Vocal Elite",
+        title="Aura Vocal Elite",
         technical_title="Leap Xe Vocal",
         filename="bs_leap_xe_voc.ckpt",
         config_filename="bs_roformer_leap_xe_voc.yaml",
@@ -138,7 +138,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="leap_xe_instrumental",
-        title="Kirtan Instrument Elite",
+        title="Aura Instrument Elite",
         technical_title="Leap Xe Instrumental",
         filename="bs_leap_xe_inst.ckpt",
         config_filename="bs_roformer_leap_xe_inst.yaml",
@@ -156,7 +156,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="becruily_deux",
-        title="Kirtan Vocal / Instrumental",
+        title="Aura Vocal / Instrumental",
         technical_title="Becruily Deux",
         filename="becruily_deux.ckpt",
         config_filename="mel_band_roformer_becruily_deux.yaml",
@@ -172,7 +172,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="lead_back_bve_gonza",
-        title="Kirtan Lead / Back",
+        title="Aura Lead / Back",
         technical_title="Lead / Back BVE Gonza",
         filename="mel_band_roformer_bve_gonza.ckpt",
         config_filename="mel_band_roformer_bve_gonza.yaml",
@@ -189,7 +189,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="lead_back_karaoke_anvuew",
-        title="Kirtan Lead / Back 2",
+        title="Aura Lead / Back 2",
         technical_title="Lead / Back Karaoke Anvuew",
         filename="karaoke_bs_roformer_anvuew.ckpt",
         config_filename="karaoke_bs_roformer_anvuew.yaml",
@@ -206,7 +206,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="drumsep_mdx23c_5stem",
-        title="Kirtan Drum Split",
+        title="Aura Drum Split",
         technical_title="DrumSep MDX23C 5-Stem",
         filename="drumsep_5stems_mdx23c_jarredou.ckpt",
         config_filename="config_mdx23c_drumsep2025.yaml",
@@ -222,7 +222,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_lead_vocal",
-        title="Kirtan Lead Vocal",
+        title="Aura Lead Vocal",
         technical_title="Mega 53 Lead Vocal",
         filename="bs_mega_53stem_lead-vocal_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_lead-vocal_mvsep.yaml",
@@ -239,7 +239,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_back_vocal",
-        title="Kirtan Back Vocal",
+        title="Aura Back Vocal",
         technical_title="Mega 53 Back Vocal",
         filename="bs_mega_53stem_back-vocal_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_back-vocal_mvsep.yaml",
@@ -256,7 +256,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_drums",
-        title="Kirtan Drum Focus",
+        title="Aura Drum Focus",
         technical_title="Mega 53 Drums",
         filename="bs_mega_53stem_drums_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_drums_mvsep.yaml",
@@ -273,7 +273,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_sitar",
-        title="Kirtan Sitar Focus",
+        title="Aura Sitar Focus",
         technical_title="Mega 53 Sitar",
         filename="bs_mega_53stem_sitar_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_sitar_mvsep.yaml",
@@ -290,7 +290,7 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
     ),
     ModelCatalogEntry(
         id="mega_piano",
-        title="Kirtan Piano Focus",
+        title="Aura Piano Focus",
         technical_title="Mega 53 Piano",
         filename="bs_mega_53stem_piano_mvsep.ckpt",
         config_filename="bs_roformer_mega_53stem_piano_mvsep.yaml",
@@ -323,42 +323,42 @@ MODEL_PACK_BY_STEM.update(
 
 BUILTIN_MODEL_METADATA = {
     "BS-Roformer-SW": {
-        "displayName": "Kirtan Pro",
+        "displayName": "Aura Pro",
         "technicalName": "BS-Roformer-SW",
         "architecture": "BS-RoFormer",
         "backend": "MLX",
         "summary": "6-stem split for vocals, drums, bass, guitar, piano, and other instruments.",
     },
     "model_bs_roformer_ep_368_sdr_12.9628": {
-        "displayName": "Kirtan Vocal Classic",
+        "displayName": "Aura Vocal Classic",
         "technicalName": "BS-Roformer-Viperx-1296",
         "architecture": "BS-RoFormer",
         "backend": "MLX",
         "summary": "Vocal / instrumental split from the classic ViperX 1296 checkpoint.",
     },
     "model_bs_roformer_ep_317_sdr_12.9755": {
-        "displayName": "Kirtan Clean Split",
+        "displayName": "Aura Clean Split",
         "technicalName": "BS-Roformer-Viperx-1297",
         "architecture": "BS-RoFormer",
         "backend": "MLX",
         "summary": "Vocal / instrumental split from the ViperX 1297 checkpoint.",
     },
     "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956": {
-        "displayName": "Kirtan Karaoke Classic",
+        "displayName": "Aura Karaoke Classic",
         "technicalName": "MB-Ro-Kara-AuFR33-Viperx",
         "architecture": "MelBand RoFormer",
         "backend": "MLX",
         "summary": "Karaoke-style split for lead vocal and backing bed cleanup.",
     },
     "mel_band_roformer_instrumental_instv7n_gabox": {
-        "displayName": "Kirtan Instrument Clean",
+        "displayName": "Aura Instrument Clean",
         "technicalName": "Gabox Instrumental InstV7N",
         "architecture": "MelBand RoFormer",
         "backend": "MLX",
         "summary": "Instrumental-focused model useful when vocal bleed remains in the backing track.",
     },
     "kuielab_a_drums": {
-        "displayName": "Kirtan Drum Classic",
+        "displayName": "Aura Drum Classic",
         "technicalName": "kuielab_a_drums.onnx",
         "architecture": "MDX ONNX",
         "backend": "MLX",

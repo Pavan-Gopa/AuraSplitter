@@ -117,8 +117,8 @@ def test_model_cache_groups_attach_catalog_metadata_for_sidebar_details(tmp_path
 
     result = runtime.model_cache(str(model_dir))
 
-    group = {item["displayName"]: item for item in result["groups"]}["Kirtan Vocal Pro"]
-    assert group["displayName"] == "Kirtan Vocal Pro"
+    group = {item["displayName"]: item for item in result["groups"]}["Aura Vocal Pro"]
+    assert group["displayName"] == "Aura Vocal Pro"
     assert group["technicalName"] == "HyperACE v2 Vocal"
     assert group["architecture"] == "BS-RoFormer"
     assert group["backend"] == "MLX"
@@ -135,11 +135,11 @@ def test_model_cache_groups_include_available_models_that_are_not_downloaded(tmp
     result = runtime.model_cache(str(model_dir))
     groups = {group["displayName"]: group for group in result["groups"]}
 
-    assert groups["Kirtan Vocal Elite"]["technicalName"] == "Leap Xe Vocal"
-    assert groups["Kirtan Vocal Elite"]["converted"] is False
-    assert groups["Kirtan Vocal Elite"]["hasSource"] is False
-    assert groups["Kirtan Vocal Elite"]["localState"] == "not_downloaded"
-    assert groups["Kirtan Vocal Elite"]["totalBytes"] == 0
+    assert groups["Aura Vocal Elite"]["technicalName"] == "Leap Xe Vocal"
+    assert groups["Aura Vocal Elite"]["converted"] is False
+    assert groups["Aura Vocal Elite"]["hasSource"] is False
+    assert groups["Aura Vocal Elite"]["localState"] == "not_downloaded"
+    assert groups["Aura Vocal Elite"]["totalBytes"] == 0
 
 
 def test_model_cache_groups_include_every_header_preset_name(tmp_path):
@@ -152,9 +152,9 @@ def test_model_cache_groups_include_every_header_preset_name(tmp_path):
     sidebar_titles = {group["displayName"] for group in result["groups"]}
     header_titles = {preset.title for preset in PRESETS.values()}
 
-    assert "Kirtan Clean Split" in sidebar_titles
+    assert "Aura Clean Split" in sidebar_titles
     assert header_titles.issubset(sidebar_titles)
-    assert {group["displayName"]: group for group in result["groups"]}["Kirtan Clean Split"]["technicalName"] == "BS-Roformer-Viperx-1297"
+    assert {group["displayName"]: group for group in result["groups"]}["Aura Clean Split"]["technicalName"] == "BS-Roformer-Viperx-1297"
 
 
 def test_model_cache_groups_include_usage_count_from_render_history(tmp_path):
@@ -184,7 +184,7 @@ def test_model_cache_groups_include_usage_count_from_render_history(tmp_path):
     )
 
     result = runtime.model_cache(str(model_dir))
-    group = {item["displayName"]: item for item in result["groups"]}["Kirtan Pro"]
+    group = {item["displayName"]: item for item in result["groups"]}["Aura Pro"]
 
     assert group["usageCount"] == 2
 

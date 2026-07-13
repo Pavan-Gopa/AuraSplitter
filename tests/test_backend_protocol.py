@@ -251,11 +251,11 @@ def test_model_pack_presets_use_user_friendly_kirtan_titles():
         "PolarFormer",
     }
 
-    assert PRESETS["hyperace_v2_vocal"].title == "Kirtan Vocal Pro"
-    assert PRESETS["hyperace_v2_instrumental"].title == "Kirtan Instrument Pro"
-    assert PRESETS["lead_back_bve_gonza"].title == "Kirtan Lead / Back"
-    assert PRESETS["drumsep_mdx23c_5stem"].title == "Kirtan Drum Split"
-    assert PRESETS["mega_back_vocal"].title == "Kirtan Back Vocal"
+    assert PRESETS["hyperace_v2_vocal"].title == "Aura Vocal Pro"
+    assert PRESETS["hyperace_v2_instrumental"].title == "Aura Instrument Pro"
+    assert PRESETS["lead_back_bve_gonza"].title == "Aura Lead / Back"
+    assert PRESETS["drumsep_mdx23c_5stem"].title == "Aura Drum Split"
+    assert PRESETS["mega_back_vocal"].title == "Aura Back Vocal"
 
     for preset in PRESETS.values():
         for token in technical_tokens:
@@ -863,7 +863,7 @@ def test_engine_does_not_leak_temporary_stereo_marker_into_mono_output_names(tmp
     )
 
     output_path = Path(result["files"][0]["path"])
-    assert output_path.name == "01MAIN_V_(Vocals)_Kirtan Pro.wav"
+    assert output_path.name == "01MAIN_V_(Vocals)_Aura Pro.wav"
     assert "stereo" not in output_path.name.lower()
     assert _audio_channels(output_path) == 1
 
@@ -907,7 +907,7 @@ def test_engine_writes_kirtan_model_metadata_to_output_files(tmp_path, monkeypat
 
     tags = _audio_tags(Path(result["files"][0]["path"]))
     assert tags["encoded_by"] == "KirtanSplitter"
-    assert "model=Kirtan Pro" in tags["comment"]
+    assert "model=Aura Pro" in tags["comment"]
     assert "checkpoint=BS-Roformer-SW.ckpt" in tags["comment"]
     assert "preset=kirtan_pro" in tags["comment"]
     assert "process=Heavy 1024" in tags["comment"]
@@ -1108,8 +1108,8 @@ def test_engine_list_models_applies_uvr_favorite_aliases(tmp_path, monkeypatch):
     models = engine.list_models(limit=20)
 
     names = {model["filename"]: model["name"] for model in models}
-    assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "Kirtan Vocal Classic"
-    assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "Kirtan Karaoke Classic"
+    assert names["model_bs_roformer_ep_368_sdr_12.9628.ckpt"] == "Aura Vocal Classic"
+    assert names["mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"] == "Aura Karaoke Classic"
 
 
 def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
@@ -1139,8 +1139,8 @@ def test_engine_list_models_includes_kirtan_model_pack(tmp_path, monkeypatch):
 
     names = {model["filename"]: model["name"] for model in models}
     downloaded = {model["filename"]: model["isDownloaded"] for model in models}
-    assert names["bs_roformer_voc_hyperacev2.ckpt"] == "Kirtan Vocal Pro"
-    assert names["mel_band_roformer_bve_gonza.ckpt"] == "Kirtan Lead / Back"
+    assert names["bs_roformer_voc_hyperacev2.ckpt"] == "Aura Vocal Pro"
+    assert names["mel_band_roformer_bve_gonza.ckpt"] == "Aura Lead / Back"
 
 
 def test_engine_downloads_model_pack_assets_before_loading(tmp_path, monkeypatch):

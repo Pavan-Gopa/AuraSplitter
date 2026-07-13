@@ -57,7 +57,7 @@ struct ResultsPaneView: View {
             Image(systemName: "music.note.list")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary.opacity(0.45))
-            Text(backend.isReady ? "Drop a kirtan recording and start separation" : "Starting MLX backend")
+            Text(backend.isReady ? "Drop a recording and start separation" : "Starting MLX backend")
                 .font(.title3.weight(.medium))
             Text(backend.isReady ? "First run downloads the selected model into the local models folder." : backend.currentStage)
                 .font(.callout)

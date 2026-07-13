@@ -88,7 +88,7 @@ def test_analyze_audio_returns_kirtan_splitter_model_metadata(tmp_path):
             "-metadata",
             "encoded_by=KirtanSplitter",
             "-metadata",
-            "comment=KirtanSplitter model=Kirtan Pro; checkpoint=BS-Roformer-SW.ckpt; preset=kirtan_pro; process=Heavy 1024",
+            "comment=KirtanSplitter model=Aura Pro; checkpoint=BS-Roformer-SW.ckpt; preset=kirtan_pro; process=Heavy 1024",
             str(tagged),
         ],
         check=True,
@@ -98,7 +98,7 @@ def test_analyze_audio_returns_kirtan_splitter_model_metadata(tmp_path):
 
     assert result["sampleRate"] == 48_000
     assert result["bitDepth"] == 24
-    assert result["separationModelName"] == "Kirtan Pro"
+    assert result["separationModelName"] == "Aura Pro"
     assert result["separationModelCheckpoint"] == "BS-Roformer-SW.ckpt"
     assert result["separationPresetID"] == "kirtan_pro"
     assert result["separationProcessPresetTitle"] == "Heavy 1024"

@@ -16,7 +16,7 @@ final class AudioAnalysisMetadataTests: XCTestCase {
               "clipped": false,
               "waveformPeaks": [0.1],
               "spectrogram": {"columns": 1, "bins": 1, "values": [0.2]},
-              "separationModelName": "Kirtan Pro",
+              "separationModelName": "Aura Pro",
               "separationModelCheckpoint": "BS-Roformer-SW.ckpt",
               "separationPresetID": "kirtan_pro",
               "separationProcessPresetTitle": "Heavy 1024"
@@ -28,8 +28,8 @@ final class AudioAnalysisMetadataTests: XCTestCase {
 
         XCTAssertEqual(analysis.sampleRate, 48_000)
         XCTAssertEqual(analysis.bitDepthLabel, "24 bit")
-        XCTAssertEqual(analysis.separationModelName, "Kirtan Pro")
-        XCTAssertEqual(analysis.separationModelLabel, "Kirtan Pro")
+        XCTAssertEqual(analysis.separationModelName, "Aura Pro")
+        XCTAssertEqual(analysis.separationModelLabel, "Aura Pro")
     }
 
     func testAudioAnalysisReadsKsbinPayload() throws {

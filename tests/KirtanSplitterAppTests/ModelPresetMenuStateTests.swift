@@ -5,7 +5,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
     func testMenuStateMarksDownloadedPresetAndShowsUsageCount() {
         let preset = SeparationPreset(
             id: "kirtan_pro",
-            title: "Kirtan Pro",
+            title: "Aura Pro",
             modelFilename: "BS-Roformer-SW.ckpt",
             summary: "Six stem split",
             expectedStems: ["vocals"],
@@ -13,7 +13,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
         )
         let model = SeparatorModel(
             filename: "BS-Roformer-SW.ckpt",
-            name: "Kirtan Pro",
+            name: "Aura Pro",
             type: "MDXC",
             stems: ["vocals"],
             sdr: [:],
@@ -31,7 +31,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
     func testMenuStateCanReadLocalStatusFromModelCacheGroup() {
         let preset = SeparationPreset(
             id: "vocal_clean",
-            title: "Kirtan Clean Split",
+            title: "Aura Clean Split",
             modelFilename: "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
             summary: "Vocal split",
             expectedStems: ["vocals"],
@@ -44,7 +44,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
             groups: [
                 ModelCacheGroup(
                     id: "model_bs_roformer_ep_317_sdr_12.9755",
-                    displayName: "Kirtan Clean Split",
+                    displayName: "Aura Clean Split",
                     technicalName: "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
                     architecture: "BS-RoFormer",
                     backend: "MLX",
@@ -79,7 +79,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
     func testMenuStateDoesNotMarkNotDownloadedCacheGroupAsLocal() {
         let preset = SeparationPreset(
             id: "demucs_onnx_stems",
-            title: "Kirtan Stems Pro",
+            title: "Aura Stems Pro",
             modelFilename: "htdemucs_ft.onnx",
             summary: "ONNX stems",
             expectedStems: ["vocals"],
@@ -87,7 +87,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
         )
         let model = SeparatorModel(
             filename: "htdemucs_ft.onnx",
-            name: "Kirtan Stems Pro",
+            name: "Aura Stems Pro",
             type: "ONNX/CoreML",
             stems: ["vocals"],
             sdr: [:],
@@ -100,7 +100,7 @@ final class ModelPresetMenuStateTests: XCTestCase {
             groups: [
                 ModelCacheGroup(
                     id: "htdemucs_ft",
-                    displayName: "Kirtan Stems Pro",
+                    displayName: "Aura Stems Pro",
                     technicalName: "HT-Demucs FT ONNX",
                     architecture: "HT-Demucs",
                     backend: "ONNX/CoreML",

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#070B1F"/>
+      <stop offset="1" stop-color="#160A2B"/>
+    </linearGradient>
+    <linearGradient id="aura" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#22D3FF"/>
+      <stop offset="0.5" stop-color="#2E81FF"/>
+      <stop offset="1" stop-color="#9B5CFF"/>
+    </linearGradient>
+    <linearGradient id="aglyph" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5EE7FF"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- concentric aura rings (open arcs = split shell) -->
+  <g fill="none" stroke="url(#aura)" stroke-linecap="round">
+    <path d="M512 150 A362 362 0 1 1 150 512" stroke-width="22" stroke-opacity="0.30"/>
+    <path d="M512 232 A280 280 0 1 1 232 512" stroke-width="26" stroke-opacity="0.55"/>
+    <path d="M512 314 A198 198 0 1 1 314 512" stroke-width="30" stroke-opacity="0.85"/>
+  </g>
+
+  <!-- center A -->
+  <path fill-rule="evenodd" fill="url(#aglyph)"
+        d="M512 372 L612 580 L548 580 L512 488 L476 580 L412 580 Z M512 488 L540 556 L484 556 Z"/>
+</svg>

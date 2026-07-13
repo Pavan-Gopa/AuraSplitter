@@ -47,9 +47,9 @@ rm -rf "$RUNTIME_BACKEND"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$(dirname "$LOG_FILE")" "$RUNTIME_MODEL_DIR"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
-if [[ -f "$ROOT_DIR/LOGO/KirtanSplitter.svg" ]]; then
-  cp "$ROOT_DIR/LOGO/KirtanSplitter.svg" "$APP_RESOURCES/KirtanSplitter.svg"
-  "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/KirtanSplitter.svg" "$APP_RESOURCES/KirtanSplitter.icns"
+if [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then
+  cp "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/KirtanSplitter.svg"
+  "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/KirtanSplitter.icns"
 fi
 cp -R "$ROOT_DIR/backend" "$RUNTIME_BACKEND"
 cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
