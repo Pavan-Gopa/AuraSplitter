@@ -66,12 +66,22 @@ struct ControlPaneView: View {
                     help: "Eye = show in header menu. Click name to select."
                 ) {
                     ForEach(processPresetStore.presets) { preset in
+                        let headerVisible = menuVisibility.isProcessPresetVisible(preset.id)
                         visibilityPickerRow(
                             title: preset.title,
                             isSelected: selectedProcessPresetID == preset.id,
-                            isVisibleInHeader: menuVisibility.isProcessPresetVisible(preset.id),
-                            onToggleEye: { menuVisibility.toggleProcessPresetVisibility(preset.id) },
+                            isVisibleInHeader: headerVisible,
+                            onToggleEye: {
+                                let wasSelected = selectedProcessPresetID == preset.id
+                                menuVisibility.toggleProcessPresetVisibility(preset.id)
+                                // Hidden presets cannot remain the active selection — prefer Heavy.
+                                if wasSelected, !menuVisibility.isProcessPresetVisible(preset.id) {
+                                    reselectVisibleProcessPreset(excluding: preset.id)
+                                }
+                            },
                             onSelect: {
+                                // Only header-visible presets can be chosen as the active preset.
+                                guard menuVisibility.isProcessPresetVisible(preset.id) else { return }
                                 selectedProcessPresetID = preset.id
                                 isProcessPresetPickerOpen = false
                             }
@@ -215,7 +225,7 @@ struct ControlPaneView: View {
                     Text(title)
                         .font(.callout)
                         .fontWeight(isSelected ? .semibold : .regular)
-                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .foregroundStyle(isVisibleInHeader ? (isSelected ? .primary : .secondary) : .tertiary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if isSelected {
@@ -227,8 +237,20 @@ struct ControlPaneView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(!isVisibleInHeader)
+            .help(isVisibleInHeader ? "Select preset" : "Show in header (eye) before selecting")
         }
         .padding(.vertical, 3)
+        .opacity(isVisibleInHeader ? 1 : 0.72)
+    }
+
+    private func reselectVisibleProcessPreset(excluding excludedID: String?) {
+        guard let nextID = ProcessSettingsPreset.preferredVisiblePresetID(
+            in: processPresetStore.presets,
+            isVisible: { menuVisibility.isProcessPresetVisible($0) },
+            excluding: excludedID
+        ) else { return }
+        selectedProcessPresetID = nextID
     }
 
     private var processSection: some View {

@@ -54,6 +54,8 @@ final class ProcessSettingsPresetTests: XCTestCase {
             XCTAssertFalse(title.contains(where: \.isNumber), "title should not contain digits: \(title)")
         }
 
+        XCTAssertEqual(ProcessSettingsPreset.defaultPresetID, "builtin.heavy")
+
         let byID = Dictionary(uniqueKeysWithValues: ProcessSettingsPreset.builtIn.map { ($0.id, $0) })
         XCTAssertEqual(byID["builtin.default"]?.snapshot.mdxcSegmentSize, SeparationSettings.defaultMDXCSegmentSize)
         XCTAssertEqual(byID["builtin.fast"]?.snapshot.mdxcSegmentSize, 512)
@@ -63,6 +65,24 @@ final class ProcessSettingsPresetTests: XCTestCase {
         XCTAssertTrue(byID["builtin.extreme"]?.snapshot.mdxcOverrideModelSegmentSize == true)
         XCTAssertNil(byID["metal.fast"])
         XCTAssertNil(byID["metal.max"])
+    }
+
+    func testPreferredVisiblePresetPrefersHeavyAndSkipsHidden() {
+        let presets = ProcessSettingsPreset.builtIn
+        let hidden: Set<String> = ["builtin.default", "builtin.fast"]
+        let id = ProcessSettingsPreset.preferredVisiblePresetID(
+            in: presets,
+            isVisible: { !hidden.contains($0) }
+        )
+        XCTAssertEqual(id, "builtin.heavy")
+
+        let heavyHidden: Set<String> = ["builtin.heavy"]
+        let next = ProcessSettingsPreset.preferredVisiblePresetID(
+            in: presets,
+            isVisible: { !heavyHidden.contains($0) },
+            excluding: "builtin.heavy"
+        )
+        XCTAssertEqual(next, "builtin.max")
     }
 
     func testSnapshotAppliesPerformanceFlagsWithoutChangingModelChoice() {

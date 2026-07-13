@@ -4,6 +4,7 @@ struct ContentView: View {
     @StateObject private var backend = BackendClient()
     @StateObject private var audioPreviewPlayer = AudioPreviewPlayer()
     @StateObject private var processPresetStore = ProcessSettingsPresetStore()
+    @ObservedObject private var menuVisibility = MenuVisibilityStore.shared
 
     @State private var sources: [BatchSourceItem] = []
     @State private var outputDirectory: URL?
@@ -110,6 +111,14 @@ struct ContentView: View {
             guard !didInitializeLayout else { return }
             didInitializeLayout = true
             isSettingsSidebarOpen = false
+            // Launch default is Heavy (or first visible preferred); apply its snapshot.
+            ensureSelectedProcessPresetIsVisible(applySnapshot: true)
+            if menuVisibility.isProcessPresetVisible(selectedProcessPresetID) {
+                applyProcessPreset(selectedProcessPresetID)
+            }
+        }
+        .onChange(of: menuVisibility.hiddenProcessPresetIDs) { _ in
+            ensureSelectedProcessPresetIsVisible(applySnapshot: true)
         }
         .alert("Backend Error", isPresented: Binding(
             get: { backend.errorMessage != nil },
@@ -285,6 +294,25 @@ struct ContentView: View {
     private func applyProcessPreset(_ presetID: String) {
         guard let preset = processPresetStore.preset(id: presetID) else { return }
         preset.snapshot.apply(to: &settings)
+    }
+
+    /// Hidden process presets cannot stay selected; prefer Heavy then Max/Extreme/…
+    private func ensureSelectedProcessPresetIsVisible(applySnapshot: Bool) {
+        if menuVisibility.isProcessPresetVisible(selectedProcessPresetID),
+           processPresetStore.preset(id: selectedProcessPresetID) != nil {
+            return
+        }
+        guard let nextID = ProcessSettingsPreset.preferredVisiblePresetID(
+            in: processPresetStore.presets,
+            isVisible: { menuVisibility.isProcessPresetVisible($0) },
+            excluding: menuVisibility.isProcessPresetVisible(selectedProcessPresetID)
+                ? nil
+                : selectedProcessPresetID
+        ) else { return }
+        selectedProcessPresetID = nextID
+        if applySnapshot {
+            applyProcessPreset(nextID)
+        }
     }
 
     @MainActor

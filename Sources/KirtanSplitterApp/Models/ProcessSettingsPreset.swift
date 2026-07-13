@@ -75,12 +75,24 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
     var snapshot: ProcessSettingsSnapshot
     var isBuiltIn: Bool
 
-    static let defaultPresetID = "builtin.default"
+    /// App default / fallback process preset. Prefer Heavy over Default.
+    static let defaultPresetID = "builtin.heavy"
+    /// Built-in Default snapshot id (not the app launch default).
+    static let builtInDefaultID = "builtin.default"
+
+    /// Preference order when auto-picking a visible process preset.
+    static let preferredSelectionOrder = [
+        "builtin.heavy",
+        "builtin.max",
+        "builtin.extreme",
+        "builtin.default",
+        "builtin.fast",
+    ]
 
     /// Order: Default → Fast → Heavy → Max → Extreme (no digits in titles).
     static let builtIn: [ProcessSettingsPreset] = [
         ProcessSettingsPreset(
-            id: defaultPresetID,
+            id: builtInDefaultID,
             title: "Default",
             snapshot: ProcessSettingsSnapshot(settings: SeparationSettings()),
             isBuiltIn: true
@@ -92,7 +104,7 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
             isBuiltIn: true
         ),
         ProcessSettingsPreset(
-            id: "builtin.heavy",
+            id: defaultPresetID,
             title: "Heavy",
             snapshot: ProcessSettingsSnapshot(settings: heavySettings),
             isBuiltIn: true
@@ -168,6 +180,24 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
             return "Custom"
         }
         return preset.isDirty(settings: settings) ? "Custom" : preset.title
+    }
+
+    /// First visible preset following Heavy-first preference (hidden presets never win).
+    static func preferredVisiblePresetID(
+        in presets: [ProcessSettingsPreset],
+        isVisible: (String) -> Bool,
+        excluding excludedID: String? = nil
+    ) -> String? {
+        let knownIDs = Set(presets.map(\.id))
+        var ordered = preferredSelectionOrder.filter { knownIDs.contains($0) }
+        for id in presets.map(\.id) where !ordered.contains(id) {
+            ordered.append(id)
+        }
+        for id in ordered {
+            if id == excludedID { continue }
+            if isVisible(id) { return id }
+        }
+        return nil
     }
 }
 
