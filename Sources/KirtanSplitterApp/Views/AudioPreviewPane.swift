@@ -9,7 +9,6 @@ struct AudioPreviewPane: View {
     @ObservedObject var player: AudioPreviewPlayer
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
-    @State private var showingLayerSettings = false
     @State private var previousPath: String? = nil
 
     var body: some View {
@@ -91,7 +90,9 @@ struct AudioPreviewPane: View {
                 .help("Fit full audio")
             }
 
-            layerSettingsControl
+            spectrumSlider
+            waveformSlider
+            layerResetButton
             volumeControl
         }
         .padding(.horizontal, 16)
@@ -212,55 +213,51 @@ struct AudioPreviewPane: View {
         .help("Preview volume")
     }
 
-    private var layerSettingsControl: some View {
-        Button {
-            showingLayerSettings.toggle()
-        } label: {
-            Image(systemName: "slider.horizontal.3")
-                .frame(width: 26, height: 26)
+    private var spectrumSlider: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "waveform.path")
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            Slider(
+                value: Binding(
+                    get: { layerSettings.spectrumIntensity },
+                    set: { layerSettings.spectrumIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
+                ),
+                in: 0...2,
+                step: 0.05
+            )
+            .frame(width: 86)
         }
-        .buttonStyle(.borderless)
-        .help("Preview layer settings")
-        .popover(isPresented: $showingLayerSettings, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Preview Layers")
-                    .font(.headline)
-                layerSlider(
-                    title: "Spectrum",
-                    value: Binding(
-                        get: { layerSettings.spectrumIntensity },
-                        set: { layerSettings.spectrumIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
-                    )
-                )
-                layerSlider(
-                    title: "Waveform",
-                    value: Binding(
-                        get: { layerSettings.waveformIntensity },
-                        set: { layerSettings.waveformIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
-                    )
-                )
-                Button("Reset") {
-                    layerSettings = AudioPreviewLayerSettings()
-                }
-                .controlSize(.small)
-            }
-            .padding(14)
-            .frame(width: 260)
-        }
+        .help("Spectrum intensity")
     }
 
-    private func layerSlider(title: String, value: Binding<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text("\(Int((value.wrappedValue * 100).rounded()))%")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            .font(.caption)
-            Slider(value: value, in: 0...2, step: 0.05)
+    private var waveformSlider: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "waveform")
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            Slider(
+                value: Binding(
+                    get: { layerSettings.waveformIntensity },
+                    set: { layerSettings.waveformIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
+                ),
+                in: 0...2,
+                step: 0.05
+            )
+            .frame(width: 86)
         }
+        .help("Waveform intensity")
+    }
+
+    private var layerResetButton: some View {
+        Button {
+            layerSettings = AudioPreviewLayerSettings()
+        } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .frame(width: 22, height: 22)
+        }
+        .buttonStyle(.borderless)
+        .help("Reset preview layers")
     }
 
     private func metricPill(_ text: String, systemImage: String, warning: Bool = false) -> some View {
@@ -380,9 +377,11 @@ struct AudioPreviewPane: View {
         }
 
         let color = clipped ? KSTheme.clippingRed : KSTheme.waveformBlue
-        let fillOpacity = min(0.55, 0.28 * intensity)
-        let lineOpacity = min(1.0, 0.95 * intensity)
-        let lineWidth = 0.8 + min(1.2, intensity) * 0.35
+        // Primary look = filled blue envelope; opacity scales with intensity.
+        // Stroke stays thin/secondary so the fill, not the outline, dominates.
+        let fillOpacity = min(0.85, 0.28 + 0.42 * intensity)
+        let lineOpacity = min(0.55, 0.35 * intensity)
+        let lineWidth = 0.6 + min(0.5, intensity) * 0.3
         var envelope = Path()
         if let first = topPoints.first {
             envelope.move(to: first)

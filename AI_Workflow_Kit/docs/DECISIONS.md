@@ -39,3 +39,11 @@ Orchestrator (Grok) пишет сюда решения при deadlock (`attempt
 - On reject: `fix_prompt` in STATE; same step retry; no step advance.
 - Product display name: **AuraSplitter**. Internal IDs/paths keep KirtanSplitter for D0 safety.
 
+## 2026-07-13 — DESIGN_V2 closed
+
+- D0–D6 complete with tags `design/D0-done` … `design/D6-done`.
+- Mid-track UX fix: D4 eyes moved into compact Settings dropdowns (not permanent lists).
+- Paths migrated to `…/AuraSplitter` (models + App Support) with legacy copy from KirtanSplitter.
+- Binary/module may still be named KirtanSplitter until a separate full rebrand PR.
+- STATE: `current_step: DESIGN_DONE`, `next_actor: human`.
+

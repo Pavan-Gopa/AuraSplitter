@@ -2,14 +2,13 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D6
+current_step: DESIGN_DONE
 step_description: >
-  Preview: filled blue waveform envelope (not outline-only); Spectrum and
-  Waveform intensity sliders on main preview toolbar (not buried in popover).
-  Final design step before DESIGN_DONE.
+  DESIGN_V2 complete. All steps D0–D6 approved (Gemini) and visually gated.
+  No active implementation task. Optional follow-ups only if human requests
+  (full package rename, bundle id, more brand polish).
 
-target_files:
-  - Sources/KirtanSplitterApp/Views/AudioPreviewPane.swift
+target_files: []
 
 completed_steps:
   - D0
@@ -18,35 +17,36 @@ completed_steps:
   - D3
   - D4
   - D5
+  - D6
 
 implementation:
-  status: pending
+  status: idle
   attempts: 0
 
 review:
-  status: pending
+  status: approved
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
 visual:
-  status: pending
-  notes: ""
+  status: approved
+  notes: "D6 filled waveform + main Spectrum/Waveform sliders"
 
 fix_prompt: ""
 
-next_actor: implementation
+next_actor: human
 
 track: DESIGN_V2
 prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D6
-  last_post_tag: design/D5-done
-  last_commit: 9eb809e
+  last_post_tag: design/D6-done
+  last_commit: null
 
 git:
   pre_tag: design/pre-D6
-  post_tag: design/D5-done
-  last_push: "origin design/D5-done + design/pre-D6 + branch"
+  post_tag: design/D6-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
