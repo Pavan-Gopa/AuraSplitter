@@ -34,16 +34,32 @@ struct StemFile: Identifiable, Hashable, Codable {
     let stem: String
     let path: String
     let sizeBytes: Int
+    /// Process settings for this separation (from backend or sidecar).
+    var runInfo: StemRunInfo?
 
     var displayName: String {
-        let baseName = stem.replacingOccurrences(of: "_", with: " ").capitalized
+        // Prefer the _(role) token so "vocals 2" shows as "Vocals 2".
         let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        
+        if let role = Self.roleLabel(fromFileStem: fileStem) {
+            let prettyRole = role.capitalized
+            if let matchRange = fileStem.range(of: "_(\(role))") {
+                var modelSuffix = String(fileStem[matchRange.upperBound...])
+                if modelSuffix.hasPrefix("_") {
+                    modelSuffix.removeFirst()
+                }
+                if !modelSuffix.isEmpty {
+                    let cleanedSuffix = modelSuffix.replacingOccurrences(of: "_", with: " ")
+                    return "\(prettyRole) · \(cleanedSuffix)"
+                }
+            }
+            return prettyRole
+        }
+
+        let baseName = stem.replacingOccurrences(of: "_", with: " ").capitalized
         let candidates = [
             "_(" + stem + ")",
-            "_(" + stem.replacingOccurrences(of: "_", with: " ") + ")"
+            "_(" + stem.replacingOccurrences(of: "_", with: " ") + ")",
         ]
-        
         for candidate in candidates {
             if let matchRange = fileStem.range(of: candidate) {
                 var modelSuffix = String(fileStem[matchRange.upperBound...])
@@ -52,7 +68,7 @@ struct StemFile: Identifiable, Hashable, Codable {
                 }
                 if !modelSuffix.isEmpty {
                     let cleanedSuffix = modelSuffix.replacingOccurrences(of: "_", with: " ")
-                    return "\(baseName) (\(cleanedSuffix))"
+                    return "\(baseName) · \(cleanedSuffix)"
                 }
             }
         }
@@ -61,6 +77,152 @@ struct StemFile: Identifiable, Hashable, Codable {
 
     var fileName: String {
         URL(fileURLWithPath: path).lastPathComponent
+    }
+
+    /// Load sibling `.kirtan-run.json` written next to the stem audio.
+    mutating func loadRunInfoFromSidecar() {
+        if runInfo != nil { return }
+        let url = URL(fileURLWithPath: path)
+        let sidecar = url.deletingPathExtension().appendingPathExtension("kirtan-run.json")
+        // Also try: file.wav.kirtan-run.json pattern via stem name
+        let sidecarAlt = url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".kirtan-run.json")
+        for candidate in [sidecarAlt, sidecar] {
+            guard FileManager.default.fileExists(atPath: candidate.path),
+                  let data = try? Data(contentsOf: candidate),
+                  let info = try? JSONDecoder().decode(StemRunInfo.self, from: data)
+            else { continue }
+            runInfo = info
+            return
+        }
+    }
+
+    private static func roleLabel(fromFileStem fileStem: String) -> String? {
+        guard let open = fileStem.range(of: "_("),
+              let close = fileStem.range(of: ")", range: open.upperBound..<fileStem.endIndex)
+        else { return nil }
+        let role = String(fileStem[open.upperBound..<close.lowerBound]).trimmingCharacters(in: .whitespaces)
+        return role.isEmpty ? nil : role
+    }
+}
+
+/// Per-stem process snapshot for experiment comparison (Results → Info).
+struct StemRunInfo: Codable, Hashable {
+    var formatVersion: Int?
+    var writtenAt: Double?
+    var stem: String?
+    var path: String?
+    var modelFilename: String?
+    var modelDisplayName: String?
+    var modelPreset: String?
+    var processPresetID: String?
+    var processPresetTitle: String?
+    var outputFormat: String?
+    var chunkDuration: Double?
+    var chunkLabel: String?
+    var segmentSize: Int?
+    var overlap: Int?
+    var batchSize: Int?
+    var overrideModelSegment: Bool?
+    var speedMode: String?
+    var performanceFlags: [String: Bool]?
+    var modelHot: Bool?
+    var sourceDurationSeconds: Double?
+    var elapsedSeconds: Double?
+    var realtimeFactor: Double?
+    var estimatedChunks: Int?
+    var experimentalFlagsEnabled: Int?
+
+    var infoRows: [(String, String)] {
+        var rows: [(String, String)] = []
+        if let model = modelDisplayName ?? modelFilename {
+            rows.append(("model", model))
+        }
+        if let checkpoint = modelFilename, modelDisplayName != nil {
+            rows.append(("checkpoint", checkpoint))
+        }
+        if let preset = modelPreset {
+            rows.append(("model preset", preset))
+        }
+        if let process = processPresetTitle ?? processPresetID {
+            rows.append(("process", process))
+        }
+        if let chunk = chunkLabel {
+            rows.append(("chunk", chunk))
+        } else if let chunkDuration {
+            rows.append(("chunk", chunkDuration > 0 ? "\(Int(chunkDuration))s" : "off"))
+        }
+        if let estimatedChunks {
+            rows.append(("est. chunks", "\(estimatedChunks)"))
+        }
+        if let segmentSize {
+            rows.append(("segment", "\(segmentSize)"))
+        }
+        if let overlap {
+            rows.append(("overlap", "\(overlap)"))
+        }
+        if let batchSize {
+            rows.append(("batch", "\(batchSize)"))
+        }
+        if let speedMode {
+            rows.append(("speed", speedMode))
+        }
+        if let overrideModelSegment {
+            rows.append(("override segment", overrideModelSegment ? "on" : "off"))
+        }
+        if let format = outputFormat {
+            rows.append(("format", format))
+        }
+        if let hot = modelHot {
+            rows.append(("model cache", hot ? "hot (reused)" : "cold (loaded)"))
+        }
+        if let elapsed = elapsedSeconds {
+            rows.append(("wall time", FileHelpers.formattedDurationWithRawSeconds(elapsed)))
+        }
+        if let rtf = realtimeFactor {
+            rows.append(("realtime factor", String(format: "%.2f×", rtf)))
+        }
+        if let sourceDurationSeconds {
+            rows.append(("source length", FileHelpers.formattedDuration(sourceDurationSeconds)))
+        }
+        if let flags = experimentalFlagsEnabled {
+            rows.append(("exp. flags", "\(flags) on"))
+        } else if let performanceFlags {
+            let on = performanceFlags.values.filter { $0 }.count
+            rows.append(("exp. flags", "\(on) on"))
+        }
+        return rows
+    }
+
+    /// Build from the batch SeparationSummary when a run just finished.
+    static func from(summary: SeparationSummary, stem: String, path: String) -> StemRunInfo {
+        let stats = summary.postRunStats
+        return StemRunInfo(
+            formatVersion: 1,
+            writtenAt: summary.completedAt,
+            stem: stem,
+            path: path,
+            modelFilename: summary.model,
+            modelDisplayName: nil,
+            modelPreset: summary.preset,
+            processPresetID: summary.processPresetID ?? stats?.processPresetID,
+            processPresetTitle: summary.processPresetTitle ?? stats?.processPresetTitle,
+            outputFormat: stats?.outputFormat ?? summary.settings.map { _ in "WAV" },
+            chunkDuration: stats?.chunkDurationSeconds ?? summary.settings?.chunkDuration,
+            chunkLabel: stats?.chunkLabel,
+            segmentSize: stats?.segmentSize ?? summary.settings?.mdxcSegmentSize,
+            overlap: stats?.overlap ?? summary.settings?.mdxcOverlap,
+            batchSize: stats?.batchSize ?? summary.settings?.mdxcBatchSize,
+            overrideModelSegment: stats?.overrideModelSegment ?? summary.settings?.mdxcOverrideModelSegmentSize,
+            speedMode: stats?.speedMode ?? summary.settings?.speedMode,
+            performanceFlags: nil,
+            modelHot: stats?.modelHot ?? summary.modelHot,
+            sourceDurationSeconds: stats?.sourceDurationSeconds,
+            elapsedSeconds: stats?.elapsedSeconds ?? summary.elapsedSeconds,
+            realtimeFactor: stats?.realtimeFactor,
+            estimatedChunks: stats?.estimatedChunks,
+            experimentalFlagsEnabled: stats?.experimentalFlagsEnabled
+        )
     }
 }
 
@@ -91,13 +253,41 @@ struct SeparationSettings: Equatable, Codable {
 struct SeparationSummary: Codable {
     let model: String
     let preset: String?
+    let processPresetID: String?
+    let processPresetTitle: String?
     let startedAt: Double?
     let completedAt: Double?
     let elapsedSeconds: Double
     let files: [StemFile]
     let metrics: [String: Double]?
+    let modelHot: Bool?
     let modelCache: ModelCache?
     let settings: RunSettings?
+    let postRunStats: PostRunStats?
+}
+
+/// Backend-built compact stats for the Post Run Stats panel.
+struct PostRunStats: Codable, Equatable {
+    let modelHot: Bool?
+    let processPresetID: String?
+    let processPresetTitle: String?
+    let modelFilename: String?
+    let modelPreset: String?
+    let sourceDurationSeconds: Double?
+    let elapsedSeconds: Double?
+    let realtimeFactor: Double?
+    let chunkDurationSeconds: Double?
+    let chunkLabel: String?
+    let estimatedChunks: Int?
+    let segmentSize: Int?
+    let overlap: Int?
+    let batchSize: Int?
+    let batchExplicit: Bool?
+    let overrideModelSegment: Bool?
+    let speedMode: String?
+    let outputFormat: String?
+    let experimentalFlagsEnabled: Int?
+    let experimentalFlags: [String]?
 }
 
 struct LastRunReport {
@@ -108,6 +298,10 @@ struct LastRunReport {
             ("model", summary.model),
             ("preset", summary.preset ?? "default"),
         ]
+        if let processTitle = summary.processPresetTitle ?? summary.postRunStats?.processPresetTitle,
+           !processTitle.isEmpty {
+            rows.append(("process", processTitle))
+        }
         if let startedAt = summary.startedAt {
             rows.append(("started", Self.formattedRunDate(startedAt)))
         }
@@ -117,6 +311,57 @@ struct LastRunReport {
         rows.append(("elapsed", FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds)))
         rows.append(("outputs", "\(summary.files.count) \(summary.files.count == 1 ? "file" : "files")"))
         rows.append(("output size", formattedByteTotal(summary.files.reduce(0) { $0 + $1.sizeBytes })))
+        return rows
+    }
+
+    /// High-signal rows for A/B experiments (chunk, batch, warm cache, RTF).
+    var postRunStatRows: [(String, String)] {
+        if let stats = summary.postRunStats {
+            var rows: [(String, String)] = []
+            if let hot = stats.modelHot {
+                rows.append(("model cache", hot ? "hot (reused)" : "cold (loaded)"))
+            }
+            if let duration = stats.sourceDurationSeconds {
+                rows.append(("source length", FileHelpers.formattedDuration(duration)))
+            }
+            if let elapsed = stats.elapsedSeconds {
+                rows.append(("wall time", FileHelpers.formattedDurationWithRawSeconds(elapsed)))
+            }
+            if let rtf = stats.realtimeFactor {
+                rows.append(("realtime factor", String(format: "%.2f×", rtf)))
+            }
+            rows.append(("chunk", stats.chunkLabel ?? (stats.chunkDurationSeconds.map { "\(Int($0))s" } ?? "off")))
+            if let chunks = stats.estimatedChunks {
+                rows.append(("est. chunks", "\(chunks)"))
+            }
+            if let segment = stats.segmentSize {
+                rows.append(("segment", "\(segment)"))
+            }
+            if let overlap = stats.overlap {
+                rows.append(("overlap", "\(overlap)"))
+            }
+            if let batch = stats.batchSize {
+                let tag = stats.batchExplicit == true ? "" : " (heuristic)"
+                rows.append(("batch", "\(batch)\(tag)"))
+            }
+            if let speed = stats.speedMode {
+                rows.append(("speed mode", speed))
+            }
+            if let flags = stats.experimentalFlagsEnabled {
+                rows.append(("exp. flags", "\(flags) on"))
+            }
+            if let process = stats.processPresetTitle, !process.isEmpty {
+                rows.append(("process preset", process))
+            }
+            return rows
+        }
+
+        // Fallback when older backends omit postRunStats.
+        var rows: [(String, String)] = []
+        if let hot = summary.modelHot {
+            rows.append(("model cache", hot ? "hot (reused)" : "cold (loaded)"))
+        }
+        rows.append(contentsOf: settingRows)
         return rows
     }
 
@@ -147,6 +392,28 @@ struct LastRunReport {
         }
     }
 
+    /// One-line status bar after finish.
+    var statusLineSummary: String {
+        let elapsed = FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds)
+        let hot: String
+        if let h = summary.postRunStats?.modelHot ?? summary.modelHot {
+            hot = h ? "hot" : "cold"
+        } else {
+            hot = "—"
+        }
+        let chunk = summary.postRunStats?.chunkLabel
+            ?? summary.settings?.chunkDuration.map { "\(Int($0))s" }
+            ?? "off"
+        let batch = summary.postRunStats?.batchSize.map(String.init)
+            ?? summary.settings?.mdxcBatchSize.map(String.init)
+            ?? "?"
+        let chunks = summary.postRunStats?.estimatedChunks.map { "~\($0) chunks" } ?? ""
+        let rtf = summary.postRunStats?.realtimeFactor.map { String(format: "%.2f×RT" , $0) } ?? ""
+        return [elapsed, "cache \(hot)", "chunk \(chunk)", "batch \(batch)", chunks, rtf]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
     static func formattedRunDate(_ timestamp: Double, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -170,6 +437,7 @@ struct RunSettings: Codable {
     let mdxcBatchSize: Int?
     let mdxcOverrideModelSegmentSize: Bool?
     let speedMode: String?
+    let processPresetTitle: String?
 }
 
 struct ModelPresetMenuState: Equatable {

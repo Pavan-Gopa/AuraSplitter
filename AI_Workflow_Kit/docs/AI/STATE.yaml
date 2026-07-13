@@ -1,47 +1,56 @@
-# OPT_PERF track — orchestrated by Grok
-# Source of truth: OPT_STEPS.md + OPTIMIZATION_PLAN_GROK.md
+# DESIGN_V2 track — orchestrated by Grok
+# Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
+# Prior track OPT_PERF closed (K0–K8).
 
-current_step: OPT_DONE
+current_step: D0
 step_description: >
-  OPT_PERF complete. All steps K0–K8 approved and tagged.
-  No active implementation task. Optional next work = Post-OPT backlog
-  (CoreML ONNX/ANE, colormap LUT, metal waveform) only if human requests.
-  Optional: fill PERF_BASELINE.md "after" column with real device timings.
+  Branding: AuraSplitter UI title, new logo SVG+icns, rename user-facing
+  Kirtan* preset/model titles to Aura*, soften kirtan copy. Keep internal IDs
+  and Application Support paths. Do not implement D1–D6 in this step.
 
-target_files: []
+target_files:
+  - LOGO/AuraSplitter.svg
+  - script/build_and_run.sh
+  - script/make_app_icon.sh
+  - Sources/KirtanSplitterApp/Views/ContentView.swift
+  - Sources/KirtanSplitterApp/Views/ResultsPaneView.swift
+  - backend/kirtan_backend/presets.py
+  - backend/kirtan_backend/model_catalog.py
+  # plus any tests that assert "Kirtan …" display titles
 
-completed_steps:
-  - K0
-  - K1
-  - K2
-  - K3
-  - K4
-  - K5
-  - K6
-  - K7
-  - K8
+completed_steps: []
 
 implementation:
-  status: idle
+  status: pending
   attempts: 0
 
 review:
-  status: approved
+  status: pending
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
-next_actor: human
+visual:
+  status: pending
+  notes: ""
 
-track: OPT_PERF
+fix_prompt: ""
+
+next_actor: implementation
+
+track: DESIGN_V2
+prior_track: OPT_PERF
 
 checkpoint:
-  last_pre_tag: opt/pre-K8
-  last_post_tag: opt/K8-done
-  last_commit: bf9b97d
+  last_pre_tag: null
+  last_post_tag: null
+  last_commit: null
+
+git:
+  pre_tag: design/pre-D0
+  post_tag: ""
+  last_push: ""
 
 plan_files:
-  - OPTIMIZATION_PLAN_GROK.md
-  - OPTIMIZATION_PLAN.md
-  - AI_Workflow_Kit/docs/OPT_STEPS.md
-  - AI_Workflow_Kit/docs/PROJECT_CONTEXT.md
+  - AI_Workflow_Kit/docs/DESIGN_STEPS.md
   - AI_Workflow_Kit/docs/AI/TEAM_CONTRACT.md
+  - AI_Workflow_Kit/docs/PROJECT_CONTEXT.md
   - AI_Workflow_Kit/docs/AI/GIT_CHECKPOINTS.md

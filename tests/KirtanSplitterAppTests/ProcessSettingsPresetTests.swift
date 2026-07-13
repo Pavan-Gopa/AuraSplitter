@@ -47,29 +47,22 @@ final class ProcessSettingsPresetTests: XCTestCase {
         XCTAssertEqual(reloaded.preset(id: saved.id)?.snapshot.mdxcSegmentSize, 1024)
     }
 
-    func testBuiltInPresetsIncludeExtremeRenderPreset() {
-        let extreme = ProcessSettingsPreset.builtIn.first { $0.id == "builtin.extreme" }
+    func testBuiltInPresetsAreNamedWithoutDigitsAndScaleToExtreme() {
+        let titles = ProcessSettingsPreset.builtIn.map(\.title)
+        XCTAssertEqual(titles, ["Default", "Fast", "Heavy", "Max", "Extreme"])
+        for title in titles {
+            XCTAssertFalse(title.contains(where: \.isNumber), "title should not contain digits: \(title)")
+        }
 
-        XCTAssertEqual(extreme?.title, "Extreme 4096")
-        XCTAssertEqual(extreme?.snapshot.mdxcSegmentSize, 4096)
-        XCTAssertEqual(extreme?.snapshot.mdxcOverlap, 12)
-        XCTAssertEqual(extreme?.snapshot.mdxcBatchSize, 1)
-        XCTAssertTrue(extreme?.snapshot.mdxcOverrideModelSegmentSize == true)
-    }
-
-    func testBuiltInMetalPresetsExistAndCarryPerformanceFlags() {
-        let fast = ProcessSettingsPreset.builtIn.first { $0.id == "metal.fast" }
-        let max = ProcessSettingsPreset.builtIn.first { $0.id == "metal.max" }
-
-        XCTAssertEqual(fast?.title, "Metal Fast")
-        XCTAssertEqual(max?.title, "Metal Max")
-
-        XCTAssertTrue(fast?.snapshot.performanceFlags["experimental_roformer_fast_norm"] == true)
-        XCTAssertNil(fast?.snapshot.performanceFlags["experimental_roformer_compile_fullgraph"])
-
-        XCTAssertTrue(max?.snapshot.performanceFlags["experimental_roformer_compile_fullgraph"] == true)
-        // auto_tune_batch must never be enabled by a Metal preset.
-        XCTAssertNil(max?.snapshot.performanceFlags["auto_tune_batch"])
+        let byID = Dictionary(uniqueKeysWithValues: ProcessSettingsPreset.builtIn.map { ($0.id, $0) })
+        XCTAssertEqual(byID["builtin.default"]?.snapshot.mdxcSegmentSize, SeparationSettings.defaultMDXCSegmentSize)
+        XCTAssertEqual(byID["builtin.fast"]?.snapshot.mdxcSegmentSize, 512)
+        XCTAssertEqual(byID["builtin.heavy"]?.snapshot.mdxcSegmentSize, 1024)
+        XCTAssertEqual(byID["builtin.max"]?.snapshot.mdxcSegmentSize, 2048)
+        XCTAssertEqual(byID["builtin.extreme"]?.snapshot.mdxcSegmentSize, 4096)
+        XCTAssertTrue(byID["builtin.extreme"]?.snapshot.mdxcOverrideModelSegmentSize == true)
+        XCTAssertNil(byID["metal.fast"])
+        XCTAssertNil(byID["metal.max"])
     }
 
     func testSnapshotAppliesPerformanceFlagsWithoutChangingModelChoice() {

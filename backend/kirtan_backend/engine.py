@@ -31,8 +31,8 @@ from .presets import preset_list
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
 HEARTBEAT_EXPECTED_STAGE_SECONDS = 30 * 60
-HEARTBEAT_FRACTION_CAP = 0.92
-HEARTBEAT_CURVE_SECONDS = 10
+# Cap below 1.0 so "complete" is reserved for real finish; do not freeze at 87%.
+HEARTBEAT_FRACTION_CAP = 0.97
 
 
 def _format_elapsed_duration(seconds: float) -> str:
@@ -60,16 +60,22 @@ def _heartbeat_progress_value(
     elapsed_seconds: float,
     expected_seconds: float = HEARTBEAT_EXPECTED_STAGE_SECONDS,
 ) -> float:
+    """Map elapsed time toward ``end`` using a calibrated estimate when available.
+
+    Linear in elapsed/expected so a 40‑minute run does not freeze at ~87% while
+    the timer keeps climbing (old log-curve + 0.92 cap caused that).
+    """
     if end <= start:
         return end
 
     elapsed = max(0.0, float(elapsed_seconds))
-    expected = max(1.0, float(expected_seconds))
-    denominator = math.log1p(expected / HEARTBEAT_CURVE_SECONDS)
-    if denominator <= 0:
-        fraction = 0.0
+    expected = max(30.0, float(expected_seconds or HEARTBEAT_EXPECTED_STAGE_SECONDS))
+    # Soft asymptote past the estimate so overruns still creep forward slowly.
+    if elapsed <= expected:
+        fraction = elapsed / expected
     else:
-        fraction = math.log1p(elapsed / HEARTBEAT_CURVE_SECONDS) / denominator
+        overrun = elapsed - expected
+        fraction = 1.0 - 0.15 * math.exp(-overrun / max(60.0, expected * 0.25))
     fraction = min(HEARTBEAT_FRACTION_CAP, max(0.0, fraction))
     return start + (end - start) * fraction
 
@@ -258,18 +264,30 @@ class MlxSeparatorEngine:
         )
 
         self._raise_if_cancelled()
+        resolved_batch_size = self._resolve_mdxc_batch_size(job)
         separator, model_hot = self._get_or_load_separator(job, progress)
-        separator.output_dir = output_dir
+        # latency_safe_* speed modes force MDXC batch=1 inside mlx-audio-separator.
+        # Re-assert the user's batch after Separator construction so Batch 2/4 is real.
+        self._force_separator_batch_size(separator, resolved_batch_size)
+        # CRITICAL: Separator is constructed with model_dir as a placeholder output.
+        # Stems must go to job.output_dir (…/Song_stems). Set BOTH the wrapper and
+        # model_instance — the library writes via model_instance.output_dir.
+        self._set_separator_output_dir(separator, output_dir)
+        source_duration = self._audio_duration_seconds(input_path)
+        expected_separate = self._expected_separation_seconds(
+            job, source_duration, gpu_core_count=self._gpu_core_count()
+        )
         self._raise_if_cancelled()
         with self._stereo_input_path(input_path, progress, channels=source_format.channels) as separator_input_path:
             self._raise_if_cancelled()
             output_files = self._with_heartbeat(
                 start=0.35,
-                end=0.92,
+                end=0.97,
                 stage="separating",
                 message="Running MLX separation",
                 progress=progress,
                 work=lambda: separator.separate(str(separator_input_path)),
+                expected_seconds=expected_separate,
             )
         self._raise_if_cancelled()
         progress("postprocessing", "Conforming stems to source audio format", 0.94, self.runtime_stats())
@@ -292,9 +310,25 @@ class MlxSeparatorEngine:
             )
 
         progress("complete", "Done", 1.0, self.runtime_stats())
+        post_run = self._build_post_run_stats(
+            job=job,
+            model_hot=model_hot,
+            resolved_batch_size=resolved_batch_size,
+            source_duration_seconds=source_duration,
+            elapsed_seconds=elapsed,
+        )
+        # Attach the same run stats to each stem for the Results Info UI,
+        # and refresh sidecars so Info still works after app restart.
+        for file in files:
+            file["runInfo"] = dict(post_run)
+            file["runInfo"]["stem"] = file.get("stem")
+            file["runInfo"]["path"] = file.get("path")
+            self._write_run_sidecar(Path(file["path"]), job, post_run=post_run)
         return {
             "model": job.model_filename,
             "preset": job.preset,
+            "processPresetID": job.process_preset_id,
+            "processPresetTitle": job.process_preset_title,
             "startedAt": started_at,
             "completedAt": completed_at,
             "elapsedSeconds": round(elapsed, 2),
@@ -302,13 +336,15 @@ class MlxSeparatorEngine:
             "metrics": getattr(separator, "last_perf_metrics", None),
             "modelHot": model_hot,
             "modelCache": self.model_cache(),
+            "postRunStats": post_run,
             "settings": {
                 "chunkDuration": job.chunk_duration,
                 "mdxcSegmentSize": job.mdxc_segment_size,
                 "mdxcOverlap": job.mdxc_overlap,
-                "mdxcBatchSize": job.mdxc_batch_size,
+                "mdxcBatchSize": resolved_batch_size,
                 "mdxcOverrideModelSegmentSize": job.mdxc_override_model_segment_size,
                 "speedMode": job.speed_mode,
+                "processPresetTitle": job.process_preset_title,
             },
         }
 
@@ -316,11 +352,57 @@ class MlxSeparatorEngine:
         if self._cancel_event.is_set():
             raise BackendOperationCancelled(self._cancel_reason)
 
+    def _build_post_run_stats(
+        self,
+        job: SeparationJob,
+        model_hot: bool,
+        resolved_batch_size: int,
+        source_duration_seconds: float | None,
+        elapsed_seconds: float,
+    ) -> dict:
+        """Compact stats for the Last Run / Post Run Stats UI panel."""
+        duration = float(source_duration_seconds or 0)
+        chunk = job.chunk_duration
+        if chunk and float(chunk) > 0 and duration > 0:
+            estimated_chunks = int(math.ceil(duration / float(chunk)))
+            chunk_label = f"{int(float(chunk))}s"
+        else:
+            estimated_chunks = 1 if duration > 0 else 0
+            chunk_label = "off"
+
+        enabled_flags = sorted(
+            key for key, value in (job.performance_flags or {}).items() if value
+        )
+        realtime = (duration / elapsed_seconds) if elapsed_seconds > 0 and duration > 0 else None
+
+        return {
+            "modelHot": bool(model_hot),
+            "processPresetID": job.process_preset_id,
+            "processPresetTitle": job.process_preset_title or job.process_preset_id,
+            "modelFilename": job.model_filename,
+            "modelPreset": job.preset,
+            "sourceDurationSeconds": round(duration, 2) if duration > 0 else None,
+            "elapsedSeconds": round(float(elapsed_seconds), 2),
+            "realtimeFactor": round(realtime, 3) if realtime is not None else None,
+            "chunkDurationSeconds": float(chunk) if chunk not in (None, 0, "0", "") else None,
+            "chunkLabel": chunk_label,
+            "estimatedChunks": estimated_chunks,
+            "segmentSize": job.mdxc_segment_size,
+            "overlap": job.mdxc_overlap,
+            "batchSize": int(resolved_batch_size),
+            "batchExplicit": bool(job.mdxc_batch_size_explicit),
+            "overrideModelSegment": bool(job.mdxc_override_model_segment_size),
+            "speedMode": job.speed_mode,
+            "outputFormat": job.output_format,
+            "experimentalFlagsEnabled": len(enabled_flags),
+            "experimentalFlags": enabled_flags,
+        }
+
     def _build_performance_params(self, job: SeparationJob) -> dict:
         # Defaults reproduce the previous hard-coded behavior. Any experimental
-        # flag supplied via job.performance_flags (e.g. from a Metal Fast / Metal
-        # Max process preset) overrides the default. auto_tune_batch stays OFF
-        # unless a caller explicitly opts in — never on the hot Separate path.
+        # flag supplied via job.performance_flags overrides the default.
+        # auto_tune_batch stays OFF unless a caller explicitly opts in —
+        # never on the hot Separate path.
         base = {
             "experimental_roformer_fast_norm": False,
             "experimental_roformer_grouped_band_split": False,
@@ -409,6 +491,8 @@ class MlxSeparatorEngine:
             "overlap": job.mdxc_overlap,
             "pitch_shift": 0,
         }
+        # output_dir here is only a bootstrap placeholder; every separate() call
+        # rebinds it to the job stems folder via _set_separator_output_dir.
         separator = Separator(
             model_file_dir=self.model_dir,
             output_dir=str(self.model_dir),
@@ -440,16 +524,87 @@ class MlxSeparatorEngine:
         self._cached_fingerprint = fingerprint
         return separator, False
 
-    def _with_heartbeat(self, start: float, end: float, stage: str, message: str, progress: ProgressCallback, work):
+    def _force_separator_batch_size(self, separator, batch_size: int) -> None:
+        """Ensure UI batch survives latency_safe_* overrides inside mlx-audio-separator."""
+        batch_size = max(1, int(batch_size))
+        try:
+            if hasattr(separator, "arch_specific_params"):
+                for arch in ("MDXC", "MDX", "VR", "Demucs"):
+                    if arch in separator.arch_specific_params:
+                        separator.arch_specific_params[arch]["batch_size"] = batch_size
+            if hasattr(separator, "_set_model_batch_size"):
+                separator._set_model_batch_size(batch_size)
+            model = getattr(separator, "model_instance", None)
+            if model is not None and hasattr(model, "batch_size"):
+                model.batch_size = batch_size
+            self.logger.info("Forced separator batch_size=%s after speed-mode init", batch_size)
+        except Exception as exc:
+            self.logger.warning("Could not force batch_size=%s: %s", batch_size, exc)
+
+    def _set_separator_output_dir(self, separator, output_dir: Path | str) -> None:
+        """Point both Separator and its loaded model at the job stems folder."""
+        out_path = Path(output_dir).expanduser()
+        out_path.mkdir(parents=True, exist_ok=True)
+        # Prefer Path so Path / "file.wav" works; os.path.join also accepts PathLike.
+        out: Path | str = out_path
+        try:
+            separator.output_dir = out
+            model = getattr(separator, "model_instance", None)
+            if model is not None:
+                if hasattr(model, "output_dir"):
+                    model.output_dir = out
+                # Some arch wrappers keep a nested separator with its own path.
+                nested = getattr(model, "_demucs_separator", None)
+                if nested is not None and hasattr(nested, "output_dir"):
+                    nested.output_dir = out
+            self.logger.info("Separator output_dir bound to %s", out_path)
+        except Exception as exc:
+            self.logger.warning("Could not bind separator output_dir to %s: %s", out_path, exc)
+
+    def _expected_separation_seconds(
+        self,
+        job: SeparationJob,
+        source_duration: float | None,
+        gpu_core_count: int | None = None,
+    ) -> float:
+        if not source_duration or source_duration <= 0:
+            return float(HEARTBEAT_EXPECTED_STAGE_SECONDS)
+        try:
+            estimate = estimate_render_time(
+                self.model_dir,
+                model_filename=job.model_filename,
+                process_preset_id=job.process_preset_id or "builtin.default",
+                audio_duration_seconds=float(source_duration),
+                gpu_core_count=gpu_core_count,
+            )
+            seconds = estimate.get("estimatedSeconds")
+            if seconds and float(seconds) > 0:
+                return max(60.0, float(seconds))
+        except Exception:
+            pass
+        # Fallback: ~0.5× realtime for heavy RoFormer on Apple Silicon (rough).
+        return max(60.0, float(source_duration) * 0.55)
+
+    def _with_heartbeat(
+        self,
+        start: float,
+        end: float,
+        stage: str,
+        message: str,
+        progress: ProgressCallback,
+        work,
+        expected_seconds: float | None = None,
+    ):
         stop = threading.Event()
         result = {}
         error = {}
         stage_started = time.perf_counter()
+        expected = float(expected_seconds or HEARTBEAT_EXPECTED_STAGE_SECONDS)
 
         def heartbeat():
             while not stop.wait(2.0):
                 elapsed = time.perf_counter() - stage_started
-                value = _heartbeat_progress_value(start, end, elapsed)
+                value = _heartbeat_progress_value(start, end, elapsed, expected_seconds=expected)
                 if self._cancel_event.is_set():
                     progress(stage, f"Cancelling - {_format_elapsed_duration(elapsed)} elapsed", value, self.runtime_stats())
                     return
@@ -581,42 +736,120 @@ class MlxSeparatorEngine:
         return restored
 
     def _finalize_output_files(self, job: SeparationJob, output_files, source_path: Path) -> list[str]:
-        import re
+        target_dir = Path(job.output_dir).expanduser()
+        target_dir.mkdir(parents=True, exist_ok=True)
         finalized = []
         for output_file in output_files or []:
             path = self._rename_temporary_stereo_output(Path(output_file), source_path)
-            
-            # Extract display name for the model, or use the stem of job.model_filename
+
+            # Always land stems in job.output_dir (…/Song_stems), never model cache.
+            if path.parent.resolve() != target_dir.resolve():
+                relocated = target_dir / path.name
+                try:
+                    if path.exists():
+                        if relocated.exists():
+                            relocated = self._allocate_versioned_stem_path(
+                                relocated, source_path, ignore_paths={path.resolve()}
+                            )
+                        path.replace(relocated)
+                        path = relocated
+                        self.logger.info("Moved stem out of model dir into %s", path)
+                except Exception as exc:
+                    self.logger.warning("Failed to relocate %s -> %s: %s", path, relocated, exc)
+
             model_display = display_name_for_model(job.model_filename)
             if not model_display:
                 model_display = Path(job.model_filename).stem
-            
-            # Process preset title
+
             preset_display = job.process_preset_title or "Default"
-            
-            # Combine them: e.g. "Kirtan Pro_Heavy" or "Kirtan Pro" if no preset/default
             if preset_display and preset_display.lower() != "default":
                 suffix = f"{model_display}_{preset_display}"
             else:
                 suffix = model_display
-                
-            # Sanitize suffix (remove illegal filename characters)
+
             safe_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix).strip()
-            
-            # Append suffix to output file stem if not already there
+            desired = path
             if safe_suffix and f"_{safe_suffix}" not in path.stem:
-                new_stem = f"{path.stem}_{safe_suffix}"
-                new_path = path.with_name(f"{new_stem}{path.suffix}")
+                desired = path.with_name(f"{path.stem}_{safe_suffix}{path.suffix}")
+
+            # Experiment-friendly naming: vocals, vocals 2, vocals 3… never overwrite.
+            target = self._allocate_versioned_stem_path(
+                desired,
+                source_path,
+                ignore_paths={path.resolve(), Path(output_file).resolve()},
+            )
+            if path.resolve() != target.resolve():
                 try:
-                    new_path.unlink(missing_ok=True)
-                    path.rename(new_path)
-                    path = new_path
-                except Exception as e:
-                    self.logger.warning(f"Failed to rename output file {path} to {new_path}: {e}")
-            
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if path.exists():
+                        path.replace(target)
+                    path = target
+                except Exception as exc:
+                    self.logger.warning("Failed to move output %s -> %s: %s", path, target, exc)
+
             self._write_output_metadata(path, job)
+            # Sidecar written again after post_run stats are known (elapsed, RTF, …).
+            self._write_run_sidecar(path, job)
             finalized.append(str(path))
         return finalized
+
+    def _allocate_versioned_stem_path(
+        self,
+        desired: Path,
+        source_path: Path,
+        ignore_paths: set[Path] | None = None,
+    ) -> Path:
+        """Pick vocals / vocals 2 / … so re-runs keep previous experiment files.
+
+        Uses the ``_(role)`` token in the filename. Existing files with the same
+        role version in the output folder block that version (up to 99).
+        Paths in ``ignore_paths`` (the file being renamed) are not treated as
+        collisions.
+        """
+        parent = desired.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        ignore = {p.resolve() for p in (ignore_paths or set()) if p}
+        match = re.search(r"^(?P<prefix>.+)_\((?P<role>[^)]+)\)(?P<rest>.*)$", desired.stem)
+        if match:
+            prefix = match.group("prefix")
+            raw_role = match.group("role").strip()
+            rest = match.group("rest")
+        else:
+            prefix = source_path.stem
+            raw_role = self._stem_name(desired).replace("_", " ") or "stem"
+            rest = ""
+
+        base_role = re.sub(r"\s+\d+$", "", raw_role).strip() or raw_role
+        ext = desired.suffix
+
+        for version in range(1, 100):
+            role_label = base_role if version == 1 else f"{base_role} {version}"
+            candidate = parent / f"{prefix}_({role_label}){rest}{ext}"
+            try:
+                if candidate.resolve() in ignore:
+                    return candidate
+            except OSError:
+                pass
+            if candidate.exists() and candidate.resolve() not in ignore:
+                continue
+            claimed = False
+            for existing in parent.iterdir():
+                if not existing.is_file():
+                    continue
+                try:
+                    if existing.resolve() in ignore:
+                        continue
+                except OSError:
+                    continue
+                existing_match = re.search(r"_\(([^)]+)\)", existing.stem)
+                if not existing_match:
+                    continue
+                if existing_match.group(1).strip().lower() == role_label.lower():
+                    claimed = True
+                    break
+            if not claimed:
+                return candidate
+        return desired
 
     def _rename_temporary_stereo_output(self, output_path: Path, source_path: Path) -> Path:
         temporary_prefix = f"{source_path.stem}.stereo"
@@ -627,7 +860,9 @@ class MlxSeparatorEngine:
         target = output_path.with_name(f"{source_path.stem}{suffix_part}{output_path.suffix}")
         if target == output_path:
             return output_path
-        target.unlink(missing_ok=True)
+        # Do not delete existing targets here — versioning happens in finalize.
+        if target.exists():
+            return output_path
         output_path.replace(target)
         return target
 
@@ -846,14 +1081,76 @@ class MlxSeparatorEngine:
             message = (exc.stderr or exc.stdout or str(exc)).strip()
             self.logger.warning("Failed to write output metadata for %s: %s", output_path, message)
 
+    def _write_run_sidecar(
+        self,
+        output_path: Path,
+        job: SeparationJob,
+        post_run: dict | None = None,
+    ) -> None:
+        """JSON next to each stem so Results → Info can show full process settings later."""
+        if not output_path.exists():
+            return
+        sidecar = output_path.with_name(f"{output_path.stem}.kirtan-run.json")
+        payload = {
+            "formatVersion": 1,
+            "writtenAt": time.time(),
+            "stem": self._stem_name(output_path),
+            "path": str(output_path),
+            "modelFilename": job.model_filename,
+            "modelDisplayName": self._display_model_name(job.model_filename, Path(job.model_filename).stem),
+            "modelPreset": job.preset,
+            "processPresetID": job.process_preset_id,
+            "processPresetTitle": job.process_preset_title or job.process_preset_id,
+            "outputFormat": job.output_format,
+            "chunkDuration": job.chunk_duration,
+            "chunkLabel": (
+                "off"
+                if job.chunk_duration in (None, 0, "0", "")
+                else f"{int(float(job.chunk_duration))}s"
+            ),
+            "segmentSize": job.mdxc_segment_size,
+            "overlap": job.mdxc_overlap,
+            "batchSize": job.mdxc_batch_size,
+            "overrideModelSegment": job.mdxc_override_model_segment_size,
+            "speedMode": job.speed_mode,
+            "performanceFlags": dict(job.performance_flags or {}),
+        }
+        if post_run:
+            payload.update(
+                {
+                    "modelHot": post_run.get("modelHot"),
+                    "sourceDurationSeconds": post_run.get("sourceDurationSeconds"),
+                    "elapsedSeconds": post_run.get("elapsedSeconds"),
+                    "realtimeFactor": post_run.get("realtimeFactor"),
+                    "estimatedChunks": post_run.get("estimatedChunks"),
+                    "batchSize": post_run.get("batchSize", payload["batchSize"]),
+                    "chunkLabel": post_run.get("chunkLabel", payload["chunkLabel"]),
+                    "experimentalFlagsEnabled": post_run.get("experimentalFlagsEnabled"),
+                }
+            )
+        try:
+            sidecar.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:
+            self.logger.warning("Failed to write run sidecar for %s: %s", output_path, exc)
+
     def _output_metadata_comment(self, job: SeparationJob) -> str:
         model_name = self._display_model_name(job.model_filename, Path(job.model_filename).stem)
         process_title = job.process_preset_title or job.process_preset_id
+        chunk = (
+            "off"
+            if job.chunk_duration in (None, 0, "0", "")
+            else f"{int(float(job.chunk_duration))}s"
+        )
         return (
             f"KirtanSplitter model={model_name}; "
             f"checkpoint={job.model_filename}; "
             f"preset={job.preset}; "
-            f"process={process_title}"
+            f"process={process_title}; "
+            f"chunk={chunk}; "
+            f"segment={job.mdxc_segment_size}; "
+            f"overlap={job.mdxc_overlap}; "
+            f"batch={job.mdxc_batch_size}; "
+            f"speed={job.speed_mode}"
         )
 
     def _is_model_downloaded(self, filename: str) -> bool:
@@ -910,6 +1207,7 @@ class MlxSeparatorEngine:
     def _stem_name(self, path: Path) -> str:
         match = re.search(r"_\(([^)]+)\)", path.stem)
         if match:
+            # "vocals 2" -> "vocals_2" for stable stem IDs in the UI.
             return match.group(1).strip().lower().replace(" ", "_")
         suffix = path.stem.split("_")[-1]
         return suffix.strip().lower().replace(" ", "_")

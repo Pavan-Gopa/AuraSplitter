@@ -77,6 +77,7 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
 
     static let defaultPresetID = "builtin.default"
 
+    /// Order: Default → Fast → Heavy → Max → Extreme (no digits in titles).
     static let builtIn: [ProcessSettingsPreset] = [
         ProcessSettingsPreset(
             id: defaultPresetID,
@@ -86,32 +87,26 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         ),
         ProcessSettingsPreset(
             id: "builtin.fast",
-            title: "Fast 512",
+            title: "Fast",
             snapshot: ProcessSettingsSnapshot(settings: fastSettings),
             isBuiltIn: true
         ),
         ProcessSettingsPreset(
             id: "builtin.heavy",
-            title: "Heavy 1024",
+            title: "Heavy",
             snapshot: ProcessSettingsSnapshot(settings: heavySettings),
             isBuiltIn: true
         ),
         ProcessSettingsPreset(
+            id: "builtin.max",
+            title: "Max",
+            snapshot: ProcessSettingsSnapshot(settings: maxSettings),
+            isBuiltIn: true
+        ),
+        ProcessSettingsPreset(
             id: "builtin.extreme",
-            title: "Extreme 4096",
+            title: "Extreme",
             snapshot: ProcessSettingsSnapshot(settings: extremeSettings),
-            isBuiltIn: true
-        ),
-        ProcessSettingsPreset(
-            id: "metal.fast",
-            title: "Metal Fast",
-            snapshot: ProcessSettingsSnapshot(settings: metalFastSettings),
-            isBuiltIn: true
-        ),
-        ProcessSettingsPreset(
-            id: "metal.max",
-            title: "Metal Max",
-            snapshot: ProcessSettingsSnapshot(settings: metalMaxSettings),
             isBuiltIn: true
         ),
     ]
@@ -121,6 +116,7 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.mdxcSegmentSize = 512
         settings.mdxcOverlap = 8
         settings.mdxcBatchSize = 1
+        settings.mdxcOverrideModelSegmentSize = true
         settings.speedMode = "latency_safe_v3"
         return settings
     }
@@ -130,6 +126,17 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.mdxcSegmentSize = 1024
         settings.mdxcOverlap = 10
         settings.mdxcBatchSize = 2
+        settings.mdxcOverrideModelSegmentSize = true
+        settings.speedMode = "latency_safe_v3"
+        return settings
+    }
+
+    private static var maxSettings: SeparationSettings {
+        var settings = SeparationSettings()
+        settings.mdxcSegmentSize = 2048
+        settings.mdxcOverlap = 12
+        settings.mdxcBatchSize = 1
+        settings.mdxcOverrideModelSegmentSize = true
         settings.speedMode = "latency_safe_v3"
         return settings
     }
@@ -141,51 +148,6 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.mdxcBatchSize = 1
         settings.mdxcOverrideModelSegmentSize = true
         settings.speedMode = "latency_safe_v3"
-        return settings
-    }
-
-    private static var metalFastSettings: SeparationSettings {
-        var settings = SeparationSettings()
-        settings.mdxcSegmentSize = 512
-        settings.mdxcOverlap = 8
-        settings.mdxcBatchSize = 1
-        settings.mdxcOverrideModelSegmentSize = true
-        settings.speedMode = "latency_safe_v3"
-        settings.performanceFlags = [
-            "experimental_roformer_fast_norm": true,
-            "experimental_roformer_grouped_band_split": true,
-            "experimental_roformer_grouped_mask_estimator": true,
-            "experimental_roformer_fused_overlap_add": true,
-            "experimental_flac_fast_write": true,
-        ]
-        return settings
-    }
-
-    private static var metalMaxSettings: SeparationSettings {
-        var settings = SeparationSettings()
-        settings.mdxcSegmentSize = 1024
-        settings.mdxcOverlap = 10
-        settings.mdxcBatchSize = 2
-        settings.mdxcOverrideModelSegmentSize = true
-        settings.speedMode = "latency_safe_v3"
-        settings.performanceFlags = [
-            "experimental_roformer_fast_norm": true,
-            "experimental_roformer_grouped_band_split": true,
-            "experimental_roformer_grouped_mask_estimator": true,
-            "experimental_roformer_fused_overlap_add": true,
-            "experimental_roformer_compile_fullgraph": true,
-            "experimental_compile_model_forward": true,
-            "experimental_compile_shapeless": true,
-            "experimental_roformer_static_compiled_demix": true,
-            "experimental_mlx_stream_pipeline": true,
-            "experimental_roformer_grouped_weight_cache": true,
-            "experimental_roformer_chunk_gather_batching": true,
-            "experimental_roformer_ola_simd_tuning": true,
-            "experimental_mdxc_defer_batch_eval": true,
-            "experimental_mdxc_precompute_gather_idx": true,
-            "experimental_vectorized_chunking": true,
-            "experimental_flac_fast_write": true,
-        ]
         return settings
     }
 }

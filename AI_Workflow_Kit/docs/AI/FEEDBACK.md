@@ -1,28 +1,31 @@
-# FEEDBACK — OPT_PERF closed
+# FEEDBACK — DESIGN_V2
 
-## Track status
-**OPT_PERF = DONE** (K0–K8 all approved).
+## Track
+**DESIGN_V2** — current step set in `STATE.yaml`.
 
-| Step | Tag |
-|------|-----|
-| K0 | opt/K0-done |
-| K1 | opt/K1-done |
-| K2 | opt/K2-done |
-| K3 | opt/K3-done |
-| K4 | opt/K4-done |
-| K5 | opt/K5-done |
-| K6 | opt/K6-done |
-| K7 | opt/K7-done |
-| K8 | opt/K8-done |
+## Template for Gemini 3.5 Flash
 
-## Last step: K8 — APPROVED (Gemini)
+```markdown
+## Step: Dn — <title>
+## Verdict: APPROVED | CHANGES_REQUESTED
 
-- MLX Metal memory/cache limits + env overrides
-- Static RAM batch heuristic (no cold auto_tune)
-- Preview LRU + disk cache (SHA256 key, 20 / 256MB)
-- Tests green (91 Python / 56 Swift per review)
+### Summary
+…
 
-## No pending review
+### Checks
+- [ ] Diff limited to STATE target_files (or justified)
+- [ ] Requirements from DESIGN_STEPS.md met
+- [ ] Verify commands run (pytest / swift build)
+- [ ] No scope creep into later Dn
 
-Post-OPT only if human asks (CoreML ONNX/ANE, colormap LUT, metal waveform).
-Optional: measure and fill PERF_BASELINE.md **after** column on real hardware.
+### Issues (if CHANGES_REQUESTED)
+1. …
+
+### Notes for orchestrator
+…
+```
+
+## Status
+Awaiting **D0** implementation (Hy3). No review yet.
+
+OPT_PERF historical approvals: see git tags `opt/K0-done` … `opt/K8-done`.

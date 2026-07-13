@@ -57,9 +57,13 @@ final class BackendClient: ObservableObject {
     private var backendPaths: BackendPaths?
     private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
     private var analysisProgressSinks: [String: ([String: Any]) -> Void] = [:]
+    /// Serializes start / cancel-restart / manual restart so they cannot thrash the TCP port.
+    private var isPerformingBackendLifecycle = false
+    /// Set when the active NWConnection fails; aborts waitUntilReady early.
+    private var connectionFailure: Error?
 
     var isBusy: Bool {
-        isProcessing || isCancelling
+        isProcessing || isCancelling || isPerformingBackendLifecycle
     }
 
     var modelSetupMessage: String? {
@@ -77,7 +81,7 @@ final class BackendClient: ObservableObject {
         let paths = resolveBackendPaths()
         backendPaths = paths
         if let tcpPort = paths.tcpPort {
-            try await startTCPBackend(paths: paths, port: tcpPort)
+            try await ensureTCPBackendRunning(paths: paths, port: tcpPort, forceRelaunch: false)
             return
         }
 
@@ -158,21 +162,28 @@ final class BackendClient: ObservableObject {
         startTelemetryLoop()
     }
 
-    private func startTCPBackend(paths: BackendPaths, port: Int) async throws {
+    /// Connect-only: assumes a backend is already listening on the port.
+    private func connectTCPBackend(paths: BackendPaths, port: Int, timeoutSeconds: Double) async throws {
         guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
             throw BackendClientError.launchFailed("Invalid backend TCP port: \(port)")
         }
 
+        connection?.cancel()
+        connection = nil
         isReady = false
+        connectionFailure = nil
+        outputBuffer = ""
         currentStage = "Connecting backend"
         statusLine = "Connecting to local backend"
 
         let conn = NWConnection(host: NWEndpoint.Host(paths.tcpHost ?? "127.0.0.1"), port: endpointPort, using: .tcp)
         connection = conn
         conn.stateUpdateHandler = { [weak self] state in
+            // Only .failed aborts waitUntilReady. .waiting is normal while the peer binds.
             if case .failed(let error) = state {
                 Task { @MainActor [weak self] in
-                    self?.errorMessage = "Backend connection failed: \(error.localizedDescription)"
+                    self?.connectionFailure = error
+                    self?.appendLog("Backend connection failed: \(error.localizedDescription)\n")
                 }
             }
         }
@@ -180,14 +191,89 @@ final class BackendClient: ObservableObject {
         receiveFromConnection(conn)
 
         do {
-            try await waitUntilReady(timeoutSeconds: 20)
+            try await waitUntilReady(timeoutSeconds: timeoutSeconds)
         } catch {
             conn.cancel()
-            connection = nil
+            if connection === conn {
+                connection = nil
+            }
             throw error
         }
         statusLine = "Backend ready"
         startTelemetryLoop()
+    }
+
+    /// Single-flight start/restart for the detached TCP worker.
+    private func ensureTCPBackendRunning(paths: BackendPaths, port: Int, forceRelaunch: Bool) async throws {
+        // Join any in-flight lifecycle instead of stacking kills/launches (restart storms).
+        if isPerformingBackendLifecycle {
+            let waitStarted = Date()
+            while isPerformingBackendLifecycle {
+                if Date().timeIntervalSince(waitStarted) > 60 {
+                    throw BackendClientError.timeout
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            // Peer already finished — reuse success; only continue if still down.
+            if isReady { return }
+        } else if isReady, !forceRelaunch {
+            return
+        }
+
+        isPerformingBackendLifecycle = true
+        defer { isPerformingBackendLifecycle = false }
+
+        let host = paths.tcpHost ?? "127.0.0.1"
+        telemetryTask?.cancel()
+        telemetryTask = nil
+
+        let needsLaunch = forceRelaunch || !isTCPPortOpen(host: host, port: port)
+        if needsLaunch {
+            currentStage = forceRelaunch ? "Restarting backend" : "Starting backend"
+            statusLine = forceRelaunch ? "Stopping previous backend worker" : "Launching backend worker"
+            isReady = false
+            connection?.cancel()
+            connection = nil
+
+            // Hard stop: soft cancel exit can leave a Metal/MLX worker holding the port.
+            terminateRuntimeBackendProcesses(paths: paths, port: port)
+            try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 6.0, throwOnTimeout: false)
+            if isTCPPortOpen(host: host, port: port) {
+                terminateRuntimeBackendProcesses(paths: paths, port: port, forceKill: true)
+                try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 8.0, throwOnTimeout: true)
+            }
+
+            statusLine = "Launching backend worker"
+            try launchDetachedTCPBackend(paths: paths, port: port)
+            try await waitForTCPPortToOpen(host: host, port: port, timeoutSeconds: 20.0)
+        }
+
+        // Connect with retries — first connection after kill can race TIME_WAIT / late bind.
+        var lastError: Error = BackendClientError.timeout
+        for attempt in 1...4 {
+            do {
+                try await connectTCPBackend(paths: paths, port: port, timeoutSeconds: attempt == 1 ? 15 : 20)
+                errorMessage = nil
+                return
+            } catch {
+                lastError = error
+                appendLog("Backend connect attempt \(attempt) failed: \(error.localizedDescription)\n")
+                connection?.cancel()
+                connection = nil
+                isReady = false
+
+                if !isTCPPortOpen(host: host, port: port) {
+                    statusLine = "Relaunching backend worker"
+                    terminateRuntimeBackendProcesses(paths: paths, port: port, forceKill: true)
+                    try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 4.0, throwOnTimeout: false)
+                    try launchDetachedTCPBackend(paths: paths, port: port)
+                    try await waitForTCPPortToOpen(host: host, port: port, timeoutSeconds: 20.0)
+                } else {
+                    try await Task.sleep(nanoseconds: 400_000_000)
+                }
+            }
+        }
+        throw lastError
     }
 
     func stop() {
@@ -441,7 +527,8 @@ final class BackendClient: ObservableObject {
         let summary = try decodeObject(SeparationSummary.self, from: result)
         progress = 1
         currentStage = "Complete"
-        statusLine = "Finished in \(FileHelpers.formattedDurationWithRawSeconds(summary.elapsedSeconds))"
+        let report = LastRunReport(summary: summary)
+        statusLine = "Done · \(report.statusLineSummary)"
         lastSummary = summary
         if let cache = summary.modelCache {
             modelCache = cache
@@ -459,13 +546,17 @@ final class BackendClient: ObservableObject {
     }
 
     func cancelCurrentOperation() async {
+        guard !isCancelling else { return }
         guard isProcessing || !pendingRequests.isEmpty else { return }
 
         let paths = backendPaths ?? resolveBackendPaths()
+        backendPaths = paths
         isCancelling = true
+        errorMessage = nil
         currentStage = "Cancelling"
         statusLine = "Cancelling current operation"
 
+        // Best-effort cooperative cancel so the worker can drop caches before we kill it.
         if paths.tcpPort != nil {
             do {
                 try await sendOutOfBandCancel(paths: paths)
@@ -488,13 +579,17 @@ final class BackendClient: ObservableObject {
 
         do {
             if let port = paths.tcpPort {
-                try await restartTCPBackend(paths: paths, port: port, forceTerminateExisting: true)
+                // Always hard-relaunch after cancel — MLX work often ignores cooperative stop.
+                try await ensureTCPBackendRunning(paths: paths, port: port, forceRelaunch: true)
             } else {
+                process?.terminate()
+                process = nil
                 try await start()
             }
             await loadInitialData()
             currentStage = "Ready"
             statusLine = "Cancelled. Backend restarted."
+            errorMessage = nil
         } catch {
             errorMessage = "Cancelled, but backend restart failed: \(error.localizedDescription)"
             currentStage = "Backend stopped"
@@ -505,7 +600,9 @@ final class BackendClient: ObservableObject {
     }
 
     func restartBackend() async {
-        guard !isBusy else { return }
+        // Allow restart while not ready; block only mid-cancel lifecycle already owned by cancel.
+        if isCancelling, isPerformingBackendLifecycle { return }
+        if isProcessing { return }
 
         let paths = backendPaths ?? resolveBackendPaths()
         backendPaths = paths
@@ -522,7 +619,7 @@ final class BackendClient: ObservableObject {
 
         do {
             if let port = paths.tcpPort {
-                try await restartTCPBackend(paths: paths, port: port, forceTerminateExisting: true)
+                try await ensureTCPBackendRunning(paths: paths, port: port, forceRelaunch: true)
             } else {
                 process?.terminate()
                 process = nil
@@ -531,6 +628,7 @@ final class BackendClient: ObservableObject {
             await loadInitialData()
             currentStage = "Ready"
             statusLine = "Backend restarted."
+            errorMessage = nil
         } catch {
             errorMessage = "Backend restart failed: \(error.localizedDescription)"
             currentStage = "Backend stopped"
@@ -673,25 +771,33 @@ final class BackendClient: ObservableObject {
         }
     }
 
-    private func restartTCPBackend(paths: BackendPaths, port: Int, forceTerminateExisting: Bool) async throws {
-        let host = paths.tcpHost ?? "127.0.0.1"
-        try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 1.2)
-        if forceTerminateExisting, isTCPPortOpen(host: host, port: port) {
-            terminateRuntimeBackendProcesses(paths: paths, port: port)
-            try await waitForTCPPortToClose(host: host, port: port, timeoutSeconds: 2.5)
-        }
-        try launchDetachedTCPBackend(paths: paths, port: port)
-        try await startTCPBackend(paths: paths, port: port)
-    }
-
-    private func waitForTCPPortToClose(host: String, port: Int, timeoutSeconds: Double) async throws {
+    private func waitForTCPPortToClose(host: String, port: Int, timeoutSeconds: Double, throwOnTimeout: Bool) async throws {
         let startedAt = Date()
         while isTCPPortOpen(host: host, port: port) {
             if Date().timeIntervalSince(startedAt) >= timeoutSeconds {
+                if throwOnTimeout {
+                    throw BackendClientError.launchFailed(
+                        "Backend port \(host):\(port) stayed busy after stop. Try Restart again."
+                    )
+                }
                 return
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+    }
+
+    private func waitForTCPPortToOpen(host: String, port: Int, timeoutSeconds: Double) async throws {
+        let startedAt = Date()
+        while !isTCPPortOpen(host: host, port: port) {
+            if Date().timeIntervalSince(startedAt) >= timeoutSeconds {
+                throw BackendClientError.launchFailed(
+                    "Backend did not open \(host):\(port) in time."
+                )
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        // Brief settle so accept() is ready before the first client connect.
+        try await Task.sleep(nanoseconds: 150_000_000)
     }
 
     private func isTCPPortOpen(host: String, port: Int) -> Bool {
@@ -709,15 +815,30 @@ final class BackendClient: ObservableObject {
         }
     }
 
-    private func terminateRuntimeBackendProcesses(paths: BackendPaths, port: Int) {
+    private func terminateRuntimeBackendProcesses(paths: BackendPaths, port: Int, forceKill: Bool = false) {
+        let signalArgs = forceKill ? ["-9", "-f"] : ["-f"]
         let pattern = "\(paths.server).*--tcp-port \(port)"
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        proc.arguments = ["-f", pattern]
+        proc.arguments = signalArgs + [pattern]
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
         proc.waitUntilExit()
+
+        // Fallback: kill whoever still holds the listen socket (path-agnostic).
+        let lsof = Process()
+        lsof.executableURL = URL(fileURLWithPath: "/bin/bash")
+        let signal = forceKill ? "-9" : "-TERM"
+        lsof.arguments = [
+            "-c",
+            "pids=$(/usr/sbin/lsof -nP -iTCP:\(port) -sTCP:LISTEN -t 2>/dev/null); "
+                + "[ -n \"$pids\" ] && kill \(signal) $pids 2>/dev/null; true",
+        ]
+        lsof.standardOutput = FileHandle.nullDevice
+        lsof.standardError = FileHandle.nullDevice
+        try? lsof.run()
+        lsof.waitUntilExit()
     }
 
     private func receiveFromConnection(_ connection: NWConnection) {
@@ -832,11 +953,17 @@ final class BackendClient: ObservableObject {
     private func waitUntilReady(timeoutSeconds: Double) async throws {
         let start = Date()
         while !isReady {
+            if let connectionFailure {
+                let message = connectionFailure.localizedDescription
+                self.connectionFailure = nil
+                throw BackendClientError.backend("Connection failed: \(message)")
+            }
             if Date().timeIntervalSince(start) > timeoutSeconds {
                 throw BackendClientError.timeout
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
+        connectionFailure = nil
     }
 
     private func nextRequestID() -> String {

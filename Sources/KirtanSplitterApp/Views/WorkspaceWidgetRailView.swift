@@ -71,7 +71,15 @@ struct WorkspaceWidgetRailView: View {
                 StatusLine(title: "Backend", value: backend.isReady ? "Ready" : "Starting", tint: backend.isReady ? .green : .orange)
                 StatusLine(title: "Model", value: modelCacheStateText, tint: modelCacheTint)
                 MiniGauge(title: "CPU", detail: cpuDetail, value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
-                MiniGauge(title: "Memory", detail: memoryDetail, value: backend.runtimeStats?.memory.usedPercent ?? 0, tint: .purple)
+                // Backend process RSS only (GB numbers). Separate from whole-machine load.
+                StatusLine(title: "Backend RAM", value: backendRamDetail, tint: .purple)
+                // Whole unified-memory load % (active+wired+compressed) — fuchsia bar.
+                MiniGauge(
+                    title: "System RAM",
+                    detail: systemRamDetail,
+                    value: backend.runtimeStats?.memory.usedPercent ?? 0,
+                    tint: fuchsiaTint
+                )
                 MiniGauge(title: "GPU", detail: gpuDetail, value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
                 StatusLine(title: "NPU", value: npuDetail, tint: npuTint)
                 StatusLine(title: "Models", value: "\(modelCount)", tint: .secondary)
@@ -114,16 +122,33 @@ struct WorkspaceWidgetRailView: View {
         return "\(Int(cpu.systemPercent))% / \(cpu.coreCount)c"
     }
 
-    private var memoryDetail: String {
+    /// Backend Python process RSS in GB (not system-wide load).
+    private var backendRamDetail: String {
+        guard let stats = backend.runtimeStats else { return "waiting" }
+        let process = FileHelpers.formattedMemoryBytes(stats.process.rssBytes)
+        let total = FileHelpers.formattedMemoryBytes(stats.memory.totalBytes)
+        return "\(process) of \(total)"
+    }
+
+    /// Whole-machine unified memory: percent + used/total in Apple-style GB.
+    private var systemRamDetail: String {
         guard let memory = backend.runtimeStats?.memory else { return "waiting" }
-        return "\(Int(memory.usedPercent))%"
+        let used = FileHelpers.formattedMemoryBytes(memory.usedBytes)
+        let total = FileHelpers.formattedMemoryBytes(memory.totalBytes)
+        return "\(Int(memory.usedPercent.rounded()))% · \(used) of \(total)"
+    }
+
+    /// Fuchsia for system RAM bar (distinct from purple backend RSS line).
+    private var fuchsiaTint: Color {
+        Color(red: 1.0, green: 0.08, blue: 0.58)
     }
 
     private var gpuDetail: String {
         guard let gpu = backend.runtimeStats?.gpu else { return "waiting" }
         if let utilization = gpu.utilizationPercent {
-            if let cores = gpu.gpuCoreCount {
-                return "\(Int(utilization))% / \(cores)c"
+            // Sensei-like: util% · GPU working-set memory (not "10 cores busy").
+            if let bytes = gpu.inUseSystemMemoryBytes, bytes > 0 {
+                return "\(Int(utilization))% · \(FileHelpers.formattedBytes(bytes))"
             }
             return "\(Int(utilization))%"
         }

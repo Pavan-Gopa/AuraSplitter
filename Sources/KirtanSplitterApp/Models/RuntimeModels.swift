@@ -22,6 +22,7 @@ struct MemoryStats: Codable, Equatable {
     let totalBytes: Int
     let usedBytes: Int
     let usedPercent: Double
+    let freeBytes: Int?
 }
 
 struct ProcessStats: Codable, Equatable {
@@ -35,6 +36,8 @@ struct GPUStats: Codable, Equatable {
     let utilizationPercent: Double?
     let powerWatts: Double?
     let gpuCoreCount: Int?
+    let inUseSystemMemoryBytes: Int?
+    let allocatedSystemMemoryBytes: Int?
     let status: String
     let source: String?
 }

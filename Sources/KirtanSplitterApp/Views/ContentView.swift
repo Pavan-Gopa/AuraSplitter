@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
     @State private var previewResizeStartFraction: CGFloat?
     @State private var isSettingsSidebarOpen = false
+    @State private var settingsDrawerSection: SettingsDrawerSection = .process
     @State private var didInitializeLayout = false
     @State private var batchProcessingTask: Task<Void, Never>?
 
@@ -58,6 +59,7 @@ struct ContentView: View {
                             processPresetStore: processPresetStore,
                             settings: $settings,
                             selectedProcessPresetID: processPresetIDBinding,
+                            selectedSection: $settingsDrawerSection,
                             applyProcessPresetAction: applyProcessPreset,
                             closeAction: closeSettingsSidebar
                         )
@@ -68,6 +70,12 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
+            .onChange(of: backend.lastSummary?.completedAt) { _ in
+                guard backend.lastSummary != nil else { return }
+                // Surface Post Run Stats immediately after a finished separation.
+                settingsDrawerSection = .run
+                isSettingsSidebarOpen = true
+            }
 
             if let message = backend.modelSetupMessage {
                 ModelSetupOverlay(message: message)
@@ -324,15 +332,38 @@ struct ContentView: View {
         sources = nextSources
         resultGroups = []
         resultPreviewCache.removeAll()
+        selectedStemPaths = []
         previewSelection = .none
         previewAnalysis = nil
         previewAnalysisError = nil
         isAnalyzingPreview = false
 
+        // Pull in any stems already on disk (e.g. previous experiments in Song_stems/).
+        loadExistingResults(for: nextSources)
+
         guard let first = nextSources.first else { return }
         previewSelection = .source(first.id)
         isAnalyzingPreview = backend.isReady
         analyzeLoadedSources()
+    }
+
+    /// Scan each source's stems folder and populate Results without re-separating.
+    private func loadExistingResults(for sources: [BatchSourceItem]) {
+        var groups: [BatchResultGroup] = []
+        for source in sources {
+            let folder = resolvedOutputDirectory(for: source.url)
+            let stems = BatchWorkspace.discoverStemFiles(in: folder, relatedTo: source.url)
+            guard !stems.isEmpty else { continue }
+            groups.append(
+                BatchResultGroup(
+                    sourceURL: source.url,
+                    summary: nil,
+                    files: stems
+                )
+            )
+            prewarmResultPreviews(for: stems)
+        }
+        resultGroups = groups
     }
 
     private func analyzeLoadedSources() {
@@ -589,35 +620,43 @@ struct ContentView: View {
     }
 
     private func upsertResultGroup(sourceURL: URL, summary: SeparationSummary) {
-        let newFiles = summary.files
-        
+        // Attach per-stem run info so Results → Info shows this experiment's settings.
+        let newFiles: [StemFile] = summary.files.map { file in
+            var next = file
+            if next.runInfo == nil {
+                next.runInfo = StemRunInfo.from(summary: summary, stem: file.stem, path: file.path)
+            }
+            return next
+        }
+
         if let index = resultGroups.firstIndex(where: { $0.sourceURL == sourceURL }) {
             var existingFiles = resultGroups[index].files
             for file in newFiles {
-                if !existingFiles.contains(where: { $0.path == file.path }) {
+                if let existingIndex = existingFiles.firstIndex(where: { $0.path == file.path }) {
+                    existingFiles[existingIndex] = file
+                } else {
                     existingFiles.append(file)
                 }
             }
-            resultGroups[index].files = existingFiles.sorted {
-                if $0.stem != $1.stem {
-                    return $0.stem < $1.stem
-                }
-                return $0.displayName < $1.displayName
-            }
+            resultGroups[index].files = existingFiles.sorted(by: Self.stemSort)
             resultGroups[index].summary = summary
         } else {
             let group = BatchResultGroup(
                 sourceURL: sourceURL,
                 summary: summary,
-                files: newFiles.sorted {
-                    if $0.stem != $1.stem {
-                        return $0.stem < $1.stem
-                    }
-                    return $0.displayName < $1.displayName
-                }
+                files: newFiles.sorted(by: Self.stemSort)
             )
             resultGroups.append(group)
         }
+    }
+
+    private static func stemSort(_ lhs: StemFile, _ rhs: StemFile) -> Bool {
+        let leftBase = lhs.stem.replacingOccurrences(of: #"_\d+$"#, with: "", options: .regularExpression)
+        let rightBase = rhs.stem.replacingOccurrences(of: #"_\d+$"#, with: "", options: .regularExpression)
+        if leftBase != rightBase {
+            return leftBase < rightBase
+        }
+        return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
     }
 
     private func prewarmResultPreviews(for stems: [StemFile]) {

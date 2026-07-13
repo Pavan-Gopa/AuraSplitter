@@ -49,6 +49,12 @@ def cpu_stats() -> dict:
 
 
 def memory_stats() -> dict:
+    """System + helpful App-style memory.
+
+    ``usedBytes`` = active + wired + compressor (excludes huge file cache),
+    closer to Activity Monitor "App Memory" than free/inactive math.
+    Note: this is NOT Sensei "Pressure %" (different metric entirely).
+    """
     total = 0
     if hasattr(os, "sysconf"):
         try:
@@ -57,19 +63,26 @@ def memory_stats() -> dict:
             total = 0
 
     used = 0
+    free_bytes = 0
     try:
-        page_size = 4096
+        page_size = int(os.sysconf("SC_PAGE_SIZE")) if hasattr(os, "sysconf") else 4096
         vm_output = subprocess.check_output(["vm_stat"], text=True, timeout=2)
         stats = {}
         for line in vm_output.splitlines():
             match = re.match(r"^(.+?):\s+([0-9]+)\.", line.strip())
             if match:
                 stats[match.group(1)] = int(match.group(2))
+            size_match = re.search(r"page size of\s+([0-9]+)\s+bytes", line)
+            if size_match:
+                page_size = int(size_match.group(1))
+        free = stats.get("Pages free", 0)
+        inactive = stats.get("Pages inactive", 0)
+        free_bytes = (free + inactive) * page_size
         active = stats.get("Pages active", 0)
         wired = stats.get("Pages wired down", 0)
         compressed = stats.get("Pages occupied by compressor", 0)
-        speculative = stats.get("Pages speculative", 0)
-        used = (active + wired + compressed + speculative) * page_size
+        # App-ish used (not pressure, not full "wired+cached").
+        used = (active + wired + compressed) * page_size
     except Exception:
         used = 0
 
@@ -77,7 +90,8 @@ def memory_stats() -> dict:
     return {
         "totalBytes": total,
         "usedBytes": used,
-        "usedPercent": round(used_percent, 1),
+        "usedPercent": round(min(100.0, used_percent), 1),
+        "freeBytes": free_bytes,
     }
 
 
@@ -115,6 +129,8 @@ def gpu_stats() -> dict:
         "utilizationPercent": sample.get("utilizationPercent"),
         "powerWatts": sample.get("powerWatts"),
         "gpuCoreCount": sample.get("gpuCoreCount"),
+        "inUseSystemMemoryBytes": sample.get("inUseSystemMemoryBytes"),
+        "allocatedSystemMemoryBytes": sample.get("allocatedSystemMemoryBytes"),
         "status": sample.get("status", "unavailable"),
         "source": sample.get("source", "powermetrics"),
     }
@@ -185,10 +201,15 @@ def parse_ioreg_gpu_stats(output: str) -> dict:
     allocated_memory = _ioreg_number(output, "Alloc system memory")
     gpu_core_count = _ioreg_number(output, "gpu-core-count")
 
+    # Prefer max(device, renderer) as a single snapshot; still instantaneous
+    # (Sensei smooths over time — we label that in the UI).
+    util_candidates = [v for v in (utilization, renderer) if v is not None]
+    util = max(util_candidates) if util_candidates else None
+
     result = {
-        "utilizationPercent": utilization,
+        "utilizationPercent": util,
         "powerWatts": None,
-        "status": "ok" if utilization is not None else "unavailable",
+        "status": "ok" if util is not None else "unavailable",
         "source": "ioreg",
     }
     if renderer is not None:

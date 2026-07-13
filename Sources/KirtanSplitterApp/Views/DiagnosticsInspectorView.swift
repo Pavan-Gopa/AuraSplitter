@@ -333,10 +333,28 @@ struct DiagnosticsInspectorView: View {
     }
 
     private var lastRunWidget: some View {
-        InspectorCard(title: "Last Run", systemImage: "timer") {
+        InspectorCard(title: "Last Run · Post Run Stats", systemImage: "timer") {
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = backend.lastSummary {
                     let report = LastRunReport(summary: summary)
+
+                    Text(report.statusLineSummary)
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+
+                    if !report.postRunStatRows.isEmpty {
+                        Divider()
+                        Text("Post Run Stats")
+                            .font(.caption.weight(.semibold))
+                        ForEach(report.postRunStatRows, id: \.0) { key, value in
+                            detailRow(key, value)
+                        }
+                    }
+
+                    Divider()
+                    Text("Overview")
+                        .font(.caption.weight(.semibold))
                     ForEach(report.overviewRows, id: \.0) { key, value in
                         detailRow(key, value)
                     }
@@ -352,7 +370,7 @@ struct DiagnosticsInspectorView: View {
 
                     if !report.metricRows.isEmpty {
                         Divider()
-                        Text("Timings")
+                        Text("Library Timings")
                             .font(.caption.weight(.semibold))
                         ForEach(report.metricRows, id: \.0) { key, value in
                             detailRow(key, value)
@@ -379,6 +397,9 @@ struct DiagnosticsInspectorView: View {
                     Text("No completed run yet")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Text("After Separate finishes, wall time, chunk, batch, model hot/cold, and realtime factor appear here.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -391,7 +412,7 @@ struct DiagnosticsInspectorView: View {
 
     private var memoryDetail: String {
         guard let memory = backend.runtimeStats?.memory else { return "waiting" }
-        return "\(FileHelpers.formattedBytes(memory.usedBytes)) / \(FileHelpers.formattedBytes(memory.totalBytes))"
+        return "\(FileHelpers.formattedMemoryBytes(memory.usedBytes)) / \(FileHelpers.formattedMemoryBytes(memory.totalBytes))"
     }
 
     private func detailRow(_ key: String, _ value: String) -> some View {
@@ -428,7 +449,7 @@ struct DiagnosticsInspectorView: View {
 
     private var backendRSSDetail: String {
         guard let process = backend.runtimeStats?.process else { return "waiting" }
-        return "PID \(process.pid) · \(FileHelpers.formattedBytes(process.rssBytes)) · CPU \(String(format: "%.1f", process.cpuPercent))%"
+        return "PID \(process.pid) · \(FileHelpers.formattedMemoryBytes(process.rssBytes)) · CPU \(String(format: "%.1f", process.cpuPercent))%"
     }
 
     private var backendRSSPercent: Double {

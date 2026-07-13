@@ -5,9 +5,9 @@ struct SettingsDrawerView: View {
     @ObservedObject var processPresetStore: ProcessSettingsPresetStore
     @Binding var settings: SeparationSettings
     @Binding var selectedProcessPresetID: String
+    @Binding var selectedSection: SettingsDrawerSection
     let applyProcessPresetAction: (String) -> Void
     let closeAction: () -> Void
-    @State private var selectedSection: SettingsDrawerSection = .process
 
     var body: some View {
         VStack(spacing: 0) {

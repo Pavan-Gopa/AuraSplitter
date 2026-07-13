@@ -157,7 +157,7 @@ Every successful separation records a local calibration sample in:
 ```
 
 To deliberately benchmark one kirtan track across model presets and the
-`Fast 512`, `Heavy 1024`, and `Extreme 4096` process presets:
+`Default`, `Fast`, `Heavy`, `Max`, and `Extreme` process presets:
 
 ```bash
 ./script/benchmark_models.py /path/to/kirtan.wav --presets all --process-presets builtin.fast,builtin.heavy,builtin.extreme

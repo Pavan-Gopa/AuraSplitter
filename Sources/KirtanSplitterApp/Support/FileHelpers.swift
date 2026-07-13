@@ -44,6 +44,15 @@ enum FileHelpers {
         return formatter.string(fromByteCount: Int64(bytes))
     }
 
+    /// RAM sizes: 1024-based so 32 GiB physical reads as "32 GB" (Apple marketing),
+    /// not ~34.36 GB from decimal (1000-based) file-style formatting.
+    static func formattedMemoryBytes(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .memory
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+
     static func formattedDuration(_ seconds: Double) -> String {
         let totalSeconds = max(0, Int(seconds.rounded()))
         let hours = totalSeconds / 3600

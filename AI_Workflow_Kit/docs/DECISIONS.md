@@ -28,3 +28,14 @@ Orchestrator (Grok) пишет сюда решения при deadlock (`attempt
 - Track set to `OPT_DONE`, `next_actor: human`.
 - Post-OPT backlog remains optional (CoreML ONNX/ANE, colormap LUT, metal waveform).
 
+## 2026-07-13 — DESIGN_V2 opened (AuraSplitter)
+
+- New track **DESIGN_V2** (D0–D6): branding AuraSplitter, Custom presets, Results chrome,
+  sidebar, eye favorites, honest Est., filled waveform + main sliders.
+- Same roles: Grok / Hy3 / Gemini 3.5 Flash.
+- **Extra gate:** after Gemini APPROVED, orchestrator **builds the app** and does **visual
+  accept/reject** with human. Only visual PASS → `design/Dn-done` + push + advance.
+- **GitHub:** every step `design/pre-Dn` before Hy3, `design/Dn-done` after visual PASS; push required.
+- On reject: `fix_prompt` in STATE; same step retry; no step advance.
+- Product display name: **AuraSplitter**. Internal IDs/paths keep KirtanSplitter for D0 safety.
+

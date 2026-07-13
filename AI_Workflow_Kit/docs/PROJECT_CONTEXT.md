@@ -22,22 +22,27 @@ Native **macOS** app for stem separation of live kirtan recordings on **Apple Si
 | `AI_Workflow_Kit/` | Multi-agent orchestration (this kit) |
 | `PERF_BASELINE.md` | Created in K0 — timings / how to measure |
 
-## Current track: OPT_PERF
+## Display brand
+**AuraSplitter** (UI title / marketing). Internal paths may still say KirtanSplitter until a later rebrand.
 
-Goal: faster model runs (Metal/MLX + memory), RX-class preview load, minimal studio UI.
+## Prior track: OPT_PERF (closed)
+
+Faster model runs (Metal/MLX + memory), RX-class preview, design tokens. Tags: `opt/K0-done` … `opt/K8-done`.
+
+## Current track: DESIGN_V2
+
+UI/UX + branding. Cards: `AI_Workflow_Kit/docs/DESIGN_STEPS.md`. Gates: Gemini review **and** live visual accept.
 
 | Step | Name |
 |------|------|
-| K0 | Baseline & harness |
-| K1 | MLX experimental flags + Metal presets |
-| K2 | Single ffprobe + row-major spectrogram |
-| K3 | Warm Separator cache |
-| K4 | Binary ksbin + mmap client |
-| K5 | Progressive preview protocol |
-| K6 | Design tokens + chrome pass |
-| K7 | vDSP local analysis (or hybrid) |
-| K8 | Memory limits + static batch + LRU disk cache |
-| OPT_DONE | Acceptance |
+| D0 | Branding AuraSplitter + logo + Kirtan→Aura titles |
+| D1 | Process preset → Custom when dirty |
+| D2 | Results: Compare menu; Info→Folder→Trash |
+| D3 | Settings sidebar reorder / simplify |
+| D4 | Eye visibility models + process presets |
+| D5 | Est. time from real knobs |
+| D6 | Filled waveform + main Spectrum/Waveform sliders |
+| DESIGN_DONE | Acceptance |
 
 Post-OPT (CoreML ONNX/ANE runner, etc.) is **out of scope** until OPT is accepted.
 

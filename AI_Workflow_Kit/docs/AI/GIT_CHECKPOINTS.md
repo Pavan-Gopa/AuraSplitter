@@ -1,37 +1,48 @@
-# Git checkpoints — OPT_PERF
+# Git checkpoints — OPT_PERF + DESIGN_V2
 
-Перед **каждым** шагом K0–K8 и после **approve** шага обязателен git-коммит + tag + push на GitHub (если remote настроен). Цель: всегда можно откатиться.
+Перед **каждым** шагом и после **закрытия** шага обязателен git-коммит + tag + **push на GitHub**. Цель: всегда можно откатиться.
 
-## Naming
+## Naming — OPT_PERF (closed)
 
 | Moment | Tag | Commit message (пример) |
 |--------|-----|-------------------------|
 | **До** старта шага `Kn` | `opt/pre-Kn` | `chore(opt): checkpoint before Kn` |
 | **После** approve `Kn` | `opt/Kn-done` | `feat(opt): Kn — <кратко>` |
-| Bootstrap kit (один раз) | `opt/pre-K0` | `chore(opt): AI workflow kit + checkpoint policy` |
 
-Теги **не** перезаписывать (`-f` запрещён). Если tag уже есть — шаг уже начинали; не создавать дубликат без причины.
+## Naming — DESIGN_V2 (active)
+
+| Moment | Tag | Commit message (пример) |
+|--------|-----|-------------------------|
+| **До** старта шага `Dn` | `design/pre-Dn` | `chore(design): checkpoint before Dn` |
+| **После visual PASS** `Dn` | `design/Dn-done` | `feat(design): Dn — <кратко>` |
+
+**DESIGN_V2 close rule:** Gemini APPROVED is not enough. Orchestrator must **build & visually accept** the app, then `post` + push.
+
+Теги **не** перезаписывать (`-f` запрещён).
 
 ## Script
 
 ```bash
-# До старта шага (Orchestrator, когда открывает Kn):
+# OPT (legacy):
 ./script/opt_checkpoint.sh pre K0
-
-# После approve + зафиксированного кода шага (Orchestrator при advance):
 ./script/opt_checkpoint.sh post K0 "baseline PERF_BASELINE.md"
 
-# Список checkpoint-тегов:
+# DESIGN_V2:
+./script/opt_checkpoint.sh pre D0
+./script/opt_checkpoint.sh post D0 "AuraSplitter branding"
+
+# Список:
 ./script/opt_checkpoint.sh list
 
-# Откат working tree к состоянию ДО шага K1 (осторожно!):
+# Откат (осторожно!):
+./script/opt_checkpoint.sh rollback pre D0
 ./script/opt_checkpoint.sh rollback pre K1
 ```
 
 `pre` / `post`:
-1. `git status` — если есть изменения, `git add` нужных путей и `commit`
-2. `git tag opt/pre-Kn` или `opt/Kn-done`
-3. `git push origin HEAD` + `git push origin <tag>` (если remote есть)
+1. `git status` — если есть изменения, `git add` + `commit`
+2. `git tag` `opt/…` or `design/…`
+3. `git push origin HEAD` + `git push origin <tag>`
 
 ## Who does what
 

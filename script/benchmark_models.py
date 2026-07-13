@@ -44,7 +44,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--process-presets",
-        default="builtin.fast,builtin.heavy,builtin.extreme",
+        default="builtin.default,builtin.fast,builtin.heavy,builtin.max,builtin.extreme",
         help="Comma-separated process preset IDs.",
     )
     parser.add_argument(

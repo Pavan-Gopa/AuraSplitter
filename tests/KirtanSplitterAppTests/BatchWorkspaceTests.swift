@@ -87,18 +87,53 @@ final class BatchWorkspaceTests: XCTestCase {
         XCTAssertEqual(presetID, "per_file")
     }
 
+    func testDiscoverStemFilesLoadsExistingExperimentsFromStemsFolder() throws {
+        let root = try makeTemporaryDirectory()
+        let source = root.appendingPathComponent("02BACK.wav")
+        try Data("src".utf8).write(to: source)
+        let stemsDir = root.appendingPathComponent("02BACK_stems")
+        try FileManager.default.createDirectory(at: stemsDir, withIntermediateDirectories: true)
+
+        let v1 = stemsDir.appendingPathComponent("02BACK_(vocals)_Elite_Heavy.wav")
+        let v2 = stemsDir.appendingPathComponent("02BACK_(vocals 2)_Elite_Max.wav")
+        let other = stemsDir.appendingPathComponent("02BACK_(other)_Elite_Heavy.wav")
+        let sidecar = stemsDir.appendingPathComponent("02BACK_(vocals)_Elite_Heavy.kirtan-run.json")
+        try Data("a".utf8).write(to: v1)
+        try Data("b".utf8).write(to: v2)
+        try Data("c".utf8).write(to: other)
+        try Data(
+            """
+            {"formatVersion":1,"processPresetTitle":"Heavy","chunkLabel":"90s","segmentSize":1024,"batchSize":2}
+            """.utf8
+        ).write(to: sidecar)
+
+        let files = BatchWorkspace.discoverStemFiles(in: stemsDir, relatedTo: source)
+
+        XCTAssertEqual(files.count, 3)
+        XCTAssertTrue(files.contains { $0.stem == "vocals" })
+        XCTAssertTrue(files.contains { $0.stem == "vocals_2" })
+        XCTAssertTrue(files.contains { $0.stem == "other" })
+        let firstVocals = files.first { $0.stem == "vocals" }
+        XCTAssertEqual(firstVocals?.runInfo?.processPresetTitle, "Heavy")
+        XCTAssertEqual(firstVocals?.runInfo?.chunkLabel, "90s")
+        XCTAssertEqual(BatchWorkspace.defaultStemsDirectory(for: source).path, stemsDir.path)
+    }
+
     func testStemFileDisplayNameParsingWithModelAndPresetSuffix() throws {
         let vocalsNoSuffix = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals).wav", sizeBytes: 100)
         XCTAssertEqual(vocalsNoSuffix.displayName, "Vocals")
 
         let vocalsWithModel = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals)_Kirtan Pro.wav", sizeBytes: 100)
-        XCTAssertEqual(vocalsWithModel.displayName, "Vocals (Kirtan Pro)")
+        XCTAssertEqual(vocalsWithModel.displayName, "Vocals · Kirtan Pro")
 
         let vocalsWithModelAndPreset = StemFile(stem: "vocals", path: "/path/to/MySong_(vocals)_Kirtan Pro_Heavy.wav", sizeBytes: 100)
-        XCTAssertEqual(vocalsWithModelAndPreset.displayName, "Vocals (Kirtan Pro Heavy)")
+        XCTAssertEqual(vocalsWithModelAndPreset.displayName, "Vocals · Kirtan Pro Heavy")
+
+        let vocalsVersion2 = StemFile(stem: "vocals_2", path: "/path/to/MySong_(vocals 2)_Kirtan Pro_Heavy.wav", sizeBytes: 100)
+        XCTAssertEqual(vocalsVersion2.displayName, "Vocals 2 · Kirtan Pro Heavy")
 
         let leadVocalsWithSpaces = StemFile(stem: "lead_vocals", path: "/path/to/MySong_(lead vocals)_Kirtan Clean Split_Fast.wav", sizeBytes: 100)
-        XCTAssertEqual(leadVocalsWithSpaces.displayName, "Lead Vocals (Kirtan Clean Split Fast)")
+        XCTAssertEqual(leadVocalsWithSpaces.displayName, "Lead Vocals · Kirtan Clean Split Fast")
     }
 
     private func makeTemporaryDirectory() throws -> URL {

@@ -273,6 +273,25 @@ private struct ResultStemRow: View {
     let compareAction: () -> Void
     let previewAction: () -> Void
     let deleteAction: () -> Void
+    @State private var showingInfo = false
+    @State private var infoStem: StemFile
+
+    init(
+        stem: StemFile,
+        isActive: Bool,
+        selectedStemPaths: Binding<Set<String>>,
+        compareAction: @escaping () -> Void,
+        previewAction: @escaping () -> Void,
+        deleteAction: @escaping () -> Void
+    ) {
+        self.stem = stem
+        self.isActive = isActive
+        self._selectedStemPaths = selectedStemPaths
+        self.compareAction = compareAction
+        self.previewAction = previewAction
+        self.deleteAction = deleteAction
+        _infoStem = State(initialValue: stem)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -323,6 +342,12 @@ private struct ResultStemRow: View {
         .padding(.vertical, 8)
         .background(isActive ? Color.orange.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
         .contextMenu {
+            Button {
+                openInfo()
+            } label: {
+                Label("Info…", systemImage: "info.circle")
+            }
+
             if selectedStemPaths.count >= 2 {
                 Button(action: compareAction) {
                     Label("Compare Selected (\(selectedStemPaths.count))", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
@@ -333,7 +358,31 @@ private struct ResultStemRow: View {
                 }
                 .disabled(true)
             }
+
+            Button {
+                FileHelpers.reveal(path: stem.path)
+            } label: {
+                Label("Reveal in Finder", systemImage: "folder")
+            }
+
+            Divider()
+
+            Button(role: .destructive, action: deleteAction) {
+                Label("Delete Stem", systemImage: "trash")
+            }
         }
+        .sheet(isPresented: $showingInfo) {
+            StemInfoSheet(stem: infoStem) {
+                showingInfo = false
+            }
+        }
+    }
+
+    private func openInfo() {
+        var next = stem
+        next.loadRunInfoFromSidecar()
+        infoStem = next
+        showingInfo = true
     }
 
     private var isSelectedBinding: Binding<Bool> {
@@ -350,8 +399,8 @@ private struct ResultStemRow: View {
     }
 
     private var stemIconName: String {
-        switch stem.stem {
-        case "vocals", "lead_vocals": return "mic.fill"
+        switch stemBaseKind {
+        case "vocals", "lead_vocals", "lead": return "mic.fill"
         case "drums", "kick", "snare", "toms": return "music.quarternote.3"
         case "bass": return "waveform.path.badge.minus"
         case "piano": return "pianokeys"
@@ -360,14 +409,101 @@ private struct ResultStemRow: View {
         }
     }
 
+    private var stemBaseKind: String {
+        stem.stem.replacingOccurrences(of: #"_\d+$"#, with: "", options: .regularExpression)
+    }
+
     private var stemColor: Color {
-        switch stem.stem {
-        case "vocals", "lead_vocals": return .orange
+        switch stemBaseKind {
+        case "vocals", "lead_vocals", "lead": return .orange
         case "drums", "kick", "snare", "toms": return .red
         case "bass": return .purple
         case "piano": return .green
         case "guitar": return .cyan
         default: return .blue
+        }
+    }
+}
+
+private struct StemInfoSheet: View {
+    let stem: StemFile
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label("Stem Info", systemImage: "info.circle")
+                    .font(.headline)
+                Spacer()
+                Button("Done", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    headerBlock
+
+                    if let rows = infoRows, !rows.isEmpty {
+                        sectionTitle("Process / experiment")
+                        ForEach(rows, id: \.0) { key, value in
+                            row(key, value)
+                        }
+                    } else {
+                        Text("No process metadata found for this file. Re-run separation with the current app version to attach experiment settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .frame(minWidth: 380, idealWidth: 420, minHeight: 360, idealHeight: 480)
+    }
+
+    private var headerBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(stem.displayName)
+                .font(.title3.weight(.semibold))
+            Text(stem.fileName)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Text(stem.path)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .textSelection(.enabled)
+                .lineLimit(3)
+            Text(FileHelpers.formattedBytes(stem.sizeBytes))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var infoRows: [(String, String)]? {
+        stem.runInfo?.infoRows
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.top, 4)
+    }
+
+    private func row(_ key: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(key)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 120, alignment: .leading)
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
