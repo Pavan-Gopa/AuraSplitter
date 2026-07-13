@@ -150,6 +150,25 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         settings.speedMode = "latency_safe_v3"
         return settings
     }
+
+    /// True when `settings` diverge from this preset's snapshot
+    /// (output format, speed, chunk, segment, overlap, batch, override flags, perf flags).
+    func isDirty(settings: SeparationSettings) -> Bool {
+        ProcessSettingsSnapshot(settings: settings) != snapshot
+    }
+
+    /// Display title for the preset selected by `presetID` given live `settings`.
+    /// Returns the preset title when it still matches its snapshot, otherwise "Custom".
+    static func displayTitle(
+        for presetID: String,
+        in presets: [ProcessSettingsPreset],
+        settings: SeparationSettings
+    ) -> String {
+        guard let preset = presets.first(where: { $0.id == presetID }) else {
+            return "Custom"
+        }
+        return preset.isDirty(settings: settings) ? "Custom" : preset.title
+    }
 }
 
 final class ProcessSettingsPresetStore: ObservableObject {

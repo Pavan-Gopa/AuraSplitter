@@ -34,14 +34,31 @@ struct ControlPaneView: View {
             Text("Settings Presets")
                 .font(.callout.weight(.semibold))
 
-            Picker("Settings Preset", selection: processPresetSelectionBinding) {
+            Menu {
                 ForEach(processPresetStore.presets) { preset in
-                    Text(preset.title).tag(preset.id)
+                    Button {
+                        selectedProcessPresetID = preset.id
+                    } label: {
+                        Text(preset.title)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(ProcessSettingsPreset.displayTitle(
+                        for: selectedProcessPresetID,
+                        in: processPresetStore.presets,
+                        settings: settings
+                    ))
+                    .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             .labelsHidden()
-            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(processPresetStore.presets.isEmpty || backend.isBusy)
+            .accessibilityLabel("Settings Preset")
 
             HStack(spacing: 8) {
                 TextField("Preset name", text: $newPresetName)
@@ -198,16 +215,6 @@ struct ControlPaneView: View {
                 .disabled(backend.isBusy)
                 .help("Keeps converted safetensors so the model does not convert again on the next run.")
         }
-    }
-
-    private var processPresetSelectionBinding: Binding<String> {
-        Binding(
-            get: { selectedProcessPresetID },
-            set: { presetID in
-                selectedProcessPresetID = presetID
-                applyProcessPresetAction(presetID)
-            }
-        )
     }
 
     private var modelOverrideBinding: Binding<String> {

@@ -36,6 +36,7 @@ struct ContentView: View {
                     processPresetID: processPresetIDBinding,
                     modelPresets: backend.presets,
                     processPresets: processPresetStore.presets,
+                    settings: settings,
                     renderEstimate: backend.renderEstimate,
                     hasSelectedSources: hasSelectedSources,
                     isSettingsSidebarOpen: isSettingsSidebarOpen,
@@ -723,6 +724,7 @@ private struct AppHeaderView: View {
     @Binding var processPresetID: String
     let modelPresets: [SeparationPreset]
     let processPresets: [ProcessSettingsPreset]
+    let settings: SeparationSettings
     let renderEstimate: RenderEstimate?
     let hasSelectedSources: Bool
     let isSettingsSidebarOpen: Bool
@@ -766,16 +768,31 @@ private struct AppHeaderView: View {
             )
             .frame(width: 188)
 
-            Picker("Process Preset", selection: $processPresetID) {
+            Menu {
                 ForEach(processPresets) { preset in
-                    Text(preset.title).tag(preset.id)
+                    Button {
+                        processPresetID = preset.id
+                    } label: {
+                        Text(preset.title)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(ProcessSettingsPreset.displayTitle(
+                        for: processPresetID,
+                        in: processPresets,
+                        settings: settings
+                    ))
+                    .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 144)
+            .frame(width: 144, alignment: .leading)
             .disabled(processPresets.isEmpty || backend.isBusy)
             .help("Process settings preset")
+            .accessibilityLabel("Process Preset")
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {

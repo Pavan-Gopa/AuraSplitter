@@ -2,21 +2,18 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D1
+current_step: D2
 step_description: >
-  Process preset honesty: when SeparationSettings diverge from the selected
-  process-preset snapshot, UI shows Custom (toolbar + settings sidebar).
-  Re-selecting a preset re-applies its snapshot. Unit tests for match/dirty.
-  Do not implement D2–D6 in this step.
+  Results chrome: stem context menu = Compare only. Row icons order:
+  Info (sheet) → Folder (Reveal) → Trash (Delete). Do not implement D3–D6.
 
 target_files:
-  - Sources/KirtanSplitterApp/Models/ProcessSettingsPreset.swift
-  - Sources/KirtanSplitterApp/Views/ContentView.swift
-  - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
-  - tests/KirtanSplitterAppTests/ProcessSettingsPresetTests.swift
+  - Sources/KirtanSplitterApp/Views/SourceResultOverviewView.swift
+  - Sources/KirtanSplitterApp/Views/ResultsPaneView.swift
 
 completed_steps:
   - D0
+  - D1
 
 implementation:
   status: pending
@@ -39,13 +36,13 @@ prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D1
-  last_post_tag: design/D0-done
-  last_commit: 37e2845
+  last_post_tag: design/D1-done
+  last_commit: null
 
 git:
-  pre_tag: design/pre-D1
-  post_tag: design/D0-done
-  last_push: "origin design/D0-done + design/pre-D1 + branch"
+  pre_tag: design/pre-D2
+  post_tag: design/D1-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md

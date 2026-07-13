@@ -110,4 +110,77 @@ final class ProcessSettingsPresetTests: XCTestCase {
         settings.mdxcSegmentSize = segmentSize
         return settings
     }
+
+    // MARK: - D1: process preset → Custom when dirty
+
+    private func heavyPreset() -> ProcessSettingsPreset {
+        ProcessSettingsPreset.builtIn.first { $0.id == "builtin.heavy" }!
+    }
+
+    func testDisplayTitleShowsPresetTitleWhenSettingsMatchSnapshot() {
+        let heavy = heavyPreset()
+        var settings = SeparationSettings()
+        heavy.snapshot.apply(to: &settings)
+
+        XCTAssertFalse(heavy.isDirty(settings: settings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(for: heavy.id, in: ProcessSettingsPreset.builtIn, settings: settings),
+            "Heavy"
+        )
+    }
+
+    func testDisplayTitleShowsCustomWhenSegmentSizeDiverges() {
+        let heavy = heavyPreset()
+        var settings = SeparationSettings()
+        heavy.snapshot.apply(to: &settings)
+        settings.mdxcSegmentSize = 2048
+
+        XCTAssertTrue(heavy.isDirty(settings: settings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(for: heavy.id, in: ProcessSettingsPreset.builtIn, settings: settings),
+            "Custom"
+        )
+    }
+
+    func testDisplayTitleShowsCustomForBatchChunkAndOverlapDivergence() {
+        let heavy = heavyPreset()
+
+        var batchSettings = SeparationSettings()
+        heavy.snapshot.apply(to: &batchSettings)
+        batchSettings.mdxcBatchSize = 4
+        XCTAssertTrue(heavy.isDirty(settings: batchSettings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(for: heavy.id, in: ProcessSettingsPreset.builtIn, settings: batchSettings),
+            "Custom"
+        )
+
+        var chunkSettings = SeparationSettings()
+        heavy.snapshot.apply(to: &chunkSettings)
+        chunkSettings.chunkDuration = 99
+        XCTAssertTrue(heavy.isDirty(settings: chunkSettings))
+
+        var overlapSettings = SeparationSettings()
+        heavy.snapshot.apply(to: &overlapSettings)
+        overlapSettings.mdxcOverlap = 1
+        XCTAssertTrue(heavy.isDirty(settings: overlapSettings))
+    }
+
+    func testReapplyingPresetReturnsToCleanDisplayTitle() {
+        let heavy = heavyPreset()
+        var settings = SeparationSettings()
+        heavy.snapshot.apply(to: &settings)
+        settings.mdxcSegmentSize = 2048
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(for: heavy.id, in: ProcessSettingsPreset.builtIn, settings: settings),
+            "Custom"
+        )
+
+        // Mirrors the applyProcessPreset path used by the UI.
+        heavy.snapshot.apply(to: &settings)
+        XCTAssertFalse(heavy.isDirty(settings: settings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(for: heavy.id, in: ProcessSettingsPreset.builtIn, settings: settings),
+            "Heavy"
+        )
+    }
 }
