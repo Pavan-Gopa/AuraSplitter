@@ -14,6 +14,8 @@ enum KSTheme {
     // MARK: — Accents
     static let accent = Color.orange
     static let waveformBlue = Color(red: 0.18, green: 0.55, blue: 1.0)
+    /// Matches spectrogram fire colormap (amber / orange) for layer controls.
+    static let spectrogramAccent = Color(red: 1.0, green: 0.52, blue: 0.12)
     static let playheadAmber = Color(red: 1.0, green: 0.74, blue: 0.18)
     static let clippingRed = Color(red: 1.0, green: 0.22, blue: 0.20)
     static let decibelPink = Color(red: 1.0, green: 0.18, blue: 0.32)

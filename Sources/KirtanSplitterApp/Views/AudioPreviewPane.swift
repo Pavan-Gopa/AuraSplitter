@@ -10,33 +10,42 @@ struct AudioPreviewPane: View {
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
     @State private var previousPath: String? = nil
+    @State private var isFullscreen = false
 
     var body: some View {
+        paneChrome(isFullscreenMode: false)
+            .onChange(of: analysis?.path) { newPath in
+                if let newPath {
+                    if let oldPath = previousPath, baseSongName(from: oldPath) == baseSongName(from: newPath) {
+                        // Same song (or its stems) - preserve zoom!
+                    } else {
+                        viewport.reset()
+                    }
+                    previousPath = newPath
+                } else {
+                    viewport.reset()
+                    previousPath = nil
+                }
+            }
+            .fullScreenCover(isPresented: $isFullscreen) {
+                paneChrome(isFullscreenMode: true)
+                    .background(KSTheme.canvasBackground.ignoresSafeArea())
+            }
+    }
+
+    private func paneChrome(isFullscreenMode: Bool) -> some View {
         VStack(spacing: 0) {
-            header
+            header(isFullscreenMode: isFullscreenMode)
             Divider()
             previewCanvas
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(KSTheme.canvasBackground)
                 .overlay(
-                    RoundedRectangle(cornerRadius: KSTheme.radiusLG)
-                        .strokeBorder(KSTheme.hairline, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: isFullscreenMode ? 0 : KSTheme.radiusLG)
+                        .strokeBorder(KSTheme.hairline, lineWidth: isFullscreenMode ? 0 : 1)
                 )
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.38))
-        .onChange(of: analysis?.path) { newPath in
-            if let newPath {
-                if let oldPath = previousPath, baseSongName(from: oldPath) == baseSongName(from: newPath) {
-                    // Same song (or its stems) - preserve zoom!
-                } else {
-                    viewport.reset()
-                }
-                previousPath = newPath
-            } else {
-                viewport.reset()
-                previousPath = nil
-            }
-        }
+        .background(Color(nsColor: .textBackgroundColor).opacity(isFullscreenMode ? 1 : 0.38))
     }
 
     private func baseSongName(from path: String) -> String {
@@ -48,7 +57,7 @@ struct AudioPreviewPane: View {
         return fileStem
     }
 
-    private var header: some View {
+    private func header(isFullscreenMode: Bool) -> some View {
         HStack(spacing: 12) {
             Button(action: togglePlayback) {
                 Image(systemName: isPlayingCurrentSource ? "pause.fill" : "play.fill")
@@ -94,6 +103,18 @@ struct AudioPreviewPane: View {
             waveformSlider
             layerResetButton
             volumeControl
+
+            Button {
+                isFullscreen.toggle()
+            } label: {
+                Image(systemName: isFullscreenMode
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.borderless)
+            .help(isFullscreenMode ? "Exit full screen preview" : "Expand preview to full screen")
+            .accessibilityLabel(isFullscreenMode ? "Exit full screen" : "Full screen preview")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -216,7 +237,7 @@ struct AudioPreviewPane: View {
     private var spectrumSlider: some View {
         HStack(spacing: 5) {
             Image(systemName: "waveform.path")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(KSTheme.spectrogramAccent)
                 .frame(width: 14)
             Slider(
                 value: Binding(
@@ -226,6 +247,7 @@ struct AudioPreviewPane: View {
                 in: 0...2,
                 step: 0.05
             )
+            .tint(KSTheme.spectrogramAccent)
             .frame(width: 86)
         }
         .help("Spectrum intensity")
@@ -234,7 +256,7 @@ struct AudioPreviewPane: View {
     private var waveformSlider: some View {
         HStack(spacing: 5) {
             Image(systemName: "waveform")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(KSTheme.waveformBlue)
                 .frame(width: 14)
             Slider(
                 value: Binding(
@@ -244,6 +266,7 @@ struct AudioPreviewPane: View {
                 in: 0...2,
                 step: 0.05
             )
+            .tint(KSTheme.waveformBlue)
             .frame(width: 86)
         }
         .help("Waveform intensity")
@@ -470,7 +493,8 @@ struct AudioPreviewPane: View {
         let labelX = plotRect.maxX + 22
         let centerY = plotRect.midY
         let halfHeight = plotRect.height / 2
-        let tickColor = KSTheme.decibelPink
+        // Neutral ticks (not red/pink) — labels stay secondary.
+        let tickColor = Color.white
         var labelPositions = [centerY]
 
         drawText("dB", font: .caption2, color: .secondary, context: &context, at: CGPoint(x: labelX, y: plotRect.minY - 5), anchor: .leading)
@@ -488,7 +512,7 @@ struct AudioPreviewPane: View {
         var centerTick = Path()
         centerTick.move(to: CGPoint(x: tickX - 10, y: centerY))
         centerTick.addLine(to: CGPoint(x: tickX, y: centerY))
-        context.stroke(centerTick, with: .color(Color.white.opacity(0.22)), lineWidth: 1)
+        context.stroke(centerTick, with: .color(Color.white.opacity(0.28)), lineWidth: 1)
         drawText("-inf", font: .caption2.monospacedDigit(), color: .secondary, context: &context, at: CGPoint(x: labelX, y: centerY), anchor: .leading)
     }
 
@@ -512,7 +536,7 @@ struct AudioPreviewPane: View {
         var path = Path()
         path.move(to: CGPoint(x: tickX - tickLength, y: y))
         path.addLine(to: CGPoint(x: tickX, y: y))
-        context.stroke(path, with: .color(tickColor.opacity(tick.isMajor ? 0.95 : 0.58)), lineWidth: tick.isMajor ? 1.7 : 1.1)
+        context.stroke(path, with: .color(tickColor.opacity(tick.isMajor ? 0.38 : 0.18)), lineWidth: tick.isMajor ? 1.2 : 0.9)
 
         guard showLabel else { return }
         drawText(
