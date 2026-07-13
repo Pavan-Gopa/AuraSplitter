@@ -12,6 +12,8 @@ struct ControlPaneView: View {
 
     @State private var newPresetName = ""
     @State private var advancedExpanded = false
+    @State private var isModelPickerOpen = false
+    @State private var isProcessPresetPickerOpen = false
 
     private let outputFormats = ["WAV", "FLAC"]
     private let speedModes = ["latency_safe_v3", "latency_safe", "default"]
@@ -35,22 +37,46 @@ struct ControlPaneView: View {
             Text("Settings Presets")
                 .font(.callout.weight(.semibold))
 
-            HStack(spacing: 4) {
-                Text(ProcessSettingsPreset.displayTitle(
-                    for: selectedProcessPresetID,
-                    in: processPresetStore.presets,
-                    settings: settings
-                ))
-                .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            // Compact dropdown: open rarely to toggle header eyes / pick a preset.
+            Button {
+                isProcessPresetPickerOpen.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(ProcessSettingsPreset.displayTitle(
+                        for: selectedProcessPresetID,
+                        in: processPresetStore.presets,
+                        settings: settings
+                    ))
+                    .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             }
-            .accessibilityLabel("Selected process preset")
-
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(processPresetStore.presets) { preset in
-                    processPresetRow(preset)
+            .buttonStyle(.plain)
+            .disabled(processPresetStore.presets.isEmpty || backend.isBusy)
+            .accessibilityLabel("Settings Preset")
+            .popover(isPresented: $isProcessPresetPickerOpen, arrowEdge: .bottom) {
+                visibilityPickerPopover(
+                    title: "Process presets",
+                    help: "Eye = show in header menu. Click name to select."
+                ) {
+                    ForEach(processPresetStore.presets) { preset in
+                        visibilityPickerRow(
+                            title: preset.title,
+                            isSelected: selectedProcessPresetID == preset.id,
+                            isVisibleInHeader: menuVisibility.isProcessPresetVisible(preset.id),
+                            onToggleEye: { menuVisibility.toggleProcessPresetVisibility(preset.id) },
+                            onSelect: {
+                                selectedProcessPresetID = preset.id
+                                isProcessPresetPickerOpen = false
+                            }
+                        )
+                    }
                 }
             }
 
@@ -72,38 +98,46 @@ struct ControlPaneView: View {
         }
     }
 
-    private func processPresetRow(_ preset: ProcessSettingsPreset) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                menuVisibility.toggleProcessPresetVisibility(preset.id)
-            } label: {
-                Image(systemName: menuVisibility.isProcessPresetVisible(preset.id) ? "eye" : "eye.slash")
-            }
-            .buttonStyle(.borderless)
-            .help(menuVisibility.isProcessPresetVisible(preset.id) ? "Hide from header menu" : "Show in header menu")
-
-            Button {
-                selectedProcessPresetID = preset.id
-            } label: {
-                Text(preset.title)
-                    .font(.callout)
-                    .fontWeight(selectedProcessPresetID == preset.id ? .semibold : .regular)
-                    .foregroundStyle(selectedProcessPresetID == preset.id ? .primary : .secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, 2)
-    }
-
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Model")
                 .font(.callout.weight(.semibold))
 
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(backend.presets) { preset in
-                    modelRow(preset)
+            Button {
+                isModelPickerOpen.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedModelTitle)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .disabled(backend.presets.isEmpty || backend.isBusy)
+            .accessibilityLabel("Model")
+            .popover(isPresented: $isModelPickerOpen, arrowEdge: .bottom) {
+                visibilityPickerPopover(
+                    title: "Models",
+                    help: "Eye = show in header menu. Click name to select."
+                ) {
+                    ForEach(backend.presets) { preset in
+                        visibilityPickerRow(
+                            title: preset.title,
+                            isSelected: settings.presetID == preset.id,
+                            isVisibleInHeader: menuVisibility.isModelVisible(preset.id),
+                            onToggleEye: { menuVisibility.toggleModelVisibility(preset.id) },
+                            onSelect: {
+                                settings.presetID = preset.id
+                                isModelPickerOpen = false
+                            }
+                        )
+                    }
                 }
             }
 
@@ -131,28 +165,70 @@ struct ControlPaneView: View {
         }
     }
 
-    private func modelRow(_ preset: SeparationPreset) -> some View {
+    private var selectedModelTitle: String {
+        backend.presets.first(where: { $0.id == settings.presetID })?.title ?? "Select model"
+    }
+
+    @ViewBuilder
+    private func visibilityPickerPopover<Content: View>(
+        title: String,
+        help: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(help)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    content()
+                }
+            }
+            .frame(maxHeight: 320)
+        }
+        .padding(12)
+        .frame(width: 280)
+    }
+
+    private func visibilityPickerRow(
+        title: String,
+        isSelected: Bool,
+        isVisibleInHeader: Bool,
+        onToggleEye: @escaping () -> Void,
+        onSelect: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 8) {
-            Button {
-                menuVisibility.toggleModelVisibility(preset.id)
-            } label: {
-                Image(systemName: menuVisibility.isModelVisible(preset.id) ? "eye" : "eye.slash")
+            Button(action: onToggleEye) {
+                Image(systemName: isVisibleInHeader ? "eye" : "eye.slash")
+                    .foregroundStyle(isVisibleInHeader ? Color.primary : Color.secondary)
+                    .frame(width: 22, height: 22)
             }
             .buttonStyle(.borderless)
-            .help(menuVisibility.isModelVisible(preset.id) ? "Hide from header menu" : "Show in header menu")
+            .help(isVisibleInHeader ? "Hide from header menu" : "Show in header menu")
 
-            Button {
-                settings.presetID = preset.id
-            } label: {
-                Text(preset.title)
-                    .font(.callout)
-                    .fontWeight(settings.presetID == preset.id ? .semibold : .regular)
-                    .foregroundStyle(settings.presetID == preset.id ? .primary : .secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onSelect) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.callout)
+                        .fontWeight(isSelected ? .semibold : .regular)
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 
     private var processSection: some View {
