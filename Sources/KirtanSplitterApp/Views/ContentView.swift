@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var isDropTargeted = false
     @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
     @State private var previewResizeStartFraction: CGFloat?
+    @State private var isPreviewFullscreen = false
     @State private var isSettingsSidebarOpen = false
     @State private var settingsDrawerSection: SettingsDrawerSection = .process
     @State private var didInitializeLayout = false
@@ -53,7 +54,7 @@ struct ContentView: View {
                     mainWorkspace
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if isSettingsSidebarOpen {
+                    if isSettingsSidebarOpen && !isPreviewFullscreen {
                         Divider()
                         SettingsDrawerView(
                             backend: backend,
@@ -71,6 +72,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
+            .animation(.easeInOut(duration: 0.18), value: isPreviewFullscreen)
             .onChange(of: backend.lastSummary?.completedAt) { _ in
                 guard backend.lastSummary != nil else { return }
                 // Surface Post Run Stats immediately after a finished separation.
@@ -126,37 +128,45 @@ struct ContentView: View {
             let bottomHeight = max(220, (geometry.size.height - handleHeight) * bottomFraction)
             let topHeight = max(260, geometry.size.height - bottomHeight - handleHeight)
 
+            // Keep a single AudioPreviewPane identity so zoom/layers survive expand.
             VStack(spacing: 0) {
-                topWorkspace
-                .frame(height: topHeight)
+                if !isPreviewFullscreen {
+                    topWorkspace
+                        .frame(height: topHeight)
 
-                PreviewResizeHandle()
-                    .frame(height: handleHeight)
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                if previewResizeStartFraction == nil {
-                                    previewResizeStartFraction = previewHeightFraction
+                    PreviewResizeHandle()
+                        .frame(height: handleHeight)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    if previewResizeStartFraction == nil {
+                                        previewResizeStartFraction = previewHeightFraction
+                                    }
+                                    let startFraction = previewResizeStartFraction ?? previewHeightFraction
+                                    let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
+                                    previewHeightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
                                 }
-                                let startFraction = previewResizeStartFraction ?? previewHeightFraction
-                                let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
-                                previewHeightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
-                            }
-                            .onEnded { _ in
-                                previewResizeStartFraction = nil
-                            }
-                    )
+                                .onEnded { _ in
+                                    previewResizeStartFraction = nil
+                                }
+                        )
+                }
 
-                AudioPreviewPane(
-                    analysis: previewAnalysis,
-                    analysisError: previewAnalysisError,
-                    isAnalyzing: isAnalyzingPreview,
-                    previewProgress: backend.previewProgress,
-                    player: audioPreviewPlayer
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                audioPreviewPane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private var audioPreviewPane: some View {
+        AudioPreviewPane(
+            analysis: previewAnalysis,
+            analysisError: previewAnalysisError,
+            isAnalyzing: isAnalyzingPreview,
+            previewProgress: backend.previewProgress,
+            player: audioPreviewPlayer,
+            isFullscreen: $isPreviewFullscreen
+        )
     }
 
     private var topWorkspace: some View {

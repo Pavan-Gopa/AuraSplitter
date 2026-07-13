@@ -7,45 +7,38 @@ struct AudioPreviewPane: View {
     let isAnalyzing: Bool
     let previewProgress: AudioPreviewProgress?
     @ObservedObject var player: AudioPreviewPlayer
+    /// When true, chrome shows exit-fullscreen control; parent expands layout.
+    @Binding var isFullscreen: Bool
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
     @State private var previousPath: String? = nil
-    @State private var isFullscreen = false
 
     var body: some View {
-        paneChrome(isFullscreenMode: false)
-            .onChange(of: analysis?.path) { newPath in
-                if let newPath {
-                    if let oldPath = previousPath, baseSongName(from: oldPath) == baseSongName(from: newPath) {
-                        // Same song (or its stems) - preserve zoom!
-                    } else {
-                        viewport.reset()
-                    }
-                    previousPath = newPath
-                } else {
-                    viewport.reset()
-                    previousPath = nil
-                }
-            }
-            .fullScreenCover(isPresented: $isFullscreen) {
-                paneChrome(isFullscreenMode: true)
-                    .background(KSTheme.canvasBackground.ignoresSafeArea())
-            }
-    }
-
-    private func paneChrome(isFullscreenMode: Bool) -> some View {
         VStack(spacing: 0) {
-            header(isFullscreenMode: isFullscreenMode)
+            header
             Divider()
             previewCanvas
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(KSTheme.canvasBackground)
                 .overlay(
-                    RoundedRectangle(cornerRadius: isFullscreenMode ? 0 : KSTheme.radiusLG)
-                        .strokeBorder(KSTheme.hairline, lineWidth: isFullscreenMode ? 0 : 1)
+                    RoundedRectangle(cornerRadius: isFullscreen ? 0 : KSTheme.radiusLG)
+                        .strokeBorder(KSTheme.hairline, lineWidth: isFullscreen ? 0 : 1)
                 )
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(isFullscreenMode ? 1 : 0.38))
+        .background(Color(nsColor: .textBackgroundColor).opacity(isFullscreen ? 1 : 0.38))
+        .onChange(of: analysis?.path) { newPath in
+            if let newPath {
+                if let oldPath = previousPath, baseSongName(from: oldPath) == baseSongName(from: newPath) {
+                    // Same song (or its stems) - preserve zoom!
+                } else {
+                    viewport.reset()
+                }
+                previousPath = newPath
+            } else {
+                viewport.reset()
+                previousPath = nil
+            }
+        }
     }
 
     private func baseSongName(from path: String) -> String {
@@ -57,7 +50,7 @@ struct AudioPreviewPane: View {
         return fileStem
     }
 
-    private func header(isFullscreenMode: Bool) -> some View {
+    private var header: some View {
         HStack(spacing: 12) {
             Button(action: togglePlayback) {
                 Image(systemName: isPlayingCurrentSource ? "pause.fill" : "play.fill")
@@ -107,14 +100,14 @@ struct AudioPreviewPane: View {
             Button {
                 isFullscreen.toggle()
             } label: {
-                Image(systemName: isFullscreenMode
+                Image(systemName: isFullscreen
                       ? "arrow.down.right.and.arrow.up.left"
                       : "arrow.up.left.and.arrow.down.right")
                     .frame(width: 26, height: 26)
             }
             .buttonStyle(.borderless)
-            .help(isFullscreenMode ? "Exit full screen preview" : "Expand preview to full screen")
-            .accessibilityLabel(isFullscreenMode ? "Exit full screen" : "Full screen preview")
+            .help(isFullscreen ? "Exit full screen preview" : "Expand preview to full screen")
+            .accessibilityLabel(isFullscreen ? "Exit full screen" : "Full screen preview")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
