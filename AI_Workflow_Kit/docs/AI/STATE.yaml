@@ -2,20 +2,23 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D3
+current_step: D4
 step_description: >
-  Settings Process tab: order Model → Process Settings → Settings Presets.
-  Remove Model Override block; put Speed / Override segment / Keep converted
-  under Advanced disclosure. Do not implement D4–D6.
+  Eye visibility for models and process presets: eye ON = appears in header
+  dropdowns; OFF = hidden from header only. Persist. Always show current
+  selection and Custom. Do not implement D5–D6.
 
 target_files:
+  - Sources/KirtanSplitterApp/Models/MenuVisibilityStore.swift
   - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
   - Sources/KirtanSplitterApp/Views/ContentView.swift
+  - tests/KirtanSplitterAppTests/MenuVisibilityStoreTests.swift
 
 completed_steps:
   - D0
   - D1
   - D2
+  - D3
 
 implementation:
   status: pending
@@ -38,13 +41,13 @@ prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D3
-  last_post_tag: design/D2-done
-  last_commit: 5800876
+  last_post_tag: design/D3-done
+  last_commit: null
 
 git:
-  pre_tag: design/pre-D3
-  post_tag: design/D2-done
-  last_push: "origin design/D2-done + design/pre-D3 + branch"
+  pre_tag: design/pre-D4
+  post_tag: design/D3-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md

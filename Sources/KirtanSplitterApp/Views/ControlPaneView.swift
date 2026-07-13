@@ -10,6 +10,7 @@ struct ControlPaneView: View {
     let applyProcessPresetAction: (String) -> Void
 
     @State private var newPresetName = ""
+    @State private var advancedExpanded = false
 
     private let outputFormats = ["WAV", "FLAC"]
     private let speedModes = ["latency_safe_v3", "latency_safe", "default"]
@@ -17,12 +18,11 @@ struct ControlPaneView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
-                settingsPresetSection
-                Divider()
-                presetSection
                 modelSection
                 Divider()
                 processSection
+                Divider()
+                settingsPresetSection
             }
             .padding(18)
         }
@@ -78,12 +78,12 @@ struct ControlPaneView: View {
         }
     }
 
-    private var presetSection: some View {
+    private var modelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Model Preset")
+            Text("Model")
                 .font(.callout.weight(.semibold))
 
-            Picker("Model Preset", selection: $settings.presetID) {
+            Picker("Model", selection: $settings.presetID) {
                 ForEach(backend.presets) { preset in
                     Text(preset.title).tag(preset.id)
                 }
@@ -98,24 +98,6 @@ struct ControlPaneView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        }
-    }
-
-    private var modelSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Model Override")
-                .font(.callout.weight(.semibold))
-
-            Picker("Model", selection: modelOverrideBinding) {
-                Text("Use preset model").tag("")
-                Divider()
-                ForEach(backend.models) { model in
-                    Text("\(model.pickerTitle) · \(model.type)").tag(model.filename)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .disabled(backend.models.isEmpty || backend.isBusy)
 
             HStack(spacing: 6) {
                 Image(systemName: selectedModelDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
@@ -158,15 +140,6 @@ struct ControlPaneView: View {
                     .disabled(backend.isBusy)
             }
 
-            Picker("Speed", selection: $settings.speedMode) {
-                ForEach(speedModes, id: \.self) { mode in
-                    Text(mode).tag(mode)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(backend.isBusy)
-            .help("default leaves mlx-audio-separator settings unchanged; latency_safe uses conservative batch sizes; latency_safe_v3 also defers cache clearing and uses two write workers.")
-
             Stepper(value: $settings.mdxcSegmentSize, in: 64...4096, step: 64) {
                 HStack {
                     Text("Segment Size")
@@ -201,27 +174,38 @@ struct ControlPaneView: View {
             }
             .disabled(backend.isBusy)
 
-            Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
-                .toggleStyle(.checkbox)
-                .disabled(backend.isBusy)
-            if settings.effectiveMDXCOverrideModelSegmentSize && !settings.mdxcOverrideModelSegmentSize {
-                Text("Segment override will be enabled for this run.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Toggle("Keep Converted MLX Model", isOn: $settings.saveConvertedSafetensors)
-                .toggleStyle(.checkbox)
-                .disabled(backend.isBusy)
-                .help("Keeps converted safetensors so the model does not convert again on the next run.")
+            advancedDisclosure
         }
     }
 
-    private var modelOverrideBinding: Binding<String> {
-        Binding(
-            get: { settings.modelOverride ?? "" },
-            set: { settings.modelOverride = $0.isEmpty ? nil : $0 }
-        )
+    private var advancedDisclosure: some View {
+        DisclosureGroup("Advanced", isExpanded: $advancedExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Speed", selection: $settings.speedMode) {
+                    ForEach(speedModes, id: \.self) { mode in
+                        Text(mode).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(backend.isBusy)
+                .help("default leaves mlx-audio-separator settings unchanged; latency_safe uses conservative batch sizes; latency_safe_v3 also defers cache clearing and uses two write workers.")
+
+                Toggle("Override Model Segment", isOn: $settings.mdxcOverrideModelSegmentSize)
+                    .toggleStyle(.checkbox)
+                    .disabled(backend.isBusy)
+                if settings.effectiveMDXCOverrideModelSegmentSize && !settings.mdxcOverrideModelSegmentSize {
+                    Text("Segment override will be enabled for this run.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Toggle("Keep Converted MLX Model", isOn: $settings.saveConvertedSafetensors)
+                    .toggleStyle(.checkbox)
+                    .disabled(backend.isBusy)
+                    .help("Keeps converted safetensors so the model does not convert again on the next run.")
+            }
+            .padding(.top, 8)
+        }
     }
 
     private var selectedProcessPreset: ProcessSettingsPreset? {
