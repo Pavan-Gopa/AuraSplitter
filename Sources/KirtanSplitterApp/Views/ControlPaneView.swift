@@ -4,6 +4,7 @@ import SwiftUI
 struct ControlPaneView: View {
     @ObservedObject var backend: BackendClient
     @ObservedObject var processPresetStore: ProcessSettingsPresetStore
+    @ObservedObject var menuVisibility = MenuVisibilityStore.shared
     @Binding var settings: SeparationSettings
     @Binding var selectedProcessPresetID: String
 
@@ -34,31 +35,24 @@ struct ControlPaneView: View {
             Text("Settings Presets")
                 .font(.callout.weight(.semibold))
 
-            Menu {
+            HStack(spacing: 4) {
+                Text(ProcessSettingsPreset.displayTitle(
+                    for: selectedProcessPresetID,
+                    in: processPresetStore.presets,
+                    settings: settings
+                ))
+                .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Selected process preset")
+
+            VStack(alignment: .leading, spacing: 2) {
                 ForEach(processPresetStore.presets) { preset in
-                    Button {
-                        selectedProcessPresetID = preset.id
-                    } label: {
-                        Text(preset.title)
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(ProcessSettingsPreset.displayTitle(
-                        for: selectedProcessPresetID,
-                        in: processPresetStore.presets,
-                        settings: settings
-                    ))
-                    .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    processPresetRow(preset)
                 }
             }
-            .labelsHidden()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(processPresetStore.presets.isEmpty || backend.isBusy)
-            .accessibilityLabel("Settings Preset")
 
             HStack(spacing: 8) {
                 TextField("Preset name", text: $newPresetName)
@@ -78,19 +72,40 @@ struct ControlPaneView: View {
         }
     }
 
+    private func processPresetRow(_ preset: ProcessSettingsPreset) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                menuVisibility.toggleProcessPresetVisibility(preset.id)
+            } label: {
+                Image(systemName: menuVisibility.isProcessPresetVisible(preset.id) ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.borderless)
+            .help(menuVisibility.isProcessPresetVisible(preset.id) ? "Hide from header menu" : "Show in header menu")
+
+            Button {
+                selectedProcessPresetID = preset.id
+            } label: {
+                Text(preset.title)
+                    .font(.callout)
+                    .fontWeight(selectedProcessPresetID == preset.id ? .semibold : .regular)
+                    .foregroundStyle(selectedProcessPresetID == preset.id ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
+    }
+
     private var modelSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Model")
                 .font(.callout.weight(.semibold))
 
-            Picker("Model", selection: $settings.presetID) {
+            VStack(alignment: .leading, spacing: 2) {
                 ForEach(backend.presets) { preset in
-                    Text(preset.title).tag(preset.id)
+                    modelRow(preset)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .disabled(backend.presets.isEmpty || backend.isBusy)
 
             if let preset = backend.presets.first(where: { $0.id == settings.presetID }) {
                 Text(preset.summary)
@@ -114,6 +129,30 @@ struct ControlPaneView: View {
                     .lineLimit(1)
             }
         }
+    }
+
+    private func modelRow(_ preset: SeparationPreset) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                menuVisibility.toggleModelVisibility(preset.id)
+            } label: {
+                Image(systemName: menuVisibility.isModelVisible(preset.id) ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.borderless)
+            .help(menuVisibility.isModelVisible(preset.id) ? "Hide from header menu" : "Show in header menu")
+
+            Button {
+                settings.presetID = preset.id
+            } label: {
+                Text(preset.title)
+                    .font(.callout)
+                    .fontWeight(settings.presetID == preset.id ? .semibold : .regular)
+                    .foregroundStyle(settings.presetID == preset.id ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
     }
 
     private var processSection: some View {

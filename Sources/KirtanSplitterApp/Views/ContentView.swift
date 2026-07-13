@@ -725,6 +725,7 @@ private struct AppHeaderView: View {
     let modelPresets: [SeparationPreset]
     let processPresets: [ProcessSettingsPreset]
     let settings: SeparationSettings
+    @ObservedObject var menuVisibility = MenuVisibilityStore.shared
     let renderEstimate: RenderEstimate?
     let hasSelectedSources: Bool
     let isSettingsSidebarOpen: Bool
@@ -764,12 +765,15 @@ private struct AppHeaderView: View {
                 models: backend.models,
                 modelCache: backend.modelCache,
                 modelRatings: $modelRatings,
-                isDisabled: modelPresets.isEmpty || backend.isBusy
+                isDisabled: modelPresets.isEmpty || backend.isBusy,
+                menuVisibility: menuVisibility
             )
             .frame(width: 188)
 
             Menu {
-                ForEach(processPresets) { preset in
+                ForEach(processPresets.filter {
+                    menuVisibility.isProcessPresetVisible($0.id) || $0.id == processPresetID
+                }) { preset in
                     Button {
                         processPresetID = preset.id
                     } label: {
@@ -893,7 +897,7 @@ private struct AppHeaderView: View {
     }
 }
 
-private struct ModelPresetDropdown: View {
+    private struct ModelPresetDropdown: View {
     @Binding var selection: String
     @Binding var selectedIDs: Set<String>
     @Binding var isPresented: Bool
@@ -902,6 +906,7 @@ private struct ModelPresetDropdown: View {
     let modelCache: ModelCache?
     @Binding var modelRatings: [String: Int]
     let isDisabled: Bool
+    let menuVisibility: MenuVisibilityStore
 
     @State private var ratingFilter: Int = 0
 
@@ -969,12 +974,18 @@ private struct ModelPresetDropdown: View {
                 ScrollView {
                     let filteredPresets = presets.filter { preset in
                         let rating = modelRatings[preset.id] ?? 0
-                        switch ratingFilter {
-                        case 3: return rating == 3
-                        case 2: return rating >= 2
-                        case 1: return rating >= 1
-                        default: return true
-                        }
+                        let ratingOk: Bool = {
+                            switch ratingFilter {
+                            case 3: return rating == 3
+                            case 2: return rating >= 2
+                            case 1: return rating >= 1
+                            default: return true
+                            }
+                        }()
+                        let visible = menuVisibility.isModelVisible(preset.id)
+                            || selectedIDs.contains(preset.id)
+                            || preset.id == selection
+                        return ratingOk && visible
                     }
                     
                     if filteredPresets.isEmpty {

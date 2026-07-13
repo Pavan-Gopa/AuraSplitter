@@ -2,23 +2,27 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D4
+current_step: D5
 step_description: >
-  Eye visibility for models and process presets: eye ON = appears in header
-  dropdowns; OFF = hidden from header only. Persist. Always show current
-  selection and Custom. Do not implement D5–D6.
+  Honest Est. time: render_estimate must use real process knobs (segment, batch,
+  overlap, chunk, speed) not only processPresetID. Tests + UI tooltip.
+  Do not implement D6.
 
 target_files:
-  - Sources/KirtanSplitterApp/Models/MenuVisibilityStore.swift
-  - Sources/KirtanSplitterApp/Views/ControlPaneView.swift
+  - backend/kirtan_backend/render_estimates.py
+  - backend/kirtan_backend/engine.py
+  - backend/kirtan_backend/protocol.py
+  - Sources/KirtanSplitterApp/Services/BackendClient.swift
+  - Sources/KirtanSplitterApp/Models/BackendModels.swift
   - Sources/KirtanSplitterApp/Views/ContentView.swift
-  - tests/KirtanSplitterAppTests/MenuVisibilityStoreTests.swift
+  - tests/test_render_estimates.py
 
 completed_steps:
   - D0
   - D1
   - D2
   - D3
+  - D4
 
 implementation:
   status: pending
@@ -41,13 +45,13 @@ prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D4
-  last_post_tag: design/D3-done
-  last_commit: c142cbb
+  last_post_tag: design/D4-done
+  last_commit: null
 
 git:
-  pre_tag: design/pre-D4
-  post_tag: design/D3-done
-  last_push: "origin design/D3-done + design/pre-D4 + branch"
+  pre_tag: design/pre-D5
+  post_tag: design/D4-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
