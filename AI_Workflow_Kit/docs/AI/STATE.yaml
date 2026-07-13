@@ -37,14 +37,14 @@ track: DESIGN_V2
 prior_track: OPT_PERF
 
 checkpoint:
-  last_pre_tag: design/pre-D2
+  last_pre_tag: design/pre-D3
   last_post_tag: design/D2-done
-  last_commit: null
+  last_commit: 5800876
 
 git:
   pre_tag: design/pre-D3
   post_tag: design/D2-done
-  last_push: ""
+  last_push: "origin design/D2-done + design/pre-D3 + branch"
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
