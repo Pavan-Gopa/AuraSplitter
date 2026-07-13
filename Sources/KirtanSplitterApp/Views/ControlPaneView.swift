@@ -86,7 +86,7 @@ struct ControlPaneView: View {
                 }
             }
             .onChange(of: isProcessPresetPickerOpen) { isOpen in
-                // After finishing eye edits, drop a hidden active selection → Heavy-first.
+                // After eye edits, if active is hidden → first open-eye preset in list order.
                 if !isOpen {
                     reselectVisibleProcessPresetIfNeeded()
                 }

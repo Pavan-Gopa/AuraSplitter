@@ -111,7 +111,7 @@ struct ContentView: View {
             guard !didInitializeLayout else { return }
             didInitializeLayout = true
             isSettingsSidebarOpen = false
-            // Cold start only: hidden selection → Heavy / first visible model.
+            // Cold start: first process preset / model with an open eye (list order).
             // Do not re-jump while the user is mid-editing eyes in Settings.
             ensureSelectedProcessPresetIsVisible(applySnapshot: true)
             if menuVisibility.isProcessPresetVisible(selectedProcessPresetID) {

@@ -75,24 +75,13 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
     var snapshot: ProcessSettingsSnapshot
     var isBuiltIn: Bool
 
-    /// App default / fallback process preset. Prefer Heavy over Default.
-    static let defaultPresetID = "builtin.heavy"
-    /// Built-in Default snapshot id (not the app launch default).
-    static let builtInDefaultID = "builtin.default"
-
-    /// Preference order when auto-picking a visible process preset.
-    static let preferredSelectionOrder = [
-        "builtin.heavy",
-        "builtin.max",
-        "builtin.extreme",
-        "builtin.default",
-        "builtin.fast",
-    ]
+    /// First built-in in list order — actual active default is the first *visible* (eye open).
+    static let defaultPresetID = "builtin.default"
 
     /// Order: Default → Fast → Heavy → Max → Extreme (no digits in titles).
     static let builtIn: [ProcessSettingsPreset] = [
         ProcessSettingsPreset(
-            id: builtInDefaultID,
+            id: defaultPresetID,
             title: "Default",
             snapshot: ProcessSettingsSnapshot(settings: SeparationSettings()),
             isBuiltIn: true
@@ -104,7 +93,7 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
             isBuiltIn: true
         ),
         ProcessSettingsPreset(
-            id: defaultPresetID,
+            id: "builtin.heavy",
             title: "Heavy",
             snapshot: ProcessSettingsSnapshot(settings: heavySettings),
             isBuiltIn: true
@@ -182,20 +171,15 @@ struct ProcessSettingsPreset: Identifiable, Codable, Equatable {
         return preset.isDirty(settings: settings) ? "Custom" : preset.title
     }
 
-    /// First visible preset following Heavy-first preference (hidden presets never win).
+    /// First visible preset in catalog order (same rule as models: first open eye wins).
     static func preferredVisiblePresetID(
         in presets: [ProcessSettingsPreset],
         isVisible: (String) -> Bool,
         excluding excludedID: String? = nil
     ) -> String? {
-        let knownIDs = Set(presets.map(\.id))
-        var ordered = preferredSelectionOrder.filter { knownIDs.contains($0) }
-        for id in presets.map(\.id) where !ordered.contains(id) {
-            ordered.append(id)
-        }
-        for id in ordered {
-            if id == excludedID { continue }
-            if isVisible(id) { return id }
+        for preset in presets {
+            if preset.id == excludedID { continue }
+            if isVisible(preset.id) { return preset.id }
         }
         return nil
     }

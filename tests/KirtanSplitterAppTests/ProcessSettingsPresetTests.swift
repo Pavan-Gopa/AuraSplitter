@@ -54,7 +54,7 @@ final class ProcessSettingsPresetTests: XCTestCase {
             XCTAssertFalse(title.contains(where: \.isNumber), "title should not contain digits: \(title)")
         }
 
-        XCTAssertEqual(ProcessSettingsPreset.defaultPresetID, "builtin.heavy")
+        XCTAssertEqual(ProcessSettingsPreset.defaultPresetID, "builtin.default")
 
         let byID = Dictionary(uniqueKeysWithValues: ProcessSettingsPreset.builtIn.map { ($0.id, $0) })
         XCTAssertEqual(byID["builtin.default"]?.snapshot.mdxcSegmentSize, SeparationSettings.defaultMDXCSegmentSize)
@@ -67,22 +67,31 @@ final class ProcessSettingsPresetTests: XCTestCase {
         XCTAssertNil(byID["metal.max"])
     }
 
-    func testPreferredVisiblePresetPrefersHeavyAndSkipsHidden() {
+    func testPreferredVisiblePresetUsesListOrderLikeModels() {
         let presets = ProcessSettingsPreset.builtIn
-        let hidden: Set<String> = ["builtin.default", "builtin.fast"]
-        let id = ProcessSettingsPreset.preferredVisiblePresetID(
-            in: presets,
-            isVisible: { !hidden.contains($0) }
+        // All visible → first in list (Default).
+        XCTAssertEqual(
+            ProcessSettingsPreset.preferredVisiblePresetID(in: presets, isVisible: { _ in true }),
+            "builtin.default"
         )
-        XCTAssertEqual(id, "builtin.heavy")
 
-        let heavyHidden: Set<String> = ["builtin.heavy"]
-        let next = ProcessSettingsPreset.preferredVisiblePresetID(
+        // Default + Fast hidden → first open eye is Heavy.
+        let hidden: Set<String> = ["builtin.default", "builtin.fast"]
+        XCTAssertEqual(
+            ProcessSettingsPreset.preferredVisiblePresetID(
+                in: presets,
+                isVisible: { !hidden.contains($0) }
+            ),
+            "builtin.heavy"
+        )
+
+        // Excluding current Heavy while it is the only… next is Max.
+        let onlyAfterHeavy = ProcessSettingsPreset.preferredVisiblePresetID(
             in: presets,
-            isVisible: { !heavyHidden.contains($0) },
+            isVisible: { !["builtin.default", "builtin.fast"].contains($0) },
             excluding: "builtin.heavy"
         )
-        XCTAssertEqual(next, "builtin.max")
+        XCTAssertEqual(onlyAfterHeavy, "builtin.max")
     }
 
     func testSnapshotAppliesPerformanceFlagsWithoutChangingModelChoice() {
