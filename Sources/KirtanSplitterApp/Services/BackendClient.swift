@@ -455,6 +455,7 @@ final class BackendClient: ObservableObject {
             "mdxcSegmentSize": settings.mdxcSegmentSize,
             "mdxcOverlap": settings.mdxcOverlap,
             "mdxcBatchSize": settings.mdxcBatchSize,
+            "chunkDuration": settings.chunkDuration,
             "speedMode": settings.speedMode,
             "performanceFlags": settings.performanceFlags,
         ]

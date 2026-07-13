@@ -127,3 +127,88 @@ def test_model_usage_counts_total_successful_runs_by_model(tmp_path):
         "BS-Roformer-SW.ckpt": 2,
         "model_bs_roformer_ep_317_sdr_12.9755.ckpt": 1,
     }
+
+
+def test_render_estimate_knobs_change_estimate(tmp_path):
+    # Two real runs with the same model but different knobs.
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 1800,
+            "audioDurationSeconds": 300,
+            "gpuCoreCount": 10,
+            "segmentSize": 512,
+            "batchSize": 1,
+        },
+    )
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 900,
+            "audioDurationSeconds": 300,
+            "gpuCoreCount": 10,
+            "segmentSize": 2048,
+            "batchSize": 2,
+        },
+    )
+
+    small = estimate_render_time(
+        str(tmp_path),
+        model_filename="BS-Roformer-SW.ckpt",
+        audio_duration_seconds=600,
+        gpu_core_count=10,
+        mdxc_segment_size=512,
+        mdxc_batch_size=1,
+    )
+    big = estimate_render_time(
+        str(tmp_path),
+        model_filename="BS-Roformer-SW.ckpt",
+        audio_duration_seconds=600,
+        gpu_core_count=10,
+        mdxc_segment_size=2048,
+        mdxc_batch_size=2,
+    )
+
+    assert small["status"] == "calibrated"
+    assert big["status"] == "calibrated"
+    assert small["estimatedSeconds"] == 3600.0
+    assert big["estimatedSeconds"] == 1800.0
+    assert small["estimatedSeconds"] != big["estimatedSeconds"]
+    assert small["method"] == "exact"
+    assert big["method"] == "exact"
+
+
+def test_render_estimate_falls_back_to_similar_knobs(tmp_path):
+    record_render_benchmark(
+        str(tmp_path),
+        {
+            "modelFilename": "BS-Roformer-SW.ckpt",
+            "modelPresetID": "kirtan_pro",
+            "processPresetID": "builtin.heavy",
+            "elapsedSeconds": 1800,
+            "audioDurationSeconds": 300,
+            "gpuCoreCount": 10,
+            "segmentSize": 512,
+            "batchSize": 1,
+        },
+    )
+
+    # Request knobs no sample exactly matches -> conservative heuristic scaling.
+    result = estimate_render_time(
+        str(tmp_path),
+        model_filename="BS-Roformer-SW.ckpt",
+        audio_duration_seconds=600,
+        gpu_core_count=10,
+        mdxc_segment_size=1024,
+        mdxc_batch_size=1,
+    )
+
+    assert result["status"] == "calibrated"
+    assert result["method"] == "heuristic"
+    assert result["estimatedSeconds"] is not None

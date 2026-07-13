@@ -489,6 +489,7 @@ struct ModelPresetMenuState: Equatable {
 struct RenderEstimate: Codable, Equatable {
     let status: String
     let reason: String?
+    let method: String?
     let modelFilename: String
     let processPresetID: String
     let estimatedSeconds: Double?
@@ -513,10 +514,14 @@ struct RenderEstimate: Codable, Equatable {
         guard isCalibrated else {
             return "Run once to calibrate"
         }
-        if let baselineGpuCoreCount, let targetGpuCoreCount {
-            return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples") - \(baselineGpuCoreCount) -> \(targetGpuCoreCount) GPU cores"
+        let samples = "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples")"
+        if method == "heuristic" {
+            return "\(samples) - similar runs, scaled"
         }
-        return "\(sampleCount) \(sampleCount == 1 ? "sample" : "samples")"
+        if let baselineGpuCoreCount, let targetGpuCoreCount {
+            return "\(samples) - \(baselineGpuCoreCount) -> \(targetGpuCoreCount) GPU cores"
+        }
+        return samples
     }
 
     func adding(_ other: RenderEstimate) -> RenderEstimate {
@@ -524,6 +529,7 @@ struct RenderEstimate: Codable, Equatable {
         return RenderEstimate(
             status: self.isCalibrated && other.isCalibrated ? "calibrated" : "pending",
             reason: self.reason,
+            method: nil,
             modelFilename: self.modelFilename,
             processPresetID: self.processPresetID,
             estimatedSeconds: combinedSeconds,

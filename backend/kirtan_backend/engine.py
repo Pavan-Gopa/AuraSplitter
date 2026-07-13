@@ -205,12 +205,20 @@ class MlxSeparatorEngine:
         gpu_core_count = params.get("gpuCoreCount", params.get("gpu_core_count"))
         if gpu_core_count in (None, "", 0, "0"):
             gpu_core_count = self._gpu_core_count()
+        # Honest estimate: hand the real process knobs to the predictor so it
+        # can match on segment / batch / overlap / chunk / speed, not only the
+        # preset id.
         return estimate_render_time(
             self.model_dir,
             model_filename=model_filename,
             process_preset_id=process_preset_id,
             audio_duration_seconds=duration_seconds or 0,
             gpu_core_count=gpu_core_count,
+            mdxc_segment_size=params.get("mdxcSegmentSize", params.get("mdxc_segment_size")),
+            mdxc_batch_size=params.get("mdxcBatchSize", params.get("mdxc_batch_size")),
+            mdxc_overlap=params.get("mdxcOverlap", params.get("mdxc_overlap")),
+            chunk_duration=params.get("chunkDuration", params.get("chunk_duration")),
+            speed_mode=params.get("speedMode", params.get("speed_mode")),
         )
 
     def cancel_current(self, reason: str = "User cancelled current operation") -> dict:

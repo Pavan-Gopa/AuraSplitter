@@ -266,6 +266,7 @@ struct ContentView: View {
             "\(settings.mdxcSegmentSize)",
             "\(settings.mdxcOverlap)",
             "\(settings.mdxcBatchSize)",
+            "\(settings.chunkDuration)",
             settings.speedMode,
             backend.isBusy ? "busy" : "idle",
         ].joined(separator: "|")
@@ -809,7 +810,7 @@ private struct AppHeaderView: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(renderEstimate.isCalibrated ? .green : .secondary)
                             .lineLimit(1)
-                            .help(renderEstimate.detailText)
+                            .help("Predicted wall time from past runs on this Mac; updates when process settings change.")
                     }
                     Text("\(Int(backend.progress * 100))%")
                         .font(.caption.monospacedDigit())

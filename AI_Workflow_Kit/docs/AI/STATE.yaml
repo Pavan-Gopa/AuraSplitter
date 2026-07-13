@@ -2,20 +2,14 @@
 # Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
 # Prior track OPT_PERF closed (K0–K8).
 
-current_step: D5
+current_step: D6
 step_description: >
-  Honest Est. time: render_estimate must use real process knobs (segment, batch,
-  overlap, chunk, speed) not only processPresetID. Tests + UI tooltip.
-  Do not implement D6.
+  Preview: filled blue waveform envelope (not outline-only); Spectrum and
+  Waveform intensity sliders on main preview toolbar (not buried in popover).
+  Final design step before DESIGN_DONE.
 
 target_files:
-  - backend/kirtan_backend/render_estimates.py
-  - backend/kirtan_backend/engine.py
-  - backend/kirtan_backend/protocol.py
-  - Sources/KirtanSplitterApp/Services/BackendClient.swift
-  - Sources/KirtanSplitterApp/Models/BackendModels.swift
-  - Sources/KirtanSplitterApp/Views/ContentView.swift
-  - tests/test_render_estimates.py
+  - Sources/KirtanSplitterApp/Views/AudioPreviewPane.swift
 
 completed_steps:
   - D0
@@ -23,6 +17,7 @@ completed_steps:
   - D2
   - D3
   - D4
+  - D5
 
 implementation:
   status: pending
@@ -45,13 +40,13 @@ prior_track: OPT_PERF
 
 checkpoint:
   last_pre_tag: design/pre-D5
-  last_post_tag: design/D4-done
-  last_commit: e1b492b
+  last_post_tag: design/D5-done
+  last_commit: null
 
 git:
-  pre_tag: design/pre-D5
-  post_tag: design/D4-done
-  last_push: "origin design/D4-done + design/pre-D5 + branch"
+  pre_tag: design/pre-D6
+  post_tag: design/D5-done
+  last_push: ""
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
