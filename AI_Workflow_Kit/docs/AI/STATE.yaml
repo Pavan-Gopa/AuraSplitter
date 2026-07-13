@@ -40,14 +40,14 @@ track: DESIGN_V2
 prior_track: OPT_PERF
 
 checkpoint:
-  last_pre_tag: null
+  last_pre_tag: design/pre-D0
   last_post_tag: null
-  last_commit: null
+  last_commit: 75de6c6
 
 git:
   pre_tag: design/pre-D0
   post_tag: ""
-  last_push: ""
+  last_push: "origin design/pre-D0 + branch codex/model-menu-cache-indicators"
 
 plan_files:
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
