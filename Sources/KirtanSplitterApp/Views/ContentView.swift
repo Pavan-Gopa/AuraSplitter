@@ -111,14 +111,21 @@ struct ContentView: View {
             guard !didInitializeLayout else { return }
             didInitializeLayout = true
             isSettingsSidebarOpen = false
-            // Launch default is Heavy (or first visible preferred); apply its snapshot.
+            // Launch defaults: Heavy process preset + first header-visible model.
             ensureSelectedProcessPresetIsVisible(applySnapshot: true)
             if menuVisibility.isProcessPresetVisible(selectedProcessPresetID) {
                 applyProcessPreset(selectedProcessPresetID)
             }
+            ensureSelectedModelIsVisible()
         }
         .onChange(of: menuVisibility.hiddenProcessPresetIDs) { _ in
             ensureSelectedProcessPresetIsVisible(applySnapshot: true)
+        }
+        .onChange(of: menuVisibility.hiddenModelIDs) { _ in
+            ensureSelectedModelIsVisible()
+        }
+        .onChange(of: backend.presets.map(\.id)) { _ in
+            ensureSelectedModelIsVisible()
         }
         .alert("Backend Error", isPresented: Binding(
             get: { backend.errorMessage != nil },
@@ -312,6 +319,40 @@ struct ContentView: View {
         selectedProcessPresetID = nextID
         if applySnapshot {
             applyProcessPreset(nextID)
+        }
+    }
+
+    /// Hidden models cannot stay selected in the header (including on cold launch).
+    private func ensureSelectedModelIsVisible() {
+        guard !backend.presets.isEmpty else { return }
+
+        // Drop multi-selected hidden models first.
+        let visibleSelected = selectedModelIDs.filter { id in
+            menuVisibility.isModelVisible(id) && backend.presets.contains(where: { $0.id == id })
+        }
+        if !visibleSelected.isEmpty {
+            selectedModelIDs = visibleSelected
+        }
+
+        let primaryOK = menuVisibility.isModelVisible(settings.presetID)
+            && backend.presets.contains(where: { $0.id == settings.presetID })
+        if primaryOK {
+            if selectedModelIDs.isEmpty || !selectedModelIDs.contains(settings.presetID) {
+                selectedModelIDs = [settings.presetID]
+            }
+            return
+        }
+
+        guard let nextID = menuVisibility.preferredVisibleModelID(
+            in: backend.presets,
+            excluding: settings.presetID
+        ) else { return }
+        settings.presetID = nextID
+        selectedModelIDs = [nextID]
+        if usesPerSourcePresets {
+            for index in sources.indices where sources[index].isSelectedForProcessing {
+                sources[index].presetID = nextID
+            }
         }
     }
 

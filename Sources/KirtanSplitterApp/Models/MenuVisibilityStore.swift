@@ -4,9 +4,10 @@ import Foundation
 ///
 /// Design: an *empty* hidden set means "no restrictions" -> everything is
 /// visible (the default). Toggling an eye OFF adds the id to the hidden set;
-/// toggling it ON removes it. Only the toggled-off items are hidden from the
-/// header shortlists; selections are never cleared. The full lists always
-/// remain visible (with their eye toggles) in Settings.
+/// toggling it ON removes it. Hidden items are excluded from header shortlists
+/// and cannot remain the active selection (app falls back to the first visible
+/// model / preferred process preset). Settings popovers still list all items
+/// with eye toggles.
 final class MenuVisibilityStore: ObservableObject {
     static let shared = MenuVisibilityStore()
 
@@ -42,6 +43,18 @@ final class MenuVisibilityStore: ObservableObject {
 
     func toggleModelVisibility(_ id: String) {
         setModelVisible(!isModelVisible(id), for: id)
+    }
+
+    /// First visible model in catalog order (hidden IDs never win).
+    func preferredVisibleModelID(
+        in presets: [SeparationPreset],
+        excluding excludedID: String? = nil
+    ) -> String? {
+        for preset in presets {
+            if preset.id == excludedID { continue }
+            if isModelVisible(preset.id) { return preset.id }
+        }
+        return nil
     }
 
     // MARK: Process presets (built-in + custom ids, e.g. builtin.heavy)

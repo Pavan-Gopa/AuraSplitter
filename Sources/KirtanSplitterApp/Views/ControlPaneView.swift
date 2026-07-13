@@ -137,12 +137,21 @@ struct ControlPaneView: View {
                     help: "Eye = show in header menu. Click name to select."
                 ) {
                     ForEach(backend.presets) { preset in
+                        let headerVisible = menuVisibility.isModelVisible(preset.id)
                         visibilityPickerRow(
                             title: preset.title,
                             isSelected: settings.presetID == preset.id,
-                            isVisibleInHeader: menuVisibility.isModelVisible(preset.id),
-                            onToggleEye: { menuVisibility.toggleModelVisibility(preset.id) },
+                            isVisibleInHeader: headerVisible,
+                            onToggleEye: {
+                                let wasSelected = settings.presetID == preset.id
+                                menuVisibility.toggleModelVisibility(preset.id)
+                                // Hidden models cannot remain the active header selection.
+                                if wasSelected, !menuVisibility.isModelVisible(preset.id) {
+                                    reselectVisibleModel(excluding: preset.id)
+                                }
+                            },
                             onSelect: {
+                                guard menuVisibility.isModelVisible(preset.id) else { return }
                                 settings.presetID = preset.id
                                 isModelPickerOpen = false
                             }
@@ -251,6 +260,14 @@ struct ControlPaneView: View {
             excluding: excludedID
         ) else { return }
         selectedProcessPresetID = nextID
+    }
+
+    private func reselectVisibleModel(excluding excludedID: String?) {
+        guard let nextID = menuVisibility.preferredVisibleModelID(
+            in: backend.presets,
+            excluding: excludedID
+        ) else { return }
+        settings.presetID = nextID
     }
 
     private var processSection: some View {

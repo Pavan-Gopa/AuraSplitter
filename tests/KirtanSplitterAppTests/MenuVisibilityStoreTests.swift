@@ -70,4 +70,27 @@ final class MenuVisibilityStoreTests: XCTestCase {
         // Clean up
         defaults.removePersistentDomain(forName: suite)
     }
+
+    // MARK: - Preferred visible model
+
+    func testPreferredVisibleModelSkipsHiddenAndUsesCatalogOrder() {
+        let (store, _, _) = makeStore()
+        let presets = [
+            SeparationPreset(id: "kirtan_pro", title: "Aura Pro", modelFilename: "a.ckpt", summary: "", expectedStems: []),
+            SeparationPreset(id: "vocal_clean", title: "Aura Clean", modelFilename: "b.ckpt", summary: "", expectedStems: []),
+            SeparationPreset(id: "leap_xe_vocal", title: "Aura Vocal Elite", modelFilename: "c.ckpt", summary: "", expectedStems: []),
+        ]
+
+        XCTAssertEqual(store.preferredVisibleModelID(in: presets), "kirtan_pro")
+
+        store.setModelVisible(false, for: "kirtan_pro")
+        XCTAssertEqual(store.preferredVisibleModelID(in: presets), "vocal_clean")
+        XCTAssertEqual(
+            store.preferredVisibleModelID(in: presets, excluding: "kirtan_pro"),
+            "vocal_clean"
+        )
+
+        store.setModelVisible(false, for: "vocal_clean")
+        XCTAssertEqual(store.preferredVisibleModelID(in: presets), "leap_xe_vocal")
+    }
 }
