@@ -45,7 +45,7 @@ def send(message: dict):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="KirtanSplitter MLX backend")
+    parser = argparse.ArgumentParser(description="AuraSplitter MLX backend")
     parser.add_argument(
         "--model-dir",
         default=os.environ.get("KIRTAN_SPLITTER_MODEL_DIR", default_model_dir()),
@@ -63,7 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def default_model_dir() -> str:
-    return str(Path.home() / "AI_LOCAL_MODELS" / "Sound" / "KirtanSplitter")
+    """User-visible model cache under the AuraSplitter brand folder.
+
+    Legacy ``…/Sound/KirtanSplitter`` is migrated by the app / build_and_run;
+    the default path string must always be AuraSplitter so UI/logs match the brand.
+    """
+    return str(Path.home() / "AI_LOCAL_MODELS" / "Sound" / "AuraSplitter")
 
 
 def project_root() -> Path:

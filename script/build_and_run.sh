@@ -2,7 +2,11 @@
 set -euo pipefail
 
 MODE="${1:-run}"
+# Binary/process name (SwiftPM executable) — keep until full package rename.
 APP_NAME="KirtanSplitter"
+# User-visible brand folders (models, logs, App Support).
+BRAND_NAME="AuraSplitter"
+LEGACY_BRAND_NAME="KirtanSplitter"
 BUNDLE_ID="com.pavan.kirtansplitter"
 MIN_SYSTEM_VERSION="13.0"
 
@@ -14,11 +18,13 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-APP_SUPPORT="$HOME/Library/Application Support/$APP_NAME"
+APP_SUPPORT="$HOME/Library/Application Support/$BRAND_NAME"
+LEGACY_APP_SUPPORT="$HOME/Library/Application Support/$LEGACY_BRAND_NAME"
 RUNTIME_BACKEND="$APP_SUPPORT/backend"
 RUNTIME_LAUNCHER="$APP_SUPPORT/run_backend.sh"
-LEGACY_MODEL_DIR="$APP_SUPPORT/models"
-RUNTIME_MODEL_DIR="${KIRTAN_SPLITTER_MODEL_DIR:-$HOME/AI_LOCAL_MODELS/Sound/$APP_NAME}"
+LEGACY_MODEL_DIR="$LEGACY_APP_SUPPORT/models"
+RUNTIME_MODEL_DIR="${KIRTAN_SPLITTER_MODEL_DIR:-$HOME/AI_LOCAL_MODELS/Sound/$BRAND_NAME}"
+LEGACY_SOUND_MODEL_DIR="$HOME/AI_LOCAL_MODELS/Sound/$LEGACY_BRAND_NAME"
 LOG_FILE="$APP_SUPPORT/logs/backend.log"
 PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
 SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
@@ -38,6 +44,8 @@ pkill -f "$ROOT_DIR/backend/server.py" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/script/run_backend.sh" >/dev/null 2>&1 || true
 pkill -f "$APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
 pkill -f "$APP_SUPPORT/run_backend.sh" >/dev/null 2>&1 || true
+pkill -f "$LEGACY_APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
+pkill -f "$LEGACY_APP_SUPPORT/run_backend.sh" >/dev/null 2>&1 || true
 
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
@@ -45,6 +53,15 @@ BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 rm -rf "$APP_BUNDLE"
 rm -rf "$RUNTIME_BACKEND"
 mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$(dirname "$LOG_FILE")" "$RUNTIME_MODEL_DIR"
+# Migrate brand folders (ignore-existing keeps AuraSplitter as source of truth once present).
+if [[ -d "$LEGACY_APP_SUPPORT" && "$LEGACY_APP_SUPPORT" != "$APP_SUPPORT" ]]; then
+  mkdir -p "$APP_SUPPORT"
+  rsync -a --ignore-existing "$LEGACY_APP_SUPPORT/" "$APP_SUPPORT/"
+fi
+if [[ -d "$LEGACY_SOUND_MODEL_DIR" && "$LEGACY_SOUND_MODEL_DIR" != "$RUNTIME_MODEL_DIR" ]]; then
+  mkdir -p "$RUNTIME_MODEL_DIR"
+  rsync -a --ignore-existing "$LEGACY_SOUND_MODEL_DIR/" "$RUNTIME_MODEL_DIR/"
+fi
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 if [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then

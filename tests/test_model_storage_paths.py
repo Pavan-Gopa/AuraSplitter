@@ -9,4 +9,4 @@ def test_backend_default_model_dir_uses_user_visible_sound_folder(monkeypatch):
 
     args = build_parser().parse_args([])
 
-    assert Path(args.model_dir) == Path("/Users/pavan/AI_LOCAL_MODELS/Sound/KirtanSplitter")
+    assert Path(args.model_dir) == Path("/Users/pavan/AI_LOCAL_MODELS/Sound/AuraSplitter")

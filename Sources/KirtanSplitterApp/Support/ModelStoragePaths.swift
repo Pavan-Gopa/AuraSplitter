@@ -1,9 +1,19 @@
 import Foundation
 
+/// User-visible brand folder name (models, App Support, caches).
+/// Binary/module may still be named KirtanSplitter until a full package rebrand.
+enum AppBrand {
+    static let displayName = "AuraSplitter"
+    static let folderName = "AuraSplitter"
+    /// Pre-rebrand paths — migrated on first launch.
+    static let legacyFolderName = "KirtanSplitter"
+}
+
 enum ModelStoragePaths {
     static let localModelsFolderName = "AI_LOCAL_MODELS"
     static let soundFolderName = "Sound"
-    static let appFolderName = "KirtanSplitter"
+    static let appFolderName = AppBrand.folderName
+    static let legacyAppFolderName = AppBrand.legacyFolderName
 
     static func defaultModelDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
         URL(fileURLWithPath: homeDirectory)
@@ -13,9 +23,41 @@ enum ModelStoragePaths {
             .path
     }
 
+    static func legacySoundModelDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
+        URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent(localModelsFolderName)
+            .appendingPathComponent(soundFolderName)
+            .appendingPathComponent(legacyAppFolderName)
+            .path
+    }
+
     static func legacyApplicationSupportModelDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
         URL(fileURLWithPath: homeDirectory)
-            .appendingPathComponent("Library/Application Support/KirtanSplitter/models")
+            .appendingPathComponent("Library/Application Support/\(legacyAppFolderName)/models")
+            .path
+    }
+
+    static func applicationSupportDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
+        URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent("Library/Application Support/\(appFolderName)")
+            .path
+    }
+
+    static func legacyApplicationSupportDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
+        URL(fileURLWithPath: homeDirectory)
+            .appendingPathComponent("Library/Application Support/\(legacyAppFolderName)")
+            .path
+    }
+
+    static func defaultLogFile(homeDirectory: String = NSHomeDirectory()) -> String {
+        URL(fileURLWithPath: applicationSupportDirectory(homeDirectory: homeDirectory))
+            .appendingPathComponent("logs/backend.log")
+            .path
+    }
+
+    static func defaultRuntimeDirectory(homeDirectory: String = NSHomeDirectory()) -> String {
+        URL(fileURLWithPath: applicationSupportDirectory(homeDirectory: homeDirectory))
+            .appendingPathComponent("runtime")
             .path
     }
 
@@ -25,17 +67,43 @@ enum ModelStoragePaths {
         homeDirectory: String = NSHomeDirectory()
     ) -> String {
         let targetPath = defaultModelDirectory(homeDirectory: homeDirectory)
-        let legacyPath = legacyApplicationSupportModelDirectory(homeDirectory: homeDirectory)
         try? fileManager.createDirectory(
             at: URL(fileURLWithPath: targetPath),
             withIntermediateDirectories: true
         )
+
+        // 1) Old brand under AI_LOCAL_MODELS/Sound/KirtanSplitter
         try? mergeDirectoryContents(
-            from: URL(fileURLWithPath: legacyPath),
+            from: URL(fileURLWithPath: legacySoundModelDirectory(homeDirectory: homeDirectory)),
+            to: URL(fileURLWithPath: targetPath),
+            fileManager: fileManager
+        )
+        // 2) Very old cache under Application Support/.../models
+        try? mergeDirectoryContents(
+            from: URL(fileURLWithPath: legacyApplicationSupportModelDirectory(homeDirectory: homeDirectory)),
             to: URL(fileURLWithPath: targetPath),
             fileManager: fileManager
         )
         return targetPath
+    }
+
+    /// Copy App Support tree KirtanSplitter → AuraSplitter when needed (logs, runtime staging).
+    static func prepareApplicationSupportAndMigrateLegacy(
+        fileManager: FileManager = .default,
+        homeDirectory: String = NSHomeDirectory()
+    ) {
+        let target = URL(fileURLWithPath: applicationSupportDirectory(homeDirectory: homeDirectory))
+        let legacy = URL(fileURLWithPath: legacyApplicationSupportDirectory(homeDirectory: homeDirectory))
+        try? fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+        try? mergeDirectoryContents(from: legacy, to: target, fileManager: fileManager)
+        try? fileManager.createDirectory(
+            at: target.appendingPathComponent("logs", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try? fileManager.createDirectory(
+            at: target.appendingPathComponent("runtime", isDirectory: true),
+            withIntermediateDirectories: true
+        )
     }
 
     static func prepareModelDirectory(_ path: String, fileManager: FileManager = .default) {

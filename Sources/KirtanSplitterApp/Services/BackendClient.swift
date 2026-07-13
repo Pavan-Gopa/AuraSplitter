@@ -1042,6 +1042,7 @@ final class BackendClient: ObservableObject {
                 backendDir,
                 URL(fileURLWithPath: projectRoot).appendingPathComponent(".venv/lib/python3.11/site-packages").path,
             ].joined(separator: ":")
+        ModelStoragePaths.prepareApplicationSupportAndMigrateLegacy()
         let defaultModelDir = ModelStoragePaths.defaultModelDirectory()
         let modelDir = env["KIRTAN_SPLITTER_MODEL_DIR"]
             ?? bundledModelDir
@@ -1053,10 +1054,8 @@ final class BackendClient: ObservableObject {
         }
         let logFile = env["KIRTAN_SPLITTER_LOG_FILE"]
             ?? bundledLogFile
-            ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("logs/backend.log").path
-        let runtimeDir = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/KirtanSplitter/runtime")
-            .path
+            ?? ModelStoragePaths.defaultLogFile()
+        let runtimeDir = ModelStoragePaths.defaultRuntimeDirectory()
         let tcpHost = env["KIRTAN_SPLITTER_BACKEND_HOST"] ?? bundledTCPHost
         let tcpPort = (env["KIRTAN_SPLITTER_BACKEND_PORT"] ?? bundledTCPPort).flatMap(Int.init)
         return BackendPaths(

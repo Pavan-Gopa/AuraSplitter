@@ -24,13 +24,13 @@ from kirtan_backend.server import default_model_dir  # noqa: E402
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run KirtanSplitter model/process preset benchmarks on one audio file."
+        description="Run AuraSplitter model/process preset benchmarks on one audio file."
     )
     parser.add_argument("input", help="Audio file to benchmark.")
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Benchmark output directory. Defaults to ~/Library/Application Support/KirtanSplitter/benchmarks/<timestamp>.",
+        help="Benchmark output directory. Defaults to ~/Library/Application Support/AuraSplitter/benchmarks/<timestamp>.",
     )
     parser.add_argument(
         "--model-dir",
@@ -140,7 +140,7 @@ def default_output_dir() -> Path:
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     return (
         Path.home()
-        / "Library/Application Support/KirtanSplitter/benchmarks"
+        / "Library/Application Support/AuraSplitter/benchmarks"
         / timestamp
     )
 

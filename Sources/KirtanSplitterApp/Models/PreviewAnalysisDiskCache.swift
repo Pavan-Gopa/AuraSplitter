@@ -7,7 +7,7 @@ import Foundation
 /// skipped across app launches whenever the source file is unchanged. Bounded
 /// by `maxEntries` and `maxBytes`; least-recently-used entries are evicted.
 ///
-/// Layout: `~/Library/Caches/KirtanSplitter/previews/` (per OPT plan §2.6),
+/// Layout: `~/Library/Caches/AuraSplitter/previews/`
 /// with one `<key>.json` per entry and a persisted `lru-index.json` LRU book.
 final class PreviewAnalysisDiskCache {
     static let shared = PreviewAnalysisDiskCache()
@@ -33,7 +33,7 @@ final class PreviewAnalysisDiskCache {
             let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
             self.directory = base
-                .appendingPathComponent("KirtanSplitter", isDirectory: true)
+                .appendingPathComponent(AppBrand.folderName, isDirectory: true)
                 .appendingPathComponent("previews", isDirectory: true)
         }
         self.indexFile = self.directory.appendingPathComponent("lru-index.json")

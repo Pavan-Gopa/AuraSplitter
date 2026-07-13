@@ -293,7 +293,7 @@ struct DiagnosticsInspectorView: View {
                     Button {
                         FileHelpers.exportText(
                             logExportText,
-                            suggestedFilename: "KirtanSplitter-backend.log"
+                            suggestedFilename: "AuraSplitter-backend.log"
                         )
                     } label: {
                         Label("Export", systemImage: "square.and.arrow.down")
