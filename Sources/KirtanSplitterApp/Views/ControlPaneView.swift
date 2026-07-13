@@ -63,7 +63,7 @@ struct ControlPaneView: View {
             .popover(isPresented: $isProcessPresetPickerOpen, arrowEdge: .bottom) {
                 visibilityPickerPopover(
                     title: "Process presets",
-                    help: "Eye = show in header menu. Click name to select."
+                    help: "Eye = show in header. Click name to select (only visible). Fix applies when menu closes."
                 ) {
                     ForEach(processPresetStore.presets) { preset in
                         let headerVisible = menuVisibility.isProcessPresetVisible(preset.id)
@@ -72,12 +72,8 @@ struct ControlPaneView: View {
                             isSelected: selectedProcessPresetID == preset.id,
                             isVisibleInHeader: headerVisible,
                             onToggleEye: {
-                                let wasSelected = selectedProcessPresetID == preset.id
+                                // Only toggle visibility — do not jump selection mid-edit.
                                 menuVisibility.toggleProcessPresetVisibility(preset.id)
-                                // Hidden presets cannot remain the active selection — prefer Heavy.
-                                if wasSelected, !menuVisibility.isProcessPresetVisible(preset.id) {
-                                    reselectVisibleProcessPreset(excluding: preset.id)
-                                }
                             },
                             onSelect: {
                                 // Only header-visible presets can be chosen as the active preset.
@@ -87,6 +83,12 @@ struct ControlPaneView: View {
                             }
                         )
                     }
+                }
+            }
+            .onChange(of: isProcessPresetPickerOpen) { isOpen in
+                // After finishing eye edits, drop a hidden active selection → Heavy-first.
+                if !isOpen {
+                    reselectVisibleProcessPresetIfNeeded()
                 }
             }
 
@@ -134,7 +136,7 @@ struct ControlPaneView: View {
             .popover(isPresented: $isModelPickerOpen, arrowEdge: .bottom) {
                 visibilityPickerPopover(
                     title: "Models",
-                    help: "Eye = show in header menu. Click name to select."
+                    help: "Eye = show in header. Click name to select (only visible). Fix applies when menu closes."
                 ) {
                     ForEach(backend.presets) { preset in
                         let headerVisible = menuVisibility.isModelVisible(preset.id)
@@ -143,12 +145,8 @@ struct ControlPaneView: View {
                             isSelected: settings.presetID == preset.id,
                             isVisibleInHeader: headerVisible,
                             onToggleEye: {
-                                let wasSelected = settings.presetID == preset.id
+                                // Only toggle visibility — do not jump selection mid-edit.
                                 menuVisibility.toggleModelVisibility(preset.id)
-                                // Hidden models cannot remain the active header selection.
-                                if wasSelected, !menuVisibility.isModelVisible(preset.id) {
-                                    reselectVisibleModel(excluding: preset.id)
-                                }
                             },
                             onSelect: {
                                 guard menuVisibility.isModelVisible(preset.id) else { return }
@@ -157,6 +155,11 @@ struct ControlPaneView: View {
                             }
                         )
                     }
+                }
+            }
+            .onChange(of: isModelPickerOpen) { isOpen in
+                if !isOpen {
+                    reselectVisibleModelIfNeeded()
                 }
             }
 
@@ -253,19 +256,21 @@ struct ControlPaneView: View {
         .opacity(isVisibleInHeader ? 1 : 0.72)
     }
 
-    private func reselectVisibleProcessPreset(excluding excludedID: String?) {
+    private func reselectVisibleProcessPresetIfNeeded() {
+        guard !menuVisibility.isProcessPresetVisible(selectedProcessPresetID) else { return }
         guard let nextID = ProcessSettingsPreset.preferredVisiblePresetID(
             in: processPresetStore.presets,
             isVisible: { menuVisibility.isProcessPresetVisible($0) },
-            excluding: excludedID
+            excluding: selectedProcessPresetID
         ) else { return }
         selectedProcessPresetID = nextID
     }
 
-    private func reselectVisibleModel(excluding excludedID: String?) {
+    private func reselectVisibleModelIfNeeded() {
+        guard !menuVisibility.isModelVisible(settings.presetID) else { return }
         guard let nextID = menuVisibility.preferredVisibleModelID(
             in: backend.presets,
-            excluding: excludedID
+            excluding: settings.presetID
         ) else { return }
         settings.presetID = nextID
     }

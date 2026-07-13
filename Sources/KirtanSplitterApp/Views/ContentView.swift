@@ -111,20 +111,16 @@ struct ContentView: View {
             guard !didInitializeLayout else { return }
             didInitializeLayout = true
             isSettingsSidebarOpen = false
-            // Launch defaults: Heavy process preset + first header-visible model.
+            // Cold start only: hidden selection → Heavy / first visible model.
+            // Do not re-jump while the user is mid-editing eyes in Settings.
             ensureSelectedProcessPresetIsVisible(applySnapshot: true)
             if menuVisibility.isProcessPresetVisible(selectedProcessPresetID) {
                 applyProcessPreset(selectedProcessPresetID)
             }
             ensureSelectedModelIsVisible()
         }
-        .onChange(of: menuVisibility.hiddenProcessPresetIDs) { _ in
-            ensureSelectedProcessPresetIsVisible(applySnapshot: true)
-        }
-        .onChange(of: menuVisibility.hiddenModelIDs) { _ in
-            ensureSelectedModelIsVisible()
-        }
         .onChange(of: backend.presets.map(\.id)) { _ in
+            // Catalog finished loading after launch.
             ensureSelectedModelIsVisible()
         }
         .alert("Backend Error", isPresented: Binding(
