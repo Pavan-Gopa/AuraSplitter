@@ -72,13 +72,13 @@ struct WorkspaceWidgetRailView: View {
                 StatusLine(title: "Model", value: modelCacheStateText, tint: modelCacheTint)
                 MiniGauge(title: "CPU", detail: cpuDetail, value: backend.runtimeStats?.cpu.systemPercent ?? 0, tint: .blue)
                 // Backend process RSS only (GB numbers). Separate from whole-machine load.
-                StatusLine(title: "Backend RAM", value: backendRamDetail, tint: .purple)
-                // Whole unified-memory load % (active+wired+compressed) — fuchsia bar.
+                StatusLine(title: "Backend RAM", value: backendRamDetail, tint: .green)
+                // Whole unified-memory load % (active+wired+compressed) — green bar.
                 MiniGauge(
                     title: "System RAM",
                     detail: systemRamDetail,
                     value: backend.runtimeStats?.memory.usedPercent ?? 0,
-                    tint: fuchsiaTint
+                    tint: .green
                 )
                 MiniGauge(title: "GPU", detail: gpuDetail, value: backend.runtimeStats?.gpu.utilizationPercent ?? 0, tint: .orange)
                 StatusLine(title: "NPU", value: npuDetail, tint: npuTint)
@@ -136,11 +136,6 @@ struct WorkspaceWidgetRailView: View {
         let used = FileHelpers.formattedMemoryBytes(memory.usedBytes)
         let total = FileHelpers.formattedMemoryBytes(memory.totalBytes)
         return "\(Int(memory.usedPercent.rounded()))% · \(used) of \(total)"
-    }
-
-    /// Fuchsia for system RAM bar (distinct from purple backend RSS line).
-    private var fuchsiaTint: Color {
-        Color(red: 1.0, green: 0.08, blue: 0.58)
     }
 
     private var gpuDetail: String {
