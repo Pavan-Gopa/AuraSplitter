@@ -67,12 +67,14 @@ if [[ -d "$LEGACY_SOUND_MODEL_DIR" && "$LEGACY_SOUND_MODEL_DIR" != "$RUNTIME_MOD
 fi
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
-# App icon (.icns for dock)
-if [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then
-  cp "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.svg"
+# App icon (.icns for dock) — use AuraSplitter_2 as the primary logo
+if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_2.svg" ]]; then
+  cp "$ROOT_DIR/LOGO/AuraSplitter_2.svg" "$APP_RESOURCES/AuraSplitter_2.svg"
+  "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter_2.svg" "$APP_RESOURCES/AuraSplitter.icns"
+elif [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then
   "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.icns"
 fi
-# White logo for menu bar tray icon
+# Keep white logo as fallback
 if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_White.svg" ]]; then
   cp "$ROOT_DIR/LOGO/AuraSplitter_White.svg" "$APP_RESOURCES/AuraSplitter_White.svg"
 fi

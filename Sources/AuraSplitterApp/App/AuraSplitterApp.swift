@@ -31,9 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
         if let button = statusItem?.button {
-            if let trayIconURL = Bundle.main.url(forResource: "AuraSplitter_White", withExtension: "svg"),
+            if let trayIconURL = Bundle.main.url(forResource: "AuraSplitter_2", withExtension: "svg"),
                let image = NSImage(contentsOf: trayIconURL) {
-                image.isTemplate = true
                 image.size = NSSize(width: 18, height: 18)
                 button.image = image
             } else {
