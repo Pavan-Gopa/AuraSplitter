@@ -11,6 +11,7 @@ struct SourceResultOverviewView: View {
     let previewStemAction: (StemFile) -> Void
     let deleteStemAction: (StemFile) -> Void
     @Binding var selectedStemPaths: Set<String>
+    let closeSourceAction: (BatchSourceItem) -> Void
     let compareAction: () -> Void
 
     var body: some View {
@@ -41,7 +42,8 @@ struct SourceResultOverviewView: View {
                                 usesPerSourcePresets: usesPerSourcePresets,
                                 isActive: previewSelection == .source(source.id),
                                 isDisabled: backend.isProcessing,
-                                previewAction: { previewSourceAction(source) }
+                                previewAction: { previewSourceAction(source) },
+                                closeAction: { closeSourceAction(source) }
                             )
                             Divider()
                         }
@@ -121,6 +123,7 @@ private struct BatchSourceRow: View {
     let isActive: Bool
     let isDisabled: Bool
     let previewAction: () -> Void
+    let closeAction: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -180,6 +183,16 @@ private struct BatchSourceRow: View {
                     .padding(.vertical, 5)
                     .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: KSTheme.radiusSM))
             }
+
+            Button(action: closeAction) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.plain)
+            .help("Close source")
+            .disabled(isDisabled)
+            .padding(.top, usesPerSourcePresets ? 4 : 2)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
@@ -253,6 +266,7 @@ private struct ResultGroupView: View {
                 ForEach(group.files) { stem in
                     ResultStemRow(
                         stem: stem,
+                        sourceName: group.sourceName,
                         isActive: previewSelection == .result(stem.path),
                         selectedStemPaths: $selectedStemPaths,
                         compareAction: compareAction,
@@ -268,6 +282,7 @@ private struct ResultGroupView: View {
 
 private struct ResultStemRow: View {
     let stem: StemFile
+    let sourceName: String
     let isActive: Bool
     @Binding var selectedStemPaths: Set<String>
     let compareAction: () -> Void
@@ -278,6 +293,7 @@ private struct ResultStemRow: View {
 
     init(
         stem: StemFile,
+        sourceName: String,
         isActive: Bool,
         selectedStemPaths: Binding<Set<String>>,
         compareAction: @escaping () -> Void,
@@ -285,6 +301,7 @@ private struct ResultStemRow: View {
         deleteAction: @escaping () -> Void
     ) {
         self.stem = stem
+        self.sourceName = sourceName
         self.isActive = isActive
         self._selectedStemPaths = selectedStemPaths
         self.compareAction = compareAction
@@ -308,14 +325,11 @@ private struct ResultStemRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(stem.displayName)
                             .font(.callout.weight(.medium))
-                        HStack(spacing: 8) {
-                            Text(stem.fileName)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(FileHelpers.formattedBytes(stem.sizeBytes))
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        Text(subtitleText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -412,6 +426,19 @@ private struct ResultStemRow: View {
         case "guitar": return .cyan
         default: return .blue
         }
+    }
+
+    private var subtitleText: String {
+        var parts: [String] = []
+        let src = URL(fileURLWithPath: sourceName).deletingPathExtension().lastPathComponent
+        parts.append(src)
+        parts.append(stem.stem.capitalized)
+        let rawModel = stem.rawModelName
+        if !rawModel.isEmpty {
+            parts.append(rawModel)
+        }
+        parts.append(FileHelpers.formattedBytes(stem.sizeBytes))
+        return parts.joined(separator: " • ")
     }
 }
 

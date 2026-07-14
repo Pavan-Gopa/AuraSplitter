@@ -37,42 +37,153 @@ struct StemFile: Identifiable, Hashable, Codable {
     /// Process settings for this separation (from backend or sidecar).
     var runInfo: StemRunInfo?
 
-    var displayName: String {
-        // Prefer the _(role) token so "vocals 2" shows as "Vocals 2".
-        let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        if let role = Self.roleLabel(fromFileStem: fileStem) {
-            let prettyRole = role.capitalized
-            if let matchRange = fileStem.range(of: "_(\(role))") {
-                var modelSuffix = String(fileStem[matchRange.upperBound...])
-                if modelSuffix.hasPrefix("_") {
-                    modelSuffix.removeFirst()
-                }
-                if !modelSuffix.isEmpty {
-                    let cleanedSuffix = modelSuffix.replacingOccurrences(of: "_", with: " ")
-                    return "\(prettyRole) · \(cleanedSuffix)"
+    static func cleanModelName(_ raw: String) -> String {
+        var parts = raw.split(separator: " ").map(String.init)
+        let rawWordsToStrip: Set<String> = [
+            "bs", "leap", "xe", "voc", "inst", "roformer", "sw", "deux", "becruily", "other", "vocals"
+        ]
+        while !parts.isEmpty {
+            let lower = parts[0].lowercased()
+            if rawWordsToStrip.contains(lower) || lower.hasSuffix(".ckpt") || lower.hasSuffix(".yaml") {
+                parts.removeFirst()
+            } else {
+                break
+            }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    static func formatDisplay(stem: String, suffix: String) -> String {
+        let clean = cleanModelName(suffix)
+        var parts = clean.split(separator: " ").map(String.init)
+        
+        var preset: String? = nil
+        let presetKeywords = ["heavy", "max", "custom", "fast", "extreme", "default"]
+        
+        if parts.count >= 2 {
+            let lastTwo = (parts[parts.count-2] + " " + parts[parts.count-1]).lowercased()
+            if lastTwo.hasPrefix("heavy 1024") {
+                preset = "Heavy"
+                parts.removeLast(2)
+            }
+        }
+        
+        if preset == nil && !parts.isEmpty {
+            let last = parts[parts.count-1].lowercased()
+            for kw in presetKeywords {
+                if last.hasPrefix(kw) {
+                    preset = kw.capitalized
+                    parts.removeLast()
+                    break
                 }
             }
-            return prettyRole
         }
+        
+        let modelPart = parts.joined(separator: " ")
+        var result = stem.capitalized
+        if !modelPart.isEmpty {
+            result += " • \(modelPart)"
+        }
+        if let preset {
+            result += " • \(preset)"
+        }
+        return result
+    }
 
-        let baseName = stem.replacingOccurrences(of: "_", with: " ").capitalized
+    var rawModelName: String {
+        if let runInfo, let modelFile = runInfo.modelFilename {
+            return URL(fileURLWithPath: modelFile).deletingPathExtension().lastPathComponent
+        }
+        
+        let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let role = Self.roleLabel(fromFileStem: fileStem) ?? stem
+        var suffix = ""
         let candidates = [
-            "_(" + stem + ")",
-            "_(" + stem.replacingOccurrences(of: "_", with: " ") + ")",
+            "_(\(role))",
+            "_(\(role.replacingOccurrences(of: "_", with: " ")))",
         ]
         for candidate in candidates {
             if let matchRange = fileStem.range(of: candidate) {
-                var modelSuffix = String(fileStem[matchRange.upperBound...])
-                if modelSuffix.hasPrefix("_") {
-                    modelSuffix.removeFirst()
-                }
-                if !modelSuffix.isEmpty {
-                    let cleanedSuffix = modelSuffix.replacingOccurrences(of: "_", with: " ")
-                    return "\(baseName) · \(cleanedSuffix)"
+                suffix = String(fileStem[matchRange.upperBound...])
+                break
+            }
+        }
+        if suffix.hasPrefix("_") {
+            suffix.removeFirst()
+        }
+        
+        let parts = suffix.split(separator: "_").map(String.init)
+        let rawWordsToStrip: Set<String> = [
+            "bs", "leap", "xe", "voc", "inst", "roformer", "sw", "deux", "becruily"
+        ]
+        var rawParts: [String] = []
+        for part in parts {
+            let lower = part.lowercased()
+            if rawWordsToStrip.contains(lower) || lower.hasSuffix(".ckpt") || lower.hasSuffix(".yaml") {
+                rawParts.append(part)
+            } else {
+                break
+            }
+        }
+        if !rawParts.isEmpty {
+            return rawParts.joined(separator: "_")
+        }
+        return ""
+    }
+
+    var displayName: String {
+        if let runInfo, let model = runInfo.modelDisplayName, !model.isEmpty {
+            var result = (runInfo.stem ?? stem).capitalized
+            result += " • \(model)"
+            if let preset = runInfo.processPresetTitle {
+                let cleanPreset = preset.lowercased().hasPrefix("heavy") ? "Heavy" : preset.capitalized
+                result += " • \(cleanPreset)"
+            }
+            return result
+        }
+
+        let fileStem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let role = Self.roleLabel(fromFileStem: fileStem) ?? stem
+        let prettyRole = role.capitalized
+        
+        var suffix = ""
+        let candidates = [
+            "_(\(role))",
+            "_(\(role.replacingOccurrences(of: "_", with: " ")))",
+        ]
+        for candidate in candidates {
+            if let matchRange = fileStem.range(of: candidate) {
+                suffix = String(fileStem[matchRange.upperBound...])
+                break
+            }
+        }
+        if suffix.isEmpty {
+            if let range = fileStem.range(of: "_\(role)", options: .backwards) {
+                suffix = String(fileStem[range.upperBound...])
+            }
+        }
+        if suffix.isEmpty {
+            let baseCandidates = [
+                "_(" + stem + ")",
+                "_(" + stem.replacingOccurrences(of: "_", with: " ") + ")",
+            ]
+            for candidate in baseCandidates {
+                if let matchRange = fileStem.range(of: candidate) {
+                    suffix = String(fileStem[matchRange.upperBound...])
+                    break
                 }
             }
         }
-        return baseName
+        
+        if suffix.hasPrefix("_") {
+            suffix.removeFirst()
+        }
+        let cleanedSuffix = suffix.replacingOccurrences(of: "_", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if !cleanedSuffix.isEmpty {
+            return Self.formatDisplay(stem: prettyRole, suffix: cleanedSuffix)
+        }
+        return prettyRole
     }
 
     var fileName: String {

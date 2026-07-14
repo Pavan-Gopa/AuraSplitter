@@ -209,6 +209,7 @@ struct ContentView: View {
                 previewStemAction: previewStem,
                 deleteStemAction: deleteStem,
                 selectedStemPaths: $selectedStemPaths,
+                closeSourceAction: closeSource,
                 compareAction: { isShowingComparison = true }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -763,6 +764,37 @@ struct ContentView: View {
         } catch {
             backend.errorMessage = "Could not delete \(stem.fileName): \(error.localizedDescription)"
         }
+    }
+
+    private func closeSource(_ source: BatchSourceItem) {
+        if audioPreviewPlayer.playingPath == source.url.path {
+            audioPreviewPlayer.stop()
+        }
+        if previewSelection == .source(source.id) {
+            previewSelection = .none
+            previewAnalysis = nil
+            previewAnalysisError = nil
+            isAnalyzingPreview = false
+        }
+
+        if let groupIndex = resultGroups.firstIndex(where: { $0.sourceURL == source.url }) {
+            let group = resultGroups[groupIndex]
+            for stem in group.files {
+                if audioPreviewPlayer.playingPath == stem.path {
+                    audioPreviewPlayer.stop()
+                }
+                if previewSelection == .result(stem.path) {
+                    previewSelection = .none
+                    previewAnalysis = nil
+                    previewAnalysisError = nil
+                    isAnalyzingPreview = false
+                }
+                resultPreviewCache.remove(stem.path)
+            }
+            resultGroups.remove(at: groupIndex)
+        }
+
+        sources.removeAll { $0.id == source.id }
     }
 
     private func resolvedOutputDirectory(for input: URL) -> URL {
