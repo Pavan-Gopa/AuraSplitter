@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var settingsDrawerSection: SettingsDrawerSection = .process
     @State private var didInitializeLayout = false
     @State private var batchProcessingTask: Task<Void, Never>?
+    @State private var layerSettings = AudioPreviewLayerSettings()
 
     var body: some View {
         ZStack {
@@ -93,7 +94,8 @@ struct ContentView: View {
                     resultPreviewCache: $resultPreviewCache,
                     onClose: {
                         isShowingComparison = false
-                    }
+                    },
+                    layerSettings: $layerSettings
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 .zIndex(2)
@@ -177,7 +179,8 @@ struct ContentView: View {
             isAnalyzing: isAnalyzingPreview,
             previewProgress: backend.previewProgress,
             player: audioPreviewPlayer,
-            isFullscreen: $isPreviewFullscreen
+            isFullscreen: $isPreviewFullscreen,
+            layerSettings: $layerSettings
         )
     }
 

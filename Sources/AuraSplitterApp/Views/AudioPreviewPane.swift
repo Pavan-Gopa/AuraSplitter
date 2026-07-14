@@ -10,7 +10,7 @@ struct AudioPreviewPane: View {
     /// When true, chrome shows exit-fullscreen control; parent expands layout.
     @Binding var isFullscreen: Bool
     @State private var viewport = AudioPreviewViewport()
-    @State private var layerSettings = AudioPreviewLayerSettings()
+    @Binding var layerSettings: AudioPreviewLayerSettings
     @State private var previousPath: String? = nil
 
     var body: some View {

@@ -15,7 +15,7 @@ struct AudioComparisonView: View {
     @State private var analyses: [String: AudioAnalysis] = [:]
     @State private var loadingStates: [String: Bool] = [:]
     @State private var errors: [String: String] = [:]
-    @State private var layerSettings = AudioPreviewLayerSettings()
+    @Binding var layerSettings: AudioPreviewLayerSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -155,6 +155,11 @@ struct AudioComparisonView: View {
                 .help("Fit full audio")
             }
 
+            spectrumLowSlider
+            spectrumHighSlider
+            waveformSlider
+            layerResetButton
+
             volumeControl
         }
         .padding(.horizontal, 16)
@@ -180,6 +185,79 @@ struct AudioComparisonView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 36, alignment: .trailing)
         }
+    }
+
+    private var spectrumLowSlider: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "waveform.path")
+                .foregroundStyle(KSTheme.spectrogramAccent)
+                .frame(width: 14)
+            Text("Low")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(
+                value: $layerSettings.spectrumMinDb,
+                in: -200...(-60),
+                step: 1
+            )
+            .tint(KSTheme.spectrogramAccent)
+            .frame(width: 72)
+            Text("\(Int(layerSettings.spectrumMinDb.rounded())) dB")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .trailing)
+        }
+        .help("Amplitude range (low) [dB]")
+    }
+
+    private var spectrumHighSlider: some View {
+        HStack(spacing: 4) {
+            Text("High")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(
+                value: $layerSettings.spectrumMaxDb,
+                in: -60...0,
+                step: 1
+            )
+            .tint(KSTheme.spectrogramAccent)
+            .frame(width: 72)
+            Text("\(Int(layerSettings.spectrumMaxDb.rounded())) dB")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .trailing)
+        }
+        .help("Amplitude range (high) [dB]")
+    }
+
+    private var waveformSlider: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "waveform")
+                .foregroundStyle(.blue)
+                .frame(width: 14)
+            Slider(
+                value: Binding(
+                    get: { layerSettings.waveformIntensity },
+                    set: { layerSettings.waveformIntensity = AudioPreviewLayerSettings.clampIntensity($0) }
+                ),
+                in: 0...2,
+                step: 0.1
+            )
+            .tint(.blue)
+            .frame(width: 72)
+        }
+        .help("Waveform opacity")
+    }
+
+    private var layerResetButton: some View {
+        Button {
+            layerSettings = AudioPreviewLayerSettings()
+        } label: {
+            Image(systemName: "arrow.counterclockwise")
+                .frame(width: 26, height: 26)
+        }
+        .buttonStyle(.plain)
+        .help("Reset preview visual settings")
     }
 }
 
