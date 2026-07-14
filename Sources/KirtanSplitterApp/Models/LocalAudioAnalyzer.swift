@@ -115,7 +115,7 @@ enum LocalAudioAnalyzer {
         var outReal = [Float](repeating: 0, count: fftSize)
         var outImag = [Float](repeating: 0, count: fftSize)
 
-        var values = [Double](repeating: 0, count: bins * columns)
+        var dbValues = [Double](repeating: 0, count: bins * columns)
         let usableSpan = max(0, frames - fftSize)
 
         // Mel scale mapping parameters (matching human pitch perception, like iZotope RX)
@@ -192,14 +192,46 @@ enum LocalAudioAnalyzer {
                                     mag = mag1 + (mag2 - mag1) * t
                                 }
                                 
-                                let db = 20 * log10(max(Double(mag), 1e-7))
-                                let norm = max(0, min(1, (db + 90) / 90))
-                                values[bin * columns + col] = pow(norm, 0.72)
+                                let db = 20 * log10(max(Double(mag), 1e-8))
+                                dbValues[bin * columns + col] = db
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Subsample values to estimate percentiles dynamically
+        var sampleValues: [Double] = []
+        sampleValues.reserveCapacity(dbValues.count / 10 + 1)
+        for i in stride(from: 0, to: dbValues.count, by: 10) {
+            let val = dbValues[i]
+            if !val.isNaN && !val.isInfinite {
+                sampleValues.append(val)
+            }
+        }
+        sampleValues.sort()
+        
+        let dbFloor: Double
+        let dbCeiling: Double
+        if !sampleValues.isEmpty {
+            let floorIdx = min(sampleValues.count - 1, max(0, Int(Double(sampleValues.count) * 0.35)))
+            let ceilIdx = min(sampleValues.count - 1, max(0, Int(Double(sampleValues.count) * 0.997)))
+            dbFloor = sampleValues[floorIdx]
+            var tempCeil = sampleValues[ceilIdx]
+            if tempCeil <= dbFloor {
+                tempCeil = dbFloor + 1.0
+            }
+            dbCeiling = tempCeil
+        } else {
+            dbFloor = -160.0
+            dbCeiling = 0.0
+        }
+        
+        var values = [Double](repeating: 0, count: bins * columns)
+        for i in 0..<dbValues.count {
+            let norm = max(0, min(1, (dbValues[i] - dbFloor) / (dbCeiling - dbFloor)))
+            values[i] = pow(norm, 0.72)
         }
 
         return SpectrogramData(columns: columns, bins: bins, values: values)
