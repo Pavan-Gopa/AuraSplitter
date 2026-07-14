@@ -72,10 +72,6 @@ if [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then
   cp "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.svg"
   "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.icns"
 fi
-# Color logo for in-app header
-if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_2.svg" ]]; then
-  cp "$ROOT_DIR/LOGO/AuraSplitter_2.svg" "$APP_RESOURCES/AuraSplitter_Color.svg"
-fi
 # White logo for menu bar tray icon
 if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_White.svg" ]]; then
   cp "$ROOT_DIR/LOGO/AuraSplitter_White.svg" "$APP_RESOURCES/AuraSplitter_White.svg"

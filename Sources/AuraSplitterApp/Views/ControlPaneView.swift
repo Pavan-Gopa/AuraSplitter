@@ -404,7 +404,7 @@ struct ControlPaneView: View {
 struct AppLogoView: View {
     var body: some View {
         Group {
-            if let url = Bundle.main.url(forResource: "AuraSplitter_Color", withExtension: "svg"),
+            if let url = Bundle.main.url(forResource: "AuraSplitter", withExtension: "svg"),
                let image = NSImage(contentsOf: url) {
                 Image(nsImage: image)
                     .resizable()
