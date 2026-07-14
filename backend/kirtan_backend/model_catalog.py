@@ -376,6 +376,9 @@ def display_name_for_model(filename: str) -> str | None:
     if entry:
         return entry.title
     stem = Path(filename).stem
+    for pack_entry in MODEL_PACK_ENTRIES:
+        if Path(pack_entry.filename).stem == stem:
+            return pack_entry.title
     builtin = BUILTIN_MODEL_METADATA.get(stem)
     if builtin:
         return builtin.get("displayName")

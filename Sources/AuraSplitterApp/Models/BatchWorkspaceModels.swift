@@ -80,11 +80,14 @@ enum BatchWorkspace {
         }
         // Remove experiment sidecar if present.
         let audioURL = URL(fileURLWithPath: path)
-        let sidecar = audioURL
-            .deletingLastPathComponent()
-            .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent + ".kirtan-run.json")
-        if fileManager.fileExists(atPath: sidecar.path) {
-            try? fileManager.removeItem(at: sidecar)
+        let sidecarBase = audioURL.deletingLastPathComponent()
+            .appendingPathComponent(audioURL.deletingPathExtension().lastPathComponent)
+        let sidecarAura = sidecarBase.appendingPathExtension("aura-run.json")
+        let sidecarKirtan = sidecarBase.appendingPathExtension("kirtan-run.json")
+        for file in [sidecarAura, sidecarKirtan] {
+            if fileManager.fileExists(atPath: file.path) {
+                try? fileManager.removeItem(at: file)
+            }
         }
 
         groups = groups.compactMap { group in

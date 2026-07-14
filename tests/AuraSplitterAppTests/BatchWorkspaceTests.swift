@@ -97,7 +97,7 @@ final class BatchWorkspaceTests: XCTestCase {
         let v1 = stemsDir.appendingPathComponent("02BACK_(vocals)_Elite_Heavy.wav")
         let v2 = stemsDir.appendingPathComponent("02BACK_(vocals 2)_Elite_Max.wav")
         let other = stemsDir.appendingPathComponent("02BACK_(other)_Elite_Heavy.wav")
-        let sidecar = stemsDir.appendingPathComponent("02BACK_(vocals)_Elite_Heavy.kirtan-run.json")
+        let sidecar = stemsDir.appendingPathComponent("02BACK_(vocals)_Elite_Heavy.aura-run.json")
         try Data("a".utf8).write(to: v1)
         try Data("b".utf8).write(to: v2)
         try Data("c".utf8).write(to: other)

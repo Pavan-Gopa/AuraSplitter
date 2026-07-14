@@ -768,12 +768,7 @@ class MlxSeparatorEngine:
             model_display = display_name_for_model(job.model_filename)
             if not model_display:
                 model_display = Path(job.model_filename).stem
-
-            preset_display = job.process_preset_title or "Default"
-            if preset_display and preset_display.lower() != "default":
-                suffix = f"{model_display}_{preset_display}"
-            else:
-                suffix = model_display
+            suffix = model_display
 
             safe_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix).strip()
             safe_suffix = re.sub(r'\s+', ' ', safe_suffix).strip()
@@ -1105,7 +1100,7 @@ class MlxSeparatorEngine:
         """JSON next to each stem so Results → Info can show full process settings later."""
         if not output_path.exists():
             return
-        sidecar = output_path.with_name(f"{output_path.stem}.kirtan-run.json")
+        sidecar = output_path.with_name(f"{output_path.stem}.aura-run.json")
         payload = {
             "formatVersion": 1,
             "writtenAt": time.time(),

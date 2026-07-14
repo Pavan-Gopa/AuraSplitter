@@ -40,11 +40,14 @@ struct StemFile: Identifiable, Hashable, Codable {
     static func cleanModelName(_ raw: String) -> String {
         var parts = raw.split(separator: " ").map(String.init)
         let rawWordsToStrip: Set<String> = [
-            "bs", "leap", "xe", "voc", "inst", "roformer", "sw", "deux", "becruily", "other", "vocals"
+            "bs", "leap", "xe", "voc", "inst", "roformer", "sw", "deux", "becruily", "other", "vocals",
+            "hyperace", "hyperacev2", "v2", "drumsep", "5stems", "mdx23c", "jarredou", "mega", "53stem",
+            "lead-vocal", "back-vocal", "drums", "sitar", "piano", "mvsep", "melodyshield", "karaoke", "anvuew"
         ]
         while !parts.isEmpty {
             let lower = parts[0].lowercased()
-            if rawWordsToStrip.contains(lower) || lower.hasSuffix(".ckpt") || lower.hasSuffix(".yaml") {
+            let cleanLower = lower.replacingOccurrences(of: "-", with: "")
+            if rawWordsToStrip.contains(lower) || rawWordsToStrip.contains(cleanLower) || lower.hasSuffix(".ckpt") || lower.hasSuffix(".yaml") {
                 parts.removeFirst()
             } else {
                 break
@@ -55,39 +58,35 @@ struct StemFile: Identifiable, Hashable, Codable {
 
     static func formatDisplay(stem: String, suffix: String) -> String {
         let clean = cleanModelName(suffix)
-        var parts = clean.split(separator: " ").map(String.init)
+        let parts = clean.split(separator: " ").map(String.init)
         
-        var preset: String? = nil
         let presetKeywords = ["heavy", "max", "custom", "fast", "extreme", "default"]
+        var presetIndex: Int? = nil
         
-        if parts.count >= 2 {
-            let lastTwo = (parts[parts.count-2] + " " + parts[parts.count-1]).lowercased()
-            if lastTwo.hasPrefix("heavy 1024") {
-                preset = "Heavy"
-                parts.removeLast(2)
+        for (index, part) in parts.enumerated() {
+            if presetKeywords.contains(part.lowercased()) {
+                presetIndex = index
+                break
             }
         }
         
-        if preset == nil && !parts.isEmpty {
-            let last = parts[parts.count-1].lowercased()
-            for kw in presetKeywords {
-                if last.hasPrefix(kw) {
-                    preset = kw.capitalized
-                    parts.removeLast()
-                    break
-                }
+        if let idx = presetIndex {
+            let modelPart = parts[..<idx].joined(separator: " ")
+            let presetPart = parts[idx...].joined(separator: " ").capitalized
+            
+            var result = stem.capitalized
+            if !modelPart.isEmpty {
+                result += " • \(modelPart)"
             }
+            result += " • \(presetPart)"
+            return result
+        } else {
+            var result = stem.capitalized
+            if !clean.isEmpty {
+                result += " • \(clean)"
+            }
+            return result
         }
-        
-        let modelPart = parts.joined(separator: " ")
-        var result = stem.capitalized
-        if !modelPart.isEmpty {
-            result += " • \(modelPart)"
-        }
-        if let preset {
-            result += " • \(preset)"
-        }
-        return result
     }
 
     var rawModelName: String {
@@ -190,15 +189,22 @@ struct StemFile: Identifiable, Hashable, Codable {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
-    /// Load sibling `.kirtan-run.json` written next to the stem audio.
+    /// Load sibling `.aura-run.json` (or legacy `.kirtan-run.json`) written next to the stem audio.
     mutating func loadRunInfoFromSidecar() {
         if runInfo != nil { return }
         let url = URL(fileURLWithPath: path)
-        let sidecar = url.deletingPathExtension().appendingPathExtension("kirtan-run.json")
-        // Also try: file.wav.kirtan-run.json pattern via stem name
-        let sidecarAlt = url.deletingLastPathComponent()
-            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".kirtan-run.json")
-        for candidate in [sidecarAlt, sidecar] {
+        
+        let sidecarBase = url.deletingPathExtension()
+        let sidecarAltBase = url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent)
+            
+        let candidates = [
+            sidecarAltBase.appendingPathExtension("aura-run.json"),
+            sidecarBase.appendingPathExtension("aura-run.json"),
+            sidecarAltBase.appendingPathExtension("kirtan-run.json"),
+            sidecarBase.appendingPathExtension("kirtan-run.json")
+        ]
+        for candidate in candidates {
             guard FileManager.default.fileExists(atPath: candidate.path),
                   let data = try? Data(contentsOf: candidate),
                   let info = try? JSONDecoder().decode(StemRunInfo.self, from: data)
