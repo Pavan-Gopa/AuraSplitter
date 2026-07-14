@@ -42,29 +42,23 @@ enum MetalSpectrogramShader {
     }
 
     static float3 spectrogramColor(float rawValue) {
-        float value = pow(clamp(rawValue, 0.0, 1.0), 0.82);
-        if (value < 0.22) {
-            float t = value / 0.22;
-            return float3(
-                0.01 + 0.03 * t,
-                0.018 + 0.07 * t,
-                0.05 + 0.28 * t
-            );
+        float value = pow(clamp(rawValue, 0.0, 1.0), 0.90);
+        if (value < 0.15) {
+            float t = value / 0.15;
+            return mix(float3(0.0, 0.0, 0.0), float3(0.02, 0.02, 0.12), t);
+        } else if (value < 0.35) {
+            float t = (value - 0.15) / 0.20;
+            return mix(float3(0.02, 0.02, 0.12), float3(0.18, 0.02, 0.22), t);
+        } else if (value < 0.60) {
+            float t = (value - 0.35) / 0.25;
+            return mix(float3(0.18, 0.02, 0.22), float3(0.72, 0.22, 0.02), t);
+        } else if (value < 0.85) {
+            float t = (value - 0.60) / 0.25;
+            return mix(float3(0.72, 0.22, 0.02), float3(0.98, 0.68, 0.02), t);
+        } else {
+            float t = (value - 0.85) / 0.15;
+            return mix(float3(0.98, 0.68, 0.02), float3(1.0, 1.0, 0.85), t);
         }
-        if (value < 0.58) {
-            float t = (value - 0.22) / 0.36;
-            return float3(
-                0.04 + 0.72 * t,
-                0.09 + 0.30 * t,
-                0.33 - 0.20 * t
-            );
-        }
-        float t = (value - 0.58) / 0.42;
-        return float3(
-            0.76 + 0.24 * t,
-            0.39 + 0.40 * t,
-            0.13 + 0.03 * t
-        );
     }
 
     fragment float4 spectrogram_fragment(

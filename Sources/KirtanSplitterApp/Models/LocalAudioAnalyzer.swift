@@ -100,12 +100,12 @@ enum LocalAudioAnalyzer {
         return peaks
     }
 
-    private static func computeSpectrogram(_ mono: [Float], sampleRate _: Int) -> SpectrogramData {
+    private static func computeSpectrogram(_ mono: [Float], sampleRate: Int) -> SpectrogramData {
         let columns = AudioPreviewAnalysisResolution.spectrogramColumns
         let bins = AudioPreviewAnalysisResolution.spectrogramBins
         let frames = mono.count
 
-        let fftSize = nextPowerOfTwo(bins * 2)
+        let fftSize = 2048
         let log2n = Int(log2(Double(fftSize)))
         let window = hannWindow(size: fftSize)
         let fft = vDSP.FFT(log2n: vDSP_Length(log2n), radix: .radix2, ofType: DSPSplitComplex.self)!
@@ -117,6 +117,27 @@ enum LocalAudioAnalyzer {
 
         var values = [Double](repeating: 0, count: bins * columns)
         let usableSpan = max(0, frames - fftSize)
+
+        // Mel scale mapping parameters (matching human pitch perception, like iZotope RX)
+        let fMin = 20.0
+        let fMax = Double(sampleRate) / 2.0
+        let melMin = 2595.0 * log10(1.0 + fMin / 700.0)
+        let melMax = 2595.0 * log10(1.0 + fMax / 700.0)
+        
+        var targetIndices = [Double](repeating: 0, count: bins)
+        for bin in 0..<bins {
+            let mel = melMin + (Double(bin) / Double(max(1, bins - 1))) * (melMax - melMin)
+            let freq = 700.0 * (pow(10.0, mel / 2595.0) - 1.0)
+            targetIndices[bin] = freq / Double(sampleRate) * Double(fftSize)
+        }
+
+        // Compute boundary indices for max-pooling
+        var boundaries = [Double](repeating: 0, count: bins + 1)
+        boundaries[0] = max(0.0, targetIndices[0] - (targetIndices[1] - targetIndices[0]) / 2.0)
+        for i in 1..<bins {
+            boundaries[i] = (targetIndices[i - 1] + targetIndices[i]) / 2.0
+        }
+        boundaries[bins] = targetIndices[bins - 1] + (targetIndices[bins - 1] - targetIndices[bins - 2]) / 2.0
 
         realInput.withUnsafeMutableBufferPointer { rip in
             imagInput.withUnsafeMutableBufferPointer { iip in
@@ -134,13 +155,46 @@ enum LocalAudioAnalyzer {
                                 iip.baseAddress![i] = 0
                             }
                             fft.forward(input: inputSplit, output: &outSplit)
+                            
                             for bin in 0..<bins {
-                                let re = orp.baseAddress![bin]
-                                let im = oip.baseAddress![bin]
-                                let mag = sqrt(re * re + im * im)
+                                let left = boundaries[bin]
+                                let right = boundaries[bin + 1]
+                                let leftInt = Int(ceil(left))
+                                let rightInt = Int(floor(right))
+                                
+                                var mag: Float = 0.0
+                                if leftInt <= rightInt {
+                                    // Max pooling over the range [leftInt, rightInt]
+                                    var maxMag: Float = 0.0
+                                    for idx in leftInt...rightInt {
+                                        let cIdx = max(0, min(fftSize / 2 - 1, idx))
+                                        let re = orp.baseAddress![cIdx]
+                                        let im = oip.baseAddress![cIdx]
+                                        let m = sqrt(re * re + im * im)
+                                        if m > maxMag { maxMag = m }
+                                    }
+                                    mag = maxMag
+                                } else {
+                                    // Linear interpolation at the center index
+                                    let center = targetIndices[bin]
+                                    let idxFloor = max(0, min(fftSize / 2 - 1, Int(floor(center))))
+                                    let idxCeil = max(0, min(fftSize / 2 - 1, idxFloor + 1))
+                                    let t = Float(center - Double(idxFloor))
+                                    
+                                    let re1 = orp.baseAddress![idxFloor]
+                                    let im1 = oip.baseAddress![idxFloor]
+                                    let mag1 = sqrt(re1 * re1 + im1 * im1)
+                                    
+                                    let re2 = orp.baseAddress![idxCeil]
+                                    let im2 = oip.baseAddress![idxCeil]
+                                    let mag2 = sqrt(re2 * re2 + im2 * im2)
+                                    
+                                    mag = mag1 + (mag2 - mag1) * t
+                                }
+                                
                                 let db = 20 * log10(max(Double(mag), 1e-7))
                                 let norm = max(0, min(1, (db + 90) / 90))
-                                values[bin * columns + col] = norm
+                                values[bin * columns + col] = pow(norm, 0.72)
                             }
                         }
                     }

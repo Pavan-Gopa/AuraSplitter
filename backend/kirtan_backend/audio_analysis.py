@@ -349,16 +349,33 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
         return [0.0] * (columns * bins)
 
     samples_per_column = max(1.0, samples.size / columns)
-    frame_length = _next_power_of_two(int(min(16384, max(512, samples_per_column * 2))))
+    frame_length = _next_power_of_two(int(min(16384, max(2048, samples_per_column * 2))))
     half_window = frame_length // 2
     window = np.hanning(frame_length).astype(np.float32)
     padded = np.pad(samples, (half_window, half_window), mode="constant")
     centers = np.linspace(0, samples.size - 1, columns)
-    target_frequencies = np.linspace(sample_rate / (2 * bins), sample_rate / 2, bins, dtype=np.float32)
+    
+    # Mel-spaced target frequencies for human-like auditory frequency resolution (iZotope RX style)
+    f_min = 20.0
+    f_max = sample_rate / 2.0
+    mel_min = 2595.0 * np.log10(1.0 + f_min / 700.0)
+    mel_max = 2595.0 * np.log10(1.0 + f_max / 700.0)
+    mels = np.linspace(mel_min, mel_max, bins, dtype=np.float32)
+    target_frequencies = 700.0 * (10.0 ** (mels / 2595.0) - 1.0)
+    
+    # Compute boundary frequencies for max-pooling
+    boundaries = np.zeros(bins + 1, dtype=np.float32)
+    boundaries[0] = max(0.0, target_frequencies[0] - (target_frequencies[1] - target_frequencies[0]) / 2)
+    for i in range(1, bins):
+        boundaries[i] = (target_frequencies[i-1] + target_frequencies[i]) / 2.0
+    boundaries[bins] = target_frequencies[bins-1] + (target_frequencies[bins-1] - target_frequencies[bins-2]) / 2.0
+    
+    boundary_indices = boundaries / sample_rate * frame_length
     spectrum_positions = target_frequencies / sample_rate * frame_length
     left_bins = np.floor(spectrum_positions).astype(np.int64)
     right_bins = left_bins + 1
     bin_mix = (spectrum_positions - left_bins).astype(np.float32)
+    
     matrix = np.zeros((columns, bins), dtype=np.float32)
     chunk_columns = _spectrogram_chunk_columns(columns=columns, frame_length=frame_length)
 
@@ -371,17 +388,26 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
             start = center - half_window
             frames[local_index] = padded[start:start + frame_length]
         frames *= window
-
+ 
         spectrum = np.abs(np.fft.rfft(frames, axis=1)).astype(np.float32, copy=False)
         if spectrum.shape[1] <= 2:
             continue
-
+ 
         max_bin = spectrum.shape[1] - 1
-        left = np.clip(left_bins, 0, max_bin)
-        right = np.clip(right_bins, 0, max_bin)
-        lower = spectrum[:, left]
-        upper = spectrum[:, right]
-        matrix[chunk_start:chunk_end] = lower + (upper - lower) * bin_mix
+        left_int = np.clip(np.ceil(boundary_indices[:-1]).astype(np.int64), 0, max_bin)
+        right_int = np.clip(np.floor(boundary_indices[1:]).astype(np.int64), 0, max_bin)
+        left_clip = np.clip(left_bins, 0, max_bin)
+        right_clip = np.clip(right_bins, 0, max_bin)
+
+        for b in range(bins):
+            l_idx = left_int[b]
+            r_idx = right_int[b]
+            if l_idx <= r_idx:
+                matrix[chunk_start:chunk_end, b] = np.max(spectrum[:, l_idx:r_idx+1], axis=1)
+            else:
+                lc = left_clip[b]
+                rc = right_clip[b]
+                matrix[chunk_start:chunk_end, b] = spectrum[:, lc] + (spectrum[:, rc] - spectrum[:, lc]) * bin_mix[b]
 
     if np.max(matrix) <= 0:
         return [0.0] * (columns * bins)
