@@ -468,16 +468,51 @@ struct AudioPreviewPane: View {
         context.stroke(grid, with: .color(Color.white.opacity(0.08)), lineWidth: 1)
     }
 
+    private func drawFrequencyAxis(context: inout GraphicsContext, plotRect: CGRect, sampleRate: Double) {
+        let fMin = 20.0
+        let fMax = sampleRate / 2.0
+        let melMin = 2595.0 * log10(1.0 + fMin / 700.0)
+        let melMax = 2595.0 * log10(1.0 + fMax / 700.0)
+        
+        let labelX: CGFloat = 6
+        let ticks: [Double] = [100, 300, 500, 1000, 2000, 3500, 5000, 7000, 10000, 15000, 20000]
+        
+        for f in ticks {
+            guard f < fMax else { continue }
+            let mel = 2595.0 * log10(1.0 + f / 700.0)
+            let fractionY = 1.0 - (mel - melMin) / (melMax - melMin)
+            let y = plotRect.minY + CGFloat(fractionY) * plotRect.height
+            
+            // Draw a tiny tick on the left border of plotRect
+            var tick = Path()
+            tick.move(to: CGPoint(x: plotRect.minX, y: y))
+            tick.addLine(to: CGPoint(x: plotRect.minX + 4, y: y))
+            context.stroke(tick, with: .color(Color.white.opacity(0.24)), lineWidth: 1)
+            
+            // Draw the label
+            let label = f >= 1000 ? String(format: "%.0fk", f / 1000.0) : String(format: "%.0f", f)
+            drawText(
+                label,
+                font: .caption2.monospacedDigit(),
+                color: Color.white.opacity(0.45),
+                context: &context,
+                at: CGPoint(x: labelX, y: y),
+                anchor: .leading
+            )
+        }
+    }
+
     private func drawAxisLabels(context: inout GraphicsContext, plotRect: CGRect, analysis: AudioAnalysis) {
         drawText(
-            analysis.channels == 1 ? "M" : "L/R",
+            analysis.channels == 1 ? "Mono" : "Stereo",
             font: .caption2.weight(.semibold),
-            color: .secondary,
+            color: Color.white.opacity(0.35),
             context: &context,
-            at: CGPoint(x: 12, y: plotRect.midY),
+            at: CGPoint(x: plotRect.minX, y: plotRect.minY - 14),
             anchor: .leading
         )
 
+        drawFrequencyAxis(context: &context, plotRect: plotRect, sampleRate: Double(analysis.sampleRate))
         drawWaveformDecibelAxis(context: &context, plotRect: plotRect)
     }
 

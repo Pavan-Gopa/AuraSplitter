@@ -110,10 +110,11 @@ enum LocalAudioAnalyzer {
         let window = hannWindow(size: fftSize)
         let fft = vDSP.FFT(log2n: vDSP_Length(log2n), radix: .radix2, ofType: DSPSplitComplex.self)!
 
-        var realInput = [Float](repeating: 0, count: fftSize)
-        var imagInput = [Float](repeating: 0, count: fftSize)
-        var outReal = [Float](repeating: 0, count: fftSize)
-        var outImag = [Float](repeating: 0, count: fftSize)
+        let halfSize = fftSize / 2
+        var realInput = [Float](repeating: 0, count: halfSize)
+        var imagInput = [Float](repeating: 0, count: halfSize)
+        var outReal = [Float](repeating: 0, count: halfSize)
+        var outImag = [Float](repeating: 0, count: halfSize)
 
         var dbValues = [Double](repeating: 0, count: bins * columns)
         let usableSpan = max(0, frames - fftSize)
@@ -149,11 +150,15 @@ enum LocalAudioAnalyzer {
                         for col in 0..<columns {
                             let center = Int(Double(col) / Double(max(1, columns - 1)) * Double(usableSpan))
                             let start = max(0, min(frames - fftSize, center))
-                            for i in 0..<fftSize {
-                                let idx = start + i
-                                rip.baseAddress![i] = idx < frames ? mono[idx] * window[i] : 0
-                                iip.baseAddress![i] = 0
+                            
+                            // Pack real samples into split complex input (even in realp, odd in imagp)
+                            for i in 0..<halfSize {
+                                let idx1 = start + 2 * i
+                                let idx2 = start + 2 * i + 1
+                                rip.baseAddress![i] = idx1 < frames ? mono[idx1] * window[2 * i] : 0
+                                iip.baseAddress![i] = idx2 < frames ? mono[idx2] * window[2 * i + 1] : 0
                             }
+                            
                             fft.forward(input: inputSplit, output: &outSplit)
                             
                             for bin in 0..<bins {
@@ -167,27 +172,48 @@ enum LocalAudioAnalyzer {
                                     // Max pooling over the range [leftInt, rightInt]
                                     var maxMag: Float = 0.0
                                     for idx in leftInt...rightInt {
-                                        let cIdx = max(0, min(fftSize / 2 - 1, idx))
-                                        let re = orp.baseAddress![cIdx]
-                                        let im = oip.baseAddress![cIdx]
-                                        let m = sqrt(re * re + im * im)
+                                        let cIdx = max(0, min(halfSize, idx))
+                                        let m: Float
+                                        if cIdx == 0 {
+                                            m = abs(orp.baseAddress![0])
+                                        } else if cIdx == halfSize {
+                                            m = abs(oip.baseAddress![0])
+                                        } else {
+                                            let re = orp.baseAddress![cIdx]
+                                            let im = oip.baseAddress![cIdx]
+                                            m = sqrt(re * re + im * im)
+                                        }
                                         if m > maxMag { maxMag = m }
                                     }
                                     mag = maxMag
                                 } else {
                                     // Linear interpolation at the center index
                                     let center = targetIndices[bin]
-                                    let idxFloor = max(0, min(fftSize / 2 - 1, Int(floor(center))))
-                                    let idxCeil = max(0, min(fftSize / 2 - 1, idxFloor + 1))
+                                    let idxFloor = max(0, min(halfSize, Int(floor(center))))
+                                    let idxCeil = max(0, min(halfSize, idxFloor + 1))
                                     let t = Float(center - Double(idxFloor))
                                     
-                                    let re1 = orp.baseAddress![idxFloor]
-                                    let im1 = oip.baseAddress![idxFloor]
-                                    let mag1 = sqrt(re1 * re1 + im1 * im1)
+                                    let mag1: Float
+                                    if idxFloor == 0 {
+                                        mag1 = abs(orp.baseAddress![0])
+                                    } else if idxFloor == halfSize {
+                                        mag1 = abs(oip.baseAddress![0])
+                                    } else {
+                                        let re = orp.baseAddress![idxFloor]
+                                        let im = oip.baseAddress![idxFloor]
+                                        mag1 = sqrt(re * re + im * im)
+                                    }
                                     
-                                    let re2 = orp.baseAddress![idxCeil]
-                                    let im2 = oip.baseAddress![idxCeil]
-                                    let mag2 = sqrt(re2 * re2 + im2 * im2)
+                                    let mag2: Float
+                                    if idxCeil == 0 {
+                                        mag2 = abs(orp.baseAddress![0])
+                                    } else if idxCeil == halfSize {
+                                        mag2 = abs(oip.baseAddress![0])
+                                    } else {
+                                        let re = orp.baseAddress![idxCeil]
+                                        let im = oip.baseAddress![idxCeil]
+                                        mag2 = sqrt(re * re + im * im)
+                                    }
                                     
                                     mag = mag1 + (mag2 - mag1) * t
                                 }
