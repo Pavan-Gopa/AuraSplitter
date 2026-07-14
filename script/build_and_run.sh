@@ -74,7 +74,9 @@ fi
 if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_White.svg" ]]; then
   cp "$ROOT_DIR/LOGO/AuraSplitter_White.svg" "$APP_RESOURCES/AuraSplitter_White.svg"
 fi
-cp -R "$ROOT_DIR/backend" "$RUNTIME_BACKEND"
+rm -rf "$RUNTIME_BACKEND"
+mkdir -p "$RUNTIME_BACKEND"
+rsync -a --delete "$ROOT_DIR/backend/" "$RUNTIME_BACKEND/"
 cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
 chmod +x "$RUNTIME_LAUNCHER"
 if [[ -d "$ROOT_DIR/models" ]]; then
