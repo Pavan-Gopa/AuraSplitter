@@ -776,9 +776,16 @@ class MlxSeparatorEngine:
                 suffix = model_display
 
             safe_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix).strip()
-            desired = path
-            if safe_suffix and f"_{safe_suffix}" not in path.stem:
-                desired = path.with_name(f"{path.stem}_{safe_suffix}{path.suffix}")
+            safe_suffix = re.sub(r'\s+', ' ', safe_suffix).strip()
+
+            match = re.search(r"\(([^)]+)\)", path.name)
+            if match:
+                stem_in_parenthesis = match.group(1)
+                prefix = f"{source_path.stem}_({stem_in_parenthesis})"
+            else:
+                prefix = f"{source_path.stem}_({self._stem_name(path).capitalize()})"
+
+            desired = path.with_name(f"{prefix}_{safe_suffix}{path.suffix}")
 
             # Experiment-friendly naming: vocals, vocals 2, vocals 3… never overwrite.
             target = self._allocate_versioned_stem_path(
