@@ -818,20 +818,14 @@ private struct AppHeaderView: View {
             isCancelling: backend.isCancelling
         )
 
-        return HStack(spacing: 14) {
+        return HStack(spacing: 10) {
             AppLogoView()
-                .frame(width: 28, height: 28)
+                .frame(width: 34, height: 34)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("AuraSplitter")
-                    .font(.headline.weight(.semibold))
-                    .lineLimit(1)
-                Text(statusText)
-                    .font(.caption2)
-                    .foregroundStyle(statusColor)
-                    .lineLimit(1)
-            }
-            .frame(width: 154, alignment: .leading)
+            Text("AuraSplitter")
+                .font(.system(size: 16, weight: .semibold))
+                .lineLimit(1)
+                .frame(width: 154, alignment: .leading)
 
             ModelPresetDropdown(
                 selection: $modelPresetID,
