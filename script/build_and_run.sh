@@ -43,12 +43,8 @@ pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 pkill -x "KirtanSplitter" >/dev/null 2>&1 || true
 launchctl remove "$BACKEND_LABEL" >/dev/null 2>&1 || true
 launchctl remove "com.pavan.kirtansplitter.backend" >/dev/null 2>&1 || true
-pkill -f "$ROOT_DIR/backend/server.py" >/dev/null 2>&1 || true
-pkill -f "$ROOT_DIR/script/run_backend.sh" >/dev/null 2>&1 || true
-pkill -f "$APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
-pkill -f "$APP_SUPPORT/run_backend.sh" >/dev/null 2>&1 || true
-pkill -f "$LEGACY_APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
-pkill -f "$LEGACY_APP_SUPPORT/run_backend.sh" >/dev/null 2>&1 || true
+pkill -f "backend/server.py" >/dev/null 2>&1 || true
+pkill -f "run_backend.sh" >/dev/null 2>&1 || true
 
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"

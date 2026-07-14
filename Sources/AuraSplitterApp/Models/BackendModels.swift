@@ -42,12 +42,17 @@ struct StemFile: Identifiable, Hashable, Codable {
         let rawWordsToStrip: Set<String> = [
             "bs", "leap", "xe", "voc", "inst", "roformer", "sw", "deux", "becruily", "other", "vocals",
             "hyperace", "hyperacev2", "v2", "drumsep", "5stems", "mdx23c", "jarredou", "mega", "53stem",
-            "lead-vocal", "back-vocal", "drums", "sitar", "piano", "mvsep", "melodyshield", "karaoke", "anvuew"
+            "lead-vocal", "back-vocal", "drums", "sitar", "piano", "mvsep", "melodyshield", "karaoke", "anvuew",
+            "gonza", "mel", "band", "bve"
         ]
         while !parts.isEmpty {
             let lower = parts[0].lowercased()
-            let cleanLower = lower.replacingOccurrences(of: "-", with: "")
-            if rawWordsToStrip.contains(lower) || rawWordsToStrip.contains(cleanLower) || lower.hasSuffix(".ckpt") || lower.hasSuffix(".yaml") {
+            let subparts = lower.split { $0 == "-" || $0 == "_" }.map(String.init)
+            let isRaw = subparts.allSatisfy { sub in
+                rawWordsToStrip.contains(sub) || sub.hasSuffix(".ckpt") || sub.hasSuffix(".yaml")
+            } || rawWordsToStrip.contains(lower)
+            
+            if isRaw {
                 parts.removeFirst()
             } else {
                 break

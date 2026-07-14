@@ -134,6 +134,9 @@ final class BatchWorkspaceTests: XCTestCase {
 
         let leadVocalsWithSpaces = StemFile(stem: "lead_vocals", path: "/path/to/MySong_(lead vocals)_Aura Clean Split_Fast.wav", sizeBytes: 100)
         XCTAssertEqual(leadVocalsWithSpaces.displayName, "Lead Vocals • Aura Clean Split • Fast")
+
+        let bassWithHyphenatedPrefix = StemFile(stem: "bass", path: "/path/to/MySong_(bass)_BS-Roformer-SW_Aura Pro_Max_off.wav", sizeBytes: 100)
+        XCTAssertEqual(bassWithHyphenatedPrefix.displayName, "Bass • Aura Pro • Max Off")
     }
 
     private func makeTemporaryDirectory() throws -> URL {
