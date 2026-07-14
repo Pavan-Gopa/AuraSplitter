@@ -19,7 +19,8 @@ final class AudioPreviewControlsTests: XCTestCase {
     func testLayerSettingsDefaultToFullSpectrumAndWaveformIntensity() {
         let settings = AudioPreviewLayerSettings()
 
-        XCTAssertEqual(settings.spectrumIntensity, 1)
+        XCTAssertEqual(settings.spectrumMinDb, -120)
+        XCTAssertEqual(settings.spectrumMaxDb, -40)
         XCTAssertEqual(settings.waveformIntensity, 1)
     }
 

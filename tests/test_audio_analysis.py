@@ -37,7 +37,7 @@ def test_spectrogram_returns_requested_density():
     values = _spectrogram(_sine(440), columns=128, bins=96, sample_rate=22_050)
 
     assert len(values) == 128 * 96
-    assert max(values) > 0.2
+    assert max(values) > -30.0
 
 
 def test_spectrogram_batches_fft_work_for_preview_speed(monkeypatch):
@@ -110,20 +110,19 @@ def test_spectrogram_values_use_row_major_bin_row_layout():
 
     values = _spectrogram(_sine(3_520), columns=columns, bins=bins, sample_rate=22_050)
 
-    # Row-major, bin rows: values[bin * columns + column]. Under this layout a
-    # single frequency bin maps to one contiguous run of samples (per column),
-    # not a stride scattered across the whole array (which a column-major
-    # flatten would produce). The dominant tone bin is checked; its interior
-    # columns (excluding the symmetric first/last-column edge artifact) must
-    # form a single contiguous run.
-    arr = np.array(values, dtype=np.float32).reshape(bins, columns)
+    # Normalize values internally to [0, 1] for relative thresholding checks
+    val_min = min(values)
+    val_max = max(values)
+    normalized = [(v - val_min) / (val_max - val_min) if val_max > val_min else 0.0 for v in values]
+
+    arr = np.array(normalized, dtype=np.float32).reshape(bins, columns)
     threshold = float(arr.max()) * 0.6
     dominant_bin = int(np.argmax(arr.mean(axis=1)))
     assert arr[dominant_bin].max() > threshold
 
     run = [
         i
-        for i, v in enumerate(values)
+        for i, v in enumerate(normalized)
         if (i // columns) == dominant_bin
         and 1 <= (i % columns) <= columns - 2
         and v > threshold

@@ -6,7 +6,8 @@ struct MetalSpectrogramView: NSViewRepresentable {
     let sourceID: String
     let spectrogram: SpectrogramData
     let viewport: AudioPreviewViewport
-    let intensity: Double
+    let minDb: Double
+    let maxDb: Double
 
     func makeCoordinator() -> MetalSpectrogramCoordinator {
         MetalSpectrogramCoordinator()
@@ -31,7 +32,8 @@ struct MetalSpectrogramView: NSViewRepresentable {
             sourceID: sourceID,
             spectrogram: spectrogram,
             viewport: viewport,
-            intensity: intensity
+            minDb: minDb,
+            maxDb: maxDb
         )
         nsView.draw()
     }
@@ -49,8 +51,8 @@ final class MetalSpectrogramCoordinator: NSObject, MTKViewDelegate {
     private struct Uniforms {
         var start: Float
         var span: Float
-        var gain: Float
-        var pad: Float
+        var minDb: Float
+        var maxDb: Float
     }
 
     private var device: MTLDevice?
@@ -58,7 +60,7 @@ final class MetalSpectrogramCoordinator: NSObject, MTKViewDelegate {
     private var pipelineState: MTLRenderPipelineState?
     private var spectrogramTexture: MTLTexture?
     private var textureSignature: TextureSignature?
-    private var uniforms = Uniforms(start: 0, span: 1, gain: 1, pad: 0)
+    private var uniforms = Uniforms(start: 0, span: 1, minDb: -120.0, maxDb: -40.0)
 
     func configureIfNeeded(for view: MTKView) {
         guard pipelineState == nil, let device = view.device else { return }
@@ -77,12 +79,12 @@ final class MetalSpectrogramCoordinator: NSObject, MTKViewDelegate {
         }
     }
 
-    func update(sourceID: String, spectrogram: SpectrogramData, viewport: AudioPreviewViewport, intensity: Double) {
+    func update(sourceID: String, spectrogram: SpectrogramData, viewport: AudioPreviewViewport, minDb: Double, maxDb: Double) {
         uniforms = Uniforms(
             start: Float(viewport.start),
             span: Float(viewport.span),
-            gain: Float(AudioPreviewLayerSettings.clampIntensity(intensity)),
-            pad: 0
+            minDb: Float(minDb),
+            maxDb: Float(maxDb)
         )
 
         let signature = TextureSignature(

@@ -412,18 +412,8 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
     if np.max(matrix) <= 0:
         return [0.0] * (columns * bins)
 
+    matrix = matrix / (frame_length / 2.0)
     matrix = 20.0 * np.log10(np.maximum(matrix, 1e-8))
-    finite_values = matrix[np.isfinite(matrix)]
-    if finite_values.size == 0:
-        return [0.0] * (columns * bins)
-
-    floor = float(np.percentile(finite_values, 35))
-    ceiling = float(np.percentile(finite_values, 99.7))
-    if ceiling <= floor:
-        ceiling = floor + 1.0
-    matrix = (matrix - floor) / (ceiling - floor)
-    matrix = np.clip(matrix, 0, 1)
-    matrix = np.power(matrix, 0.72)
     # Row-major, bin rows: values[bin * columns + column]. See docstring.
     return [round(float(value), 4) for value in matrix.T.reshape(-1)]
 

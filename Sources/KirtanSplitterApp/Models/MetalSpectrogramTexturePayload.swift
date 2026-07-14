@@ -26,7 +26,7 @@ struct MetalSpectrogramTexturePayload: Equatable {
         nextFloats.reserveCapacity(neededCount)
         for index in 0..<neededCount {
             let value = spectrogram.values[index]
-            nextFloats.append(Float(min(1, max(0, value))))
+            nextFloats.append(Float(value))
         }
 
         width = columns

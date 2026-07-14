@@ -50,7 +50,7 @@ final class LocalAudioAnalyzerTests: XCTestCase {
         XCTAssertEqual(spectrogram.columns, AudioPreviewAnalysisResolution.spectrogramColumns)
         XCTAssertEqual(spectrogram.bins, AudioPreviewAnalysisResolution.spectrogramBins)
         XCTAssertEqual(spectrogram.values.count, spectrogram.bins * spectrogram.columns)
-        XCTAssertTrue(spectrogram.values.allSatisfy { $0 >= 0 && $0 <= 1 })
+        XCTAssertTrue(spectrogram.values.allSatisfy { $0 >= -160 && $0 <= 10 })
 
         try FileManager.default.removeItem(at: url)
     }

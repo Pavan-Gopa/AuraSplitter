@@ -28,8 +28,9 @@ enum WorkspaceLayoutMetrics {
 }
 
 struct AudioPreviewLayerSettings: Equatable {
-    var spectrumIntensity: Double = 1
-    var waveformIntensity: Double = 1
+    var spectrumMinDb: Double = -120.0
+    var spectrumMaxDb: Double = -40.0
+    var waveformIntensity: Double = 1.0
 
     static func clampIntensity(_ value: Double) -> Double {
         min(2, max(0, value))

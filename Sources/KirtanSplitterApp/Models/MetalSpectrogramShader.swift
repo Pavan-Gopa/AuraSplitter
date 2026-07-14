@@ -13,8 +13,8 @@ enum MetalSpectrogramShader {
     struct Uniforms {
         float start;
         float span;
-        float gain;
-        float pad;
+        float minDb;
+        float maxDb;
     };
 
     vertex VertexOut spectrogram_vertex(uint vertexID [[vertex_id]]) {
@@ -75,8 +75,9 @@ enum MetalSpectrogramShader {
 
         float sourceX = clamp(uniforms.start + in.uv.x * uniforms.span, 0.0, 1.0);
         float sourceY = clamp(1.0 - in.uv.y, 0.0, 1.0);
-        float value = spectrogram.sample(linearSampler, float2(sourceX, sourceY)).r * uniforms.gain;
-        return float4(spectrogramColor(value), 1.0);
+        float rawDb = spectrogram.sample(linearSampler, float2(sourceX, sourceY)).r;
+        float norm = clamp((rawDb - uniforms.minDb) / (uniforms.maxDb - uniforms.minDb), 0.0, 1.0);
+        return float4(spectrogramColor(norm), 1.0);
     }
     """
 }

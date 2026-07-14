@@ -228,7 +228,8 @@ struct ComparisonPane: View {
                             sourceID: analysis.path,
                             spectrogram: analysis.spectrogram!,
                             viewport: viewport,
-                            intensity: layerSettings.spectrumIntensity
+                            minDb: layerSettings.spectrumMinDb,
+                            maxDb: layerSettings.spectrumMaxDb
                         )
                         .frame(width: plotRect.width, height: plotRect.height)
                         .position(x: plotRect.midX, y: plotRect.midY)
