@@ -82,9 +82,29 @@ extension AudioAnalysis {
         cursor += waveformByteCount
         let spectrogramFloats = data.subdata(in: cursor..<cursor + spectrogramByteCount)
             .withUnsafeBytes { Array($0.bindMemory(to: Float32.self)) }
+        let rawSpectrogram = spectrogramFloats.map { Double($0) }
+        var spectrogramValues = rawSpectrogram
+
+        if !spectrogramValues.isEmpty {
+            var minVal = spectrogramValues[0]
+            var maxVal = spectrogramValues[0]
+            for v in spectrogramValues {
+                if v < minVal { minVal = v }
+                if v > maxVal { maxVal = v }
+            }
+            // Old format was strictly [0.0, 1.0]. If values are within [-5.0, 1.5], it's legacy.
+            if minVal >= -5.0 && maxVal <= 1.5 {
+                for i in 0..<spectrogramValues.count {
+                    let norm = spectrogramValues[i]
+                    let normLinear = pow(max(0.0, min(1.0, norm)), 1.0 / 0.72)
+                    spectrogramValues[i] = -120.0 + normLinear * 80.0
+                }
+            }
+        }
+
         return (
             waveformFloats.map { Double($0) },
-            SpectrogramData(columns: Int(columns), bins: Int(bins), values: spectrogramFloats.map { Double($0) })
+            SpectrogramData(columns: Int(columns), bins: Int(bins), values: spectrogramValues)
         )
     }
 }
