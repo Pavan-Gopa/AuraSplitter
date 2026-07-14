@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private var statusMenu: NSMenu?
+
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         
@@ -39,23 +41,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             button.action = #selector(statusBarButtonClicked(_:))
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         
+        // Build the context menu but do NOT assign it to statusItem.menu
+        // so that left-click can trigger the action instead of showing the menu.
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show AuraSplitter", action: #selector(showApp), keyEquivalent: "s"))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
-        statusItem?.menu = menu
+        statusMenu = menu
     }
     
     @objc func statusBarButtonClicked(_ sender: Any?) {
-        showApp()
+        guard let event = NSApp.currentEvent else {
+            showApp()
+            return
+        }
+        if event.type == .rightMouseUp {
+            // Show context menu on right-click
+            if let button = statusItem?.button, let menu = statusMenu {
+                statusItem?.menu = menu
+                button.performClick(nil)
+                // Remove menu right after so next left-click goes to action again
+                DispatchQueue.main.async { [weak self] in
+                    self?.statusItem?.menu = nil
+                }
+            }
+        } else {
+            showApp()
+        }
     }
     
     @objc func showApp() {
+        NSApp.setActivationPolicy(.regular)
         if let window = mainWindow {
-            NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         } else {
             NSApp.activate(ignoringOtherApps: true)
         }
