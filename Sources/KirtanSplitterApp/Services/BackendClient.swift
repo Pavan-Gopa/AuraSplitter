@@ -447,11 +447,15 @@ final class BackendClient: ObservableObject {
         settings: SeparationSettings,
         processPreset: ProcessSettingsPreset?
     ) async throws -> RenderEstimate {
+        let isDirty = processPreset?.isDirty(settings: settings) ?? true
+        let presetTitle = isDirty ? "Custom" : (processPreset?.title ?? "Default")
+        let presetID = isDirty ? "custom" : (processPreset?.id ?? "builtin.default")
+
         var params: [String: Any] = [
             "inputPath": inputURL.path,
             "preset": settings.presetID,
-            "processPresetID": processPreset?.id ?? "builtin.default",
-            "processPresetTitle": processPreset?.title ?? "Default",
+            "processPresetID": presetID,
+            "processPresetTitle": presetTitle,
             "mdxcSegmentSize": settings.mdxcSegmentSize,
             "mdxcOverlap": settings.mdxcOverlap,
             "mdxcBatchSize": settings.mdxcBatchSize,
@@ -494,6 +498,10 @@ final class BackendClient: ObservableObject {
             isProcessing = false
         }
 
+        let isDirty = processPreset?.isDirty(settings: settings) ?? true
+        let presetTitle = isDirty ? "Custom" : (processPreset?.title ?? "Default")
+        let presetID = isDirty ? "custom" : (processPreset?.id ?? "builtin.default")
+
         var params: [String: Any] = [
             "inputPath": inputURL.path,
             "outputDir": outputDirectory.path,
@@ -506,8 +514,8 @@ final class BackendClient: ObservableObject {
             "mdxcOverrideModelSegmentSize": settings.effectiveMDXCOverrideModelSegmentSize,
             "saveConvertedSafetensors": settings.saveConvertedSafetensors,
             "performanceFlags": settings.performanceFlags,
-            "processPresetID": processPreset?.id ?? "builtin.default",
-            "processPresetTitle": processPreset?.title ?? "Default",
+            "processPresetID": presetID,
+            "processPresetTitle": presetTitle,
         ]
         if let modelOverride = settings.modelOverride, !modelOverride.isEmpty {
             params["modelFilename"] = modelOverride
