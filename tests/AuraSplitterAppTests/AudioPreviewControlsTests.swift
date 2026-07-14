@@ -1,5 +1,5 @@
 import XCTest
-@testable import KirtanSplitterApp
+@testable import AuraSplitterApp
 
 final class AudioPreviewControlsTests: XCTestCase {
     func testVolumeClampKeepsPreviewGainBetweenMuteAndTripleGain() {

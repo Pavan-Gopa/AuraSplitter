@@ -75,7 +75,7 @@ final class MetalSpectrogramCoordinator: NSObject, MTKViewDelegate {
             descriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
             pipelineState = try device.makeRenderPipelineState(descriptor: descriptor)
         } catch {
-            NSLog("KirtanSplitter Metal spectrogram shader failed: \(error)")
+            NSLog("AuraSplitter Metal spectrogram shader failed: \(error)")
         }
     }
 

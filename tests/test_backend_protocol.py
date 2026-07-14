@@ -906,7 +906,7 @@ def test_engine_writes_kirtan_model_metadata_to_output_files(tmp_path, monkeypat
     )
 
     tags = _audio_tags(Path(result["files"][0]["path"]))
-    assert tags["encoded_by"] == "KirtanSplitter"
+    assert tags["encoded_by"] == "AuraSplitter"
     assert "model=Aura Pro" in tags["comment"]
     assert "checkpoint=BS-Roformer-SW.ckpt" in tags["comment"]
     assert "preset=kirtan_pro" in tags["comment"]

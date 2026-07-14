@@ -55,7 +55,7 @@ final class BackendClient: ObservableObject {
     private var telemetryTask: Task<Void, Never>?
     private var isTelemetryRequestInFlight = false
     private var backendPaths: BackendPaths?
-    private let networkQueue = DispatchQueue(label: "KirtanSplitter.BackendConnection")
+    private let networkQueue = DispatchQueue(label: "AuraSplitter.BackendConnection")
     private var analysisProgressSinks: [String: ([String: Any]) -> Void] = [:]
     /// Serializes start / cancel-restart / manual restart so they cannot thrash the TCP port.
     private var isPerformingBackendLifecycle = false
@@ -1024,15 +1024,15 @@ final class BackendClient: ObservableObject {
     private func resolveBackendPaths() -> BackendPaths {
         let env = ProcessInfo.processInfo.environment
         let info = Bundle.main.infoDictionary ?? [:]
-        let bundledProjectRoot = info["KirtanSplitterProjectRoot"] as? String
-        let bundledPython = info["KirtanSplitterPython"] as? String
-        let bundledPythonPath = info["KirtanSplitterPythonPath"] as? String
-        let bundledServer = info["KirtanSplitterBackendServer"] as? String
-        let bundledBackendLauncher = info["KirtanSplitterBackendLauncher"] as? String
-        let bundledModelDir = info["KirtanSplitterModelDir"] as? String
-        let bundledLogFile = info["KirtanSplitterLogFile"] as? String
-        let bundledTCPHost = info["KirtanSplitterBackendHost"] as? String
-        let bundledTCPPort = info["KirtanSplitterBackendPort"] as? String
+        let bundledProjectRoot = info["AuraSplitterProjectRoot"] as? String
+        let bundledPython = info["AuraSplitterPython"] as? String
+        let bundledPythonPath = info["AuraSplitterPythonPath"] as? String
+        let bundledServer = info["AuraSplitterBackendServer"] as? String
+        let bundledBackendLauncher = info["AuraSplitterBackendLauncher"] as? String
+        let bundledModelDir = info["AuraSplitterModelDir"] as? String
+        let bundledLogFile = info["AuraSplitterLogFile"] as? String
+        let bundledTCPHost = info["AuraSplitterBackendHost"] as? String
+        let bundledTCPPort = info["AuraSplitterBackendPort"] as? String
 
         let projectRoot = env["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? bundledProjectRoot ?? FileManager.default.currentDirectoryPath
         let backendDir = URL(fileURLWithPath: projectRoot).appendingPathComponent("backend").path

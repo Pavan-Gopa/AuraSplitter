@@ -2,12 +2,12 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-# Binary/process name (SwiftPM executable) — keep until full package rename.
-APP_NAME="KirtanSplitter"
+# Binary/process name (SwiftPM executable).
+APP_NAME="AuraSplitter"
 # User-visible brand folders (models, logs, App Support).
 BRAND_NAME="AuraSplitter"
 LEGACY_BRAND_NAME="KirtanSplitter"
-BUNDLE_ID="com.pavan.kirtansplitter"
+BUNDLE_ID="com.pavan.aurasplitter"
 MIN_SYSTEM_VERSION="13.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,7 +30,7 @@ PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
 SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
 BACKEND_HOST="127.0.0.1"
 BACKEND_PORT="${KIRTAN_SPLITTER_BACKEND_PORT:-51273}"
-BACKEND_LABEL="com.pavan.kirtansplitter.backend"
+BACKEND_LABEL="com.pavan.aurasplitter.backend"
 
 cd "$ROOT_DIR"
 
@@ -38,8 +38,11 @@ if [[ ! -x "$ROOT_DIR/.venv/bin/python" ]]; then
   "$ROOT_DIR/script/setup_backend.sh"
 fi
 
+# Kill legacy KirtanSplitter processes too
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "KirtanSplitter" >/dev/null 2>&1 || true
 launchctl remove "$BACKEND_LABEL" >/dev/null 2>&1 || true
+launchctl remove "com.pavan.kirtansplitter.backend" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/backend/server.py" >/dev/null 2>&1 || true
 pkill -f "$ROOT_DIR/script/run_backend.sh" >/dev/null 2>&1 || true
 pkill -f "$APP_SUPPORT/backend/server.py" >/dev/null 2>&1 || true
@@ -64,9 +67,18 @@ if [[ -d "$LEGACY_SOUND_MODEL_DIR" && "$LEGACY_SOUND_MODEL_DIR" != "$RUNTIME_MOD
 fi
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+# App icon (.icns for dock)
 if [[ -f "$ROOT_DIR/LOGO/AuraSplitter.svg" ]]; then
-  cp "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/KirtanSplitter.svg"
-  "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/KirtanSplitter.icns"
+  cp "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.svg"
+  "$ROOT_DIR/script/make_app_icon.sh" "$ROOT_DIR/LOGO/AuraSplitter.svg" "$APP_RESOURCES/AuraSplitter.icns"
+fi
+# Color logo for in-app header
+if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_2.svg" ]]; then
+  cp "$ROOT_DIR/LOGO/AuraSplitter_2.svg" "$APP_RESOURCES/AuraSplitter_Color.svg"
+fi
+# White logo for menu bar tray icon
+if [[ -f "$ROOT_DIR/LOGO/AuraSplitter_White.svg" ]]; then
+  cp "$ROOT_DIR/LOGO/AuraSplitter_White.svg" "$APP_RESOURCES/AuraSplitter_White.svg"
 fi
 cp -R "$ROOT_DIR/backend" "$RUNTIME_BACKEND"
 cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
@@ -90,7 +102,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
   <key>CFBundleIconFile</key>
-  <string>KirtanSplitter.icns</string>
+  <string>AuraSplitter.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>
@@ -99,23 +111,23 @@ cat >"$INFO_PLIST" <<PLIST
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
-  <key>KirtanSplitterProjectRoot</key>
+  <key>AuraSplitterProjectRoot</key>
   <string>$ROOT_DIR</string>
-  <key>KirtanSplitterPython</key>
+  <key>AuraSplitterPython</key>
   <string>$PYTHON_REAL</string>
-  <key>KirtanSplitterPythonPath</key>
+  <key>AuraSplitterPythonPath</key>
   <string>$RUNTIME_BACKEND:$SITE_PACKAGES</string>
-  <key>KirtanSplitterBackendServer</key>
+  <key>AuraSplitterBackendServer</key>
   <string>$RUNTIME_BACKEND/server.py</string>
-  <key>KirtanSplitterBackendLauncher</key>
+  <key>AuraSplitterBackendLauncher</key>
   <string>$RUNTIME_LAUNCHER</string>
-  <key>KirtanSplitterModelDir</key>
+  <key>AuraSplitterModelDir</key>
   <string>$RUNTIME_MODEL_DIR</string>
-  <key>KirtanSplitterLogFile</key>
+  <key>AuraSplitterLogFile</key>
   <string>$LOG_FILE</string>
-  <key>KirtanSplitterBackendHost</key>
+  <key>AuraSplitterBackendHost</key>
   <string>$BACKEND_HOST</string>
-  <key>KirtanSplitterBackendPort</key>
+  <key>AuraSplitterBackendPort</key>
   <string>$BACKEND_PORT</string>
 </dict>
 </plist>

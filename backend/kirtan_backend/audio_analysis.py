@@ -253,11 +253,21 @@ def _bit_depth_from_stream(stream: dict) -> int | None:
 def _kirtan_splitter_metadata(tags: dict) -> dict:
     comment = str(tags.get("comment") or tags.get("COMMENT") or "")
     encoded_by = str(tags.get("encoded_by") or tags.get("ENCODED_BY") or "")
-    if not comment.startswith("KirtanSplitter") and encoded_by != "KirtanSplitter":
+    # Accept both legacy KirtanSplitter and current AuraSplitter metadata.
+    is_ours = (
+        comment.startswith("AuraSplitter")
+        or comment.startswith("KirtanSplitter")
+        or encoded_by in ("AuraSplitter", "KirtanSplitter")
+    )
+    if not is_ours:
         return {}
 
     parsed = {}
-    body = comment.removeprefix("KirtanSplitter").strip()
+    body = comment
+    for prefix in ("AuraSplitter", "KirtanSplitter"):
+        if body.startswith(prefix):
+            body = body.removeprefix(prefix).strip()
+            break
     for part in body.split(";"):
         key, separator, value = part.strip().partition("=")
         if separator:

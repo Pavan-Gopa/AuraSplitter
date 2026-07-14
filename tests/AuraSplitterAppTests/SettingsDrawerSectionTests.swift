@@ -1,5 +1,5 @@
 import XCTest
-@testable import KirtanSplitterApp
+@testable import AuraSplitterApp
 
 final class SettingsDrawerSectionTests: XCTestCase {
     func testSettingsDrawerUsesFourTwoByTwoSections() {

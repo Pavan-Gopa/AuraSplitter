@@ -1,7 +1,7 @@
 import AVFoundation
 import XCTest
 
-@testable import KirtanSplitterApp
+@testable import AuraSplitterApp
 
 final class LocalAudioAnalyzerTests: XCTestCase {
     private func makeSineWav(url: URL, channels: Int, duration: Double = 2.0, frequency: Double = 440) throws {

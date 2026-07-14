@@ -3,22 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "KirtanSplitter",
+    name: "AuraSplitter",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "KirtanSplitter", targets: ["KirtanSplitterApp"])
+        .executable(name: "AuraSplitter", targets: ["AuraSplitterApp"])
     ],
     targets: [
         .executableTarget(
-            name: "KirtanSplitterApp",
-            path: "Sources/KirtanSplitterApp"
+            name: "AuraSplitterApp",
+            path: "Sources/AuraSplitterApp"
         ),
         .testTarget(
-            name: "KirtanSplitterAppTests",
-            dependencies: ["KirtanSplitterApp"],
-            path: "tests/KirtanSplitterAppTests"
+            name: "AuraSplitterAppTests",
+            dependencies: ["AuraSplitterApp"],
+            path: "tests/AuraSplitterAppTests"
         )
     ]
 )

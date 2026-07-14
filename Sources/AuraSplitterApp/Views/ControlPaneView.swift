@@ -404,7 +404,7 @@ struct ControlPaneView: View {
 struct AppLogoView: View {
     var body: some View {
         Group {
-            if let url = Bundle.main.url(forResource: "KirtanSplitter", withExtension: "svg"),
+            if let url = Bundle.main.url(forResource: "AuraSplitter_Color", withExtension: "svg"),
                let image = NSImage(contentsOf: url) {
                 Image(nsImage: image)
                     .resizable()
@@ -415,7 +415,8 @@ struct AppLogoView: View {
                     .foregroundStyle(.orange)
             }
         }
-        .frame(width: 25, height: 25)
+        .frame(width: 30, height: 30)
         .accessibilityHidden(true)
     }
 }
+

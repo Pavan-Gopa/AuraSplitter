@@ -1,6 +1,6 @@
 import Metal
 import XCTest
-@testable import KirtanSplitterApp
+@testable import AuraSplitterApp
 
 final class MetalSpectrogramShaderTests: XCTestCase {
     func testSpectrogramShaderCompilesOnDefaultMetalDevice() throws {

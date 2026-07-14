@@ -1083,7 +1083,7 @@ class MlxSeparatorEngine:
             "-c:a",
             "copy",
             "-metadata",
-            "encoded_by=KirtanSplitter",
+            "encoded_by=AuraSplitter",
             "-metadata",
             f"comment={self._output_metadata_comment(job)}",
             str(temp_path),
@@ -1157,7 +1157,7 @@ class MlxSeparatorEngine:
             else f"{int(float(job.chunk_duration))}s"
         )
         return (
-            f"KirtanSplitter model={model_name}; "
+            f"AuraSplitter model={model_name}; "
             f"checkpoint={job.model_filename}; "
             f"preset={job.preset}; "
             f"process={process_title}; "
