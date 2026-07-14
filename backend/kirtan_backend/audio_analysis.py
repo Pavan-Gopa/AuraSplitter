@@ -413,7 +413,7 @@ def _spectrogram(samples: np.ndarray, columns: int, bins: int, sample_rate: int 
         return [0.0] * (columns * bins)
 
     matrix = matrix / (frame_length / 2.0)
-    matrix = 20.0 * np.log10(np.maximum(matrix, 1e-8))
+    matrix = 20.0 * np.log10(np.maximum(matrix, 1e-10))
     # Row-major, bin rows: values[bin * columns + column]. See docstring.
     return [round(float(value), 4) for value in matrix.T.reshape(-1)]
 

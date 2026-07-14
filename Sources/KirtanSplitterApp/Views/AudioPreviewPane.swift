@@ -11,7 +11,6 @@ struct AudioPreviewPane: View {
     @Binding var isFullscreen: Bool
     @State private var viewport = AudioPreviewViewport()
     @State private var layerSettings = AudioPreviewLayerSettings()
-    @State private var showSpectrumPopover = false
     @State private var previousPath: String? = nil
 
     var body: some View {
@@ -73,8 +72,6 @@ struct AudioPreviewPane: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 10)
-
             if let analysis {
                 metricPill(analysis.channelLabel, systemImage: analysis.channels == 1 ? "circle.lefthalf.filled" : "circle.grid.cross")
                 metricPill(FileHelpers.formattedDuration(analysis.durationSeconds), systemImage: "timer")
@@ -93,7 +90,10 @@ struct AudioPreviewPane: View {
                 .help("Fit full audio")
             }
 
-            spectrumSlider
+            Spacer(minLength: 10)
+
+            spectrumLowSlider
+            spectrumHighSlider
             waveformSlider
             layerResetButton
             volumeControl
@@ -230,77 +230,47 @@ struct AudioPreviewPane: View {
         .help("Preview volume")
     }
 
-    private var spectrumSlider: some View {
-        Button {
-            showSpectrumPopover.toggle()
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "waveform.path")
-                    .foregroundStyle(KSTheme.spectrogramAccent)
-                Text("Spectrum")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+    private var spectrumLowSlider: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "waveform.path")
+                .foregroundStyle(KSTheme.spectrogramAccent)
+                .frame(width: 14)
+            Text("Low")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(
+                value: $layerSettings.spectrumMinDb,
+                in: -200...(-60),
+                step: 1
+            )
+            .tint(KSTheme.spectrogramAccent)
+            .frame(width: 72)
+            Text("\(Int(layerSettings.spectrumMinDb.rounded())) dB")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .trailing)
         }
-        .buttonStyle(.plain)
-        .popover(isPresented: $showSpectrumPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Spectrogram Settings")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Amplitude range (low)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(layerSettings.spectrumMinDb.rounded())) dB")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.primary)
-                    }
-                    Slider(
-                        value: $layerSettings.spectrumMinDb,
-                        in: -160...(-60),
-                        step: 1
-                    )
-                    .tint(KSTheme.spectrogramAccent)
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Amplitude range (high)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(Int(layerSettings.spectrumMaxDb.rounded())) dB")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.primary)
-                    }
-                    Slider(
-                        value: $layerSettings.spectrumMaxDb,
-                        in: -60...0,
-                        step: 1
-                    )
-                    .tint(KSTheme.spectrogramAccent)
-                }
-                
-                Button("Reset to Default") {
-                    layerSettings.spectrumMinDb = -120.0
-                    layerSettings.spectrumMaxDb = -43.0
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .padding(16)
-            .frame(width: 250)
-            .background(Color(red: 0.08, green: 0.10, blue: 0.14))
+        .help("Amplitude range (low) [dB]")
+    }
+
+    private var spectrumHighSlider: some View {
+        HStack(spacing: 4) {
+            Text("High")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Slider(
+                value: $layerSettings.spectrumMaxDb,
+                in: -60...0,
+                step: 1
+            )
+            .tint(KSTheme.spectrogramAccent)
+            .frame(width: 72)
+            Text("\(Int(layerSettings.spectrumMaxDb.rounded())) dB")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .trailing)
         }
-        .help("Spectrogram settings (dynamic range)")
+        .help("Amplitude range (high) [dB]")
     }
 
     private var waveformSlider: some View {

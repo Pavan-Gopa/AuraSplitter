@@ -218,7 +218,7 @@ enum LocalAudioAnalyzer {
                                     mag = mag1 + (mag2 - mag1) * t
                                 }
                                 
-                                let db = 20 * log10(max(Double(mag) / Double(halfSize), 1e-8))
+                                let db = 20 * log10(max(Double(mag) / Double(halfSize), 1e-10))
                                 dbValues[bin * columns + col] = db
                             }
                         }
