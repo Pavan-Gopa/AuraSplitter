@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Large multi-step Automation modal (source → regions → matrix → run).
+/// Multi-step Automation: Input/Output → Regions → Matrix (+ Process).
 struct AutomationWizardView: View {
     @ObservedObject var backend: BackendClient
     @StateObject private var store: AutomationWizardStore
@@ -32,7 +32,7 @@ struct AutomationWizardView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 920, minHeight: 620)
+        .frame(minWidth: 960, minHeight: 640)
         .background(KSTheme.panelBackground)
     }
 
@@ -43,7 +43,7 @@ struct AutomationWizardView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Automation")
                     .font(.title2.weight(.semibold))
-                Text("Batch cut → multi-model stems → Ready MIX")
+                Text("Input/Output → Regions → Matrix → Ready MIX")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -65,36 +65,20 @@ struct AutomationWizardView: View {
     }
 
     private var stepIndicator: some View {
-        HStack(spacing: 14) {
-            stepGroup(
-                title: "Input",
-                steps: [.source, .regions]
-            )
-            Rectangle()
-                .fill(Color.secondary.opacity(0.35))
-                .frame(width: 16, height: 1)
-            stepGroup(
-                title: "Output",
-                steps: [.matrix, .run]
-            )
-        }
-    }
-
-    private func stepGroup(title: String, steps: [AutomationWizardStep]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(steps.contains(store.step) ? KSTheme.accent : .secondary)
-            HStack(spacing: 8) {
-                ForEach(steps) { step in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(stepFill(step))
-                            .frame(width: 7, height: 7)
-                        Text(step.title)
-                            .font(.caption.weight(store.step == step ? .semibold : .regular))
-                            .foregroundStyle(store.step == step ? .primary : .secondary)
-                    }
+        HStack(spacing: 10) {
+            ForEach(AutomationWizardStep.allCases) { step in
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(stepFill(step))
+                        .frame(width: 8, height: 8)
+                    Text(step.title)
+                        .font(.caption.weight(store.step == step ? .semibold : .regular))
+                        .foregroundStyle(store.step == step ? .primary : .secondary)
+                }
+                if step != .matrix {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -109,14 +93,12 @@ struct AutomationWizardView: View {
     @ViewBuilder
     private var stepBody: some View {
         switch store.step {
-        case .source:
-            AutomationSourceStepView(store: store)
+        case .io:
+            AutomationIOStepView(store: store)
         case .regions:
             AutomationRegionEditorView(store: store, backend: backend)
         case .matrix:
             AutomationMatrixStepView(store: store, backend: backend)
-        case .run:
-            AutomationRunPlaceholderView(store: store)
         }
     }
 
@@ -131,14 +113,13 @@ struct AutomationWizardView: View {
             Spacer()
             Button("Back") { store.goBack() }
                 .disabled(!store.canGoBack)
-            if store.step == .run {
+            if store.step == .matrix {
                 Button("Process") {
-                    // Runner wired in A6
-                    store.stepError = "Processing pipeline ships in the next automation steps."
+                    store.stepError = "Processing pipeline ships next (cut → separate → Ready MIX)."
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(KSTheme.accent)
-                .disabled(store.validationMessage(for: .run) != nil || store.runProgress.phase == .running)
+                .disabled(store.validationMessage(for: .matrix) != nil || store.runProgress.phase == .running)
             } else {
                 Button("Next") { store.goNext() }
                     .buttonStyle(.borderedProminent)
@@ -151,27 +132,33 @@ struct AutomationWizardView: View {
     }
 }
 
-// MARK: - Step 1: Source
+// MARK: - Step 1: Input / Output
 
-struct AutomationSourceStepView: View {
+struct AutomationIOStepView: View {
     @ObservedObject var store: AutomationWizardStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Source folder")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 18) {
+            // Input
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Input")
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    pathField(store.job.sourceFolderPath ?? "No source folder selected")
+                    Button("Choose…") { pickSource() }
+                        .buttonStyle(.bordered)
+                }
+            }
 
-            HStack(spacing: 10) {
-                Text(store.job.sourceFolderPath ?? "No folder selected")
-                    .font(.callout.monospaced())
-                    .lineLimit(2)
-                    .foregroundStyle(store.job.sourceFolderPath == nil ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-
-                Button("Choose…") { pickFolder() }
-                    .buttonStyle(.bordered)
+            // Output
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Output (Ready MIX)")
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    pathField(store.job.outputFolderPath ?? "No output folder")
+                    Button("Choose…") { pickOutput() }
+                        .buttonStyle(.bordered)
+                }
             }
 
             if !store.job.tracks.isEmpty {
@@ -190,15 +177,8 @@ struct AutomationSourceStepView: View {
                         HStack(spacing: 10) {
                             Image(systemName: track.isSelected ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(track.isSelected ? KSTheme.accent : .secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(track.displayName)
-                                    .font(.callout.weight(.medium))
-                                Text(track.sourcePath)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
+                            Text(track.displayName)
+                                .font(.callout.weight(.medium))
                             Spacer()
                         }
                         .contentShape(Rectangle())
@@ -215,13 +195,12 @@ struct AutomationSourceStepView: View {
                     Image(systemName: "folder.badge.gearshape")
                         .font(.system(size: 36))
                         .foregroundStyle(.secondary)
-                    Text("Choose a source folder")
+                    Text("Choose source and Ready MIX folders")
                         .font(.headline)
-                    Text("Pick a folder of long recordings. You’ll mark cut regions, pick stems per model, then export Ready MIX.")
+                    Text("Then select which tracks to process. Regions and stem matrix come next.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: 420)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -229,7 +208,17 @@ struct AutomationSourceStepView: View {
         .padding(20)
     }
 
-    private func pickFolder() {
+    private func pathField(_ text: String) -> some View {
+        Text(text)
+            .font(.callout.monospaced())
+            .lineLimit(2)
+            .foregroundStyle(text.hasPrefix("No ") ? .secondary : .primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func pickSource() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -239,30 +228,39 @@ struct AutomationSourceStepView: View {
             store.setSourceFolder(url)
         }
     }
+
+    private func pickOutput() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.message = "Select Ready MIX output folder"
+        if panel.runModal() == .OK, let url = panel.url {
+            store.setOutputFolder(url)
+        }
+    }
 }
 
-// MARK: - Matrix (A5)
+// MARK: - Matrix
 
-/// Stem matrix: sticky Source | scrollable model sections (2×3 icon grids) | sticky Final name.
 struct AutomationMatrixStepView: View {
     @ObservedObject var store: AutomationWizardStore
     @ObservedObject var backend: BackendClient
 
-    private let sourceColumnWidth: CGFloat = 150
-    private let finalColumnWidth: CGFloat = 150
-    private let modelColumnWidth: CGFloat = 118
+    private let sourceW: CGFloat = 132
+    private let finalW: CGFloat = 132
+    private let modelW: CGFloat = 104
+    private let rowH: CGFloat = 52
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Stem matrix")
-                        .font(.headline)
-                    Text("Tap icons to keep stems (2×3). Left = source · right = Ready MIX name.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Stem matrix")
+                    .font(.headline)
                 Spacer()
+                Text("\(store.job.selectedTracks.count) tracks · \(store.job.estimatedWorkUnitCount()) jobs")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if store.job.selectedTracks.isEmpty {
@@ -270,134 +268,118 @@ struct AutomationMatrixStepView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
             } else {
-                HStack(alignment: .top, spacing: 0) {
-                    // Sticky source names
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Source")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: sourceColumnWidth, height: 44, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .background(Color.secondary.opacity(0.1))
+                // One vertical scroll; middle scrolls horizontally. Thin separators.
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        headerRow
                         ScrollView(.vertical, showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 0) {
+                            LazyVStack(spacing: 0) {
                                 ForEach(store.job.selectedTracks) { track in
-                                    Text(track.displayName)
-                                        .font(.caption.weight(.medium))
-                                        .lineLimit(2)
-                                        .truncationMode(.middle)
-                                        .frame(width: sourceColumnWidth, height: 64, alignment: .leading)
-                                        .padding(.horizontal, 8)
-                                        .help(track.sourcePath)
-                                    Divider().opacity(0.2)
+                                    dataRow(track)
+                                    Rectangle()
+                                        .fill(Color.primary.opacity(0.08))
+                                        .frame(height: 1)
                                 }
                             }
                         }
                     }
-
-                    // Scrollable model sections
-                    ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack(spacing: 0) {
-                                ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
-                                    if index > 0 {
-                                        sectionDivider(height: 44)
-                                    }
-                                    Text(model.title)
-                                        .font(.caption2.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                        .frame(width: modelColumnWidth, height: 44)
-                                        .padding(.horizontal, 4)
-                                }
-                            }
-                            .background(Color.secondary.opacity(0.1))
-
-                            ForEach(store.job.selectedTracks) { track in
-                                HStack(spacing: 0) {
-                                    ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
-                                        if index > 0 {
-                                            sectionDivider(height: 64)
-                                        }
-                                        modelStemGrid(track: track, model: model)
-                                            .frame(width: modelColumnWidth, height: 64)
-                                            .padding(.horizontal, 4)
-                                    }
-                                }
-                                Divider().opacity(0.2)
-                            }
-                        }
-                    }
-
-                    // Sticky final names
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Final name")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: finalColumnWidth, height: 44, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .background(Color.secondary.opacity(0.1))
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(store.job.selectedTracks) { track in
-                                    TextField(
-                                        "e.g. Main Vocal",
-                                        text: Binding(
-                                            get: { track.shortOutputName },
-                                            set: { store.setShortName(for: track.id, name: $0) }
-                                        )
-                                    )
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: finalColumnWidth - 16, height: 28)
-                                    .frame(width: finalColumnWidth, height: 64)
-                                    .padding(.horizontal, 8)
-                                    Divider().opacity(0.2)
-                                }
-                            }
-                        }
-                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
-                .frame(maxHeight: .infinity)
             }
         }
-        .padding(16)
+        .padding(14)
     }
 
     private var models: [SeparationPreset] { backend.presets }
 
-    private func sectionDivider(height: CGFloat) -> some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.28))
-            .frame(width: 1, height: height)
+    private var headerRow: some View {
+        HStack(spacing: 0) {
+            Text("Source")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: sourceW, alignment: .leading)
+                .padding(.horizontal, 6)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+                        if index > 0 {
+                            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1, height: 36)
+                        }
+                        Text(model.title)
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .frame(width: modelW, height: 36)
+                    }
+                }
+            }
+
+            Text("Final name")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: finalW, alignment: .leading)
+                .padding(.horizontal, 6)
+        }
+        .frame(height: 40)
+        .background(Color.secondary.opacity(0.1))
     }
 
-    /// Up to 6 stems as two rows of three icons.
-    private func modelStemGrid(track: AutomationTrackPlan, model: SeparationPreset) -> some View {
-        let stems = model.expectedStems
-        return LazyVGrid(
-            columns: [
-                GridItem(.fixed(30), spacing: 4),
-                GridItem(.fixed(30), spacing: 4),
-                GridItem(.fixed(30), spacing: 4),
-            ],
-            spacing: 4
-        ) {
-            ForEach(stems, id: \.self) { stem in
-                StemRoleIconButton(
-                    stem: stem,
-                    isOn: store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem),
-                    action: {
-                        store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
+    private func dataRow(_ track: AutomationTrackPlan) -> some View {
+        HStack(spacing: 0) {
+            Text(track.displayName)
+                .font(.caption.weight(.medium))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .frame(width: sourceW, alignment: .leading)
+                .padding(.horizontal, 6)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+                        if index > 0 {
+                            Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1, height: rowH - 8)
+                        }
+                        LazyVGrid(
+                            columns: [
+                                GridItem(.fixed(28), spacing: 3),
+                                GridItem(.fixed(28), spacing: 3),
+                                GridItem(.fixed(28), spacing: 3),
+                            ],
+                            spacing: 3
+                        ) {
+                            ForEach(model.expectedStems, id: \.self) { stem in
+                                StemRoleIconButton(
+                                    stem: stem,
+                                    isOn: store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem),
+                                    action: {
+                                        store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
+                                    }
+                                )
+                            }
+                        }
+                        .frame(width: modelW, height: rowH)
                     }
-                )
+                }
             }
+
+            TextField(
+                "Main Vocal",
+                text: Binding(
+                    get: { track.shortOutputName },
+                    set: { store.setShortName(for: track.id, name: $0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .font(.caption)
+            .frame(width: finalW - 12)
+            .padding(.horizontal, 6)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(height: rowH)
     }
 }
 
-/// Compact role icon toggle — same symbols/colors as Results stems.
 private struct StemRoleIconButton: View {
     let stem: String
     let isOn: Bool
@@ -406,71 +388,19 @@ private struct StemRoleIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: StemRoleStyle.systemImage(for: stem))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(isOn ? Color.white : StemRoleStyle.color(for: stem))
-                .frame(width: 28, height: 28)
+                .frame(width: 26, height: 26)
                 .background(
                     Circle()
                         .fill(isOn ? StemRoleStyle.color(for: stem) : StemRoleStyle.color(for: stem).opacity(0.14))
                 )
                 .overlay(
                     Circle()
-                        .strokeBorder(
-                            StemRoleStyle.color(for: stem).opacity(isOn ? 0 : 0.45),
-                            lineWidth: 1
-                        )
+                        .strokeBorder(StemRoleStyle.color(for: stem).opacity(isOn ? 0 : 0.4), lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
         .help(StemRoleStyle.accessibilityLabel(for: stem) + (isOn ? " · keep" : " · skip"))
-        .accessibilityLabel(StemRoleStyle.accessibilityLabel(for: stem))
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-    }
-}
-
-// MARK: - Run step
-
-struct AutomationRunPlaceholderView: View {
-    @ObservedObject var store: AutomationWizardStore
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Output")
-                .font(.headline)
-
-            HStack(spacing: 10) {
-                Text(store.job.outputFolderPath ?? "No output folder")
-                    .font(.callout.monospaced())
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-                Button("Choose…") { pickOutput() }
-                    .buttonStyle(.bordered)
-            }
-
-            let units = store.job.estimatedWorkUnitCount()
-            Text("Selected tracks: \(store.job.selectedTracks.count) · Work units (prepare + separates): \(units)")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            Text("Process will: cut exclusion zones → run each selected model → keep only chosen stems → write short names into Ready MIX. Full runner in A6.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-
-            Spacer()
-        }
-        .padding(20)
-    }
-
-    private func pickOutput() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.message = "Select Ready MIX (or any output) folder"
-        if panel.runModal() == .OK, let url = panel.url {
-            store.job.outputFolderPath = url.path
-        }
     }
 }

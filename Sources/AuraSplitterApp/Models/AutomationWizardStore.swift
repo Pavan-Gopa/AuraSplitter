@@ -4,7 +4,7 @@ import Combine
 /// Owns wizard navigation and the in-progress AutomationJob.
 @MainActor
 final class AutomationWizardStore: ObservableObject {
-    @Published var step: AutomationWizardStep = .source
+    @Published var step: AutomationWizardStep = .io
     @Published var job: AutomationJob
     @Published var runProgress = AutomationRunProgress()
     @Published var stepError: String?
@@ -26,7 +26,7 @@ final class AutomationWizardStore: ObservableObject {
     // MARK: - Navigation
 
     var canGoBack: Bool {
-        step != .source && runProgress.phase != .running
+        step != .io && runProgress.phase != .running
     }
 
     var canGoNext: Bool {
@@ -37,7 +37,7 @@ final class AutomationWizardStore: ObservableObject {
     func goNext() {
         stepError = validationMessage(for: step)
         guard stepError == nil, let next = step.next else { return }
-        if step == .source {
+        if step == .io {
             ensureRegionEditorTrack()
             ensureDefaultOutputFolder()
         }
@@ -53,12 +53,14 @@ final class AutomationWizardStore: ObservableObject {
 
     func validationMessage(for step: AutomationWizardStep) -> String? {
         switch step {
-        case .source:
+        case .io:
             if job.sourceFolderPath == nil { return "Choose a source folder." }
             if job.selectedTracks.isEmpty { return "Select at least one audio track." }
+            if job.outputFolderPath == nil || job.outputFolderPath?.isEmpty == true {
+                return "Choose an output folder (Ready MIX)."
+            }
             return nil
         case .regions:
-            // Zones optional — empty means use full track.
             return job.selectedTracks.isEmpty ? "No tracks selected." : nil
         case .matrix:
             let selected = job.selectedTracks
@@ -72,10 +74,8 @@ final class AutomationWizardStore: ObservableObject {
             if selected.contains(where: { !$0.hasAnyStemSelection() }) {
                 return "Each selected track needs at least one stem."
             }
-            return nil
-        case .run:
-            guard let out = job.outputFolderPath, !out.isEmpty else {
-                return "Choose an output folder (e.g. Ready MIX)."
+            if job.outputFolderPath == nil || job.outputFolderPath?.isEmpty == true {
+                return "Choose an output folder on Input/Output."
             }
             return nil
         }
@@ -89,6 +89,11 @@ final class AutomationWizardStore: ObservableObject {
         job.tracks = files.map { AutomationTrackPlan(sourceURL: $0) }
         job.outputFolderPath = AutomationJob.defaultOutputFolder(for: url).path
         job.regionEditorTrackID = job.tracks.first?.id
+        stepError = nil
+    }
+
+    func setOutputFolder(_ url: URL) {
+        job.outputFolderPath = url.path
         stepError = nil
     }
 
@@ -121,22 +126,31 @@ final class AutomationWizardStore: ObservableObject {
 
     // MARK: - Zones
 
-    func updateZones(for trackID: UUID, zones: [AutomationTimeRange]) {
+    /// Updates zones for `trackID` and **propagates to all selected tracks** by default.
+    func updateZones(for trackID: UUID, zones: [AutomationTimeRange], propagateToAllSelected: Bool = true) {
         guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
         let duration = job.tracks[index].durationSeconds
-        let normalized = zones.map { zone -> AutomationTimeRange in
-            if let duration { return zone.clamped(to: duration) }
-            return zone
+        let normalized = AutomationTimeRange.merge(
+            zones.map { zone in
+                if let duration { return zone.clamped(to: duration) }
+                return zone
+            }
+        )
+        if propagateToAllSelected {
+            for i in job.tracks.indices where job.tracks[i].isSelected {
+                let d = job.tracks[i].durationSeconds
+                job.tracks[i].exclusionZones = normalized.map { z in
+                    if let d { return z.clamped(to: d) }
+                    return z
+                }
+            }
+        } else {
+            job.tracks[index].exclusionZones = normalized
         }
-        job.tracks[index].exclusionZones = AutomationTimeRange.merge(normalized)
     }
 
-    func copyZonesToAllSelectedTracks(from trackID: UUID) {
-        guard let source = job.tracks.first(where: { $0.id == trackID }) else { return }
-        let zones = source.exclusionZones
-        for index in job.tracks.indices where job.tracks[index].isSelected {
-            job.tracks[index].exclusionZones = zones
-        }
+    func clearZones(for trackID: UUID) {
+        updateZones(for: trackID, zones: [], propagateToAllSelected: true)
     }
 
     // MARK: - Matrix

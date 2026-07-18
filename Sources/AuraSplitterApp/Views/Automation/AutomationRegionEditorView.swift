@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Step 2: preview player + exclusion zones (semi-transparent red ranges to remove).
+/// Regions step: audio player + red exclusion zones (parts to remove before separation).
 struct AutomationRegionEditorView: View {
     @ObservedObject var store: AutomationWizardStore
     @ObservedObject var backend: BackendClient
@@ -14,15 +14,11 @@ struct AutomationRegionEditorView: View {
     @State private var viewport = AudioPreviewViewport()
     @State private var selectedZoneID: UUID?
     @State private var dragMode: ZoneDragMode = .none
-    @State private var dragStartX: CGFloat = 0
     @State private var dragOriginalZone: AutomationTimeRange?
+    @State private var canvasSize: CGSize = .zero
 
     private enum ZoneDragMode {
-        case none
-        case create
-        case move
-        case resizeLeft
-        case resizeRight
+        case none, create, move, resizeLeft, resizeRight
     }
 
     var body: some View {
@@ -40,11 +36,11 @@ struct AutomationRegionEditorView: View {
                             Text(track.displayName).tag(Optional(track.id))
                         }
                     }
-                    .frame(maxWidth: 260)
+                    .frame(maxWidth: 280)
                 }
             }
 
-            Text("Drag on the timeline to mark parts to remove (other singers, noise). Drag edges to trim. Shift+drag adds another zone. Playback skips red zones.")
+            Text("Drag to mark parts to remove. Edge handles resize. Shift+drag adds a zone. Scroll zooms, middle-drag pans, Space plays. Playback skips red zones. Zones apply to all selected tracks.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -60,25 +56,28 @@ struct AutomationRegionEditorView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
             HStack {
-                Button("Clear zones") {
+                Button("CLEAR") {
                     if let id = currentTrackID {
-                        store.updateZones(for: id, zones: [])
+                        store.clearZones(for: id)
                         selectedZoneID = nil
                     }
                 }
                 .controlSize(.small)
                 .disabled(currentZones.isEmpty)
+                .help("Clear all exclusion zones on selected tracks")
 
-                Button("Copy zones to all selected tracks") {
-                    if let id = currentTrackID {
-                        store.copyZonesToAllSelectedTracks(from: id)
+                if selectedZoneID != nil {
+                    Button(role: .destructive) {
+                        deleteSelectedZone()
+                    } label: {
+                        Label("Delete zone", systemImage: "trash")
                     }
+                    .controlSize(.small)
+                    .help("Delete the selected (highlighted) zone")
                 }
-                .controlSize(.small)
-                .disabled(currentTrackID == nil)
 
                 Spacer()
-                Text("\(currentZones.count) zone(s)")
+                Text("\(currentZones.count) zone(s) · all selected tracks")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -90,7 +89,7 @@ struct AutomationRegionEditorView: View {
         .onDisappear {
             player.stop()
         }
-        .onReceive(Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(Timer.publish(every: 0.03, on: .main, in: .common).autoconnect()) { _ in
             skipPlaybackThroughZonesIfNeeded()
         }
     }
@@ -111,7 +110,7 @@ struct AutomationRegionEditorView: View {
     }
 
     private var duration: Double {
-        analysis?.durationSeconds ?? player.duration
+        analysis?.durationSeconds ?? max(player.duration, 0)
     }
 
     private var isPlaying: Bool {
@@ -119,19 +118,25 @@ struct AutomationRegionEditorView: View {
         return player.playingPath == path && player.isPlaying
     }
 
+    private var timeLabel: String {
+        let t = player.playingPath == currentTrack?.sourcePath ? player.currentTime : 0
+        return "\(FileHelpers.formattedTimestamp(t)) / \(FileHelpers.formattedTimestamp(duration))"
+    }
+
     // MARK: - Toolbar
 
     private var toolbar: some View {
         HStack(spacing: 12) {
             Button {
-                guard let path = currentTrack?.sourcePath else { return }
-                player.toggle(path: path)
+                togglePlayback()
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.borderless)
-            .disabled(currentTrack == nil || analysis == nil)
+            .disabled(currentTrack == nil || (analysis == nil && !isAnalyzing))
+            .keyboardShortcut(.space, modifiers: [])
+            .help("Play / pause (Space)")
 
             Text(timeLabel)
                 .font(.caption.monospacedDigit())
@@ -151,23 +156,18 @@ struct AutomationRegionEditorView: View {
                     .lineLimit(1)
             }
 
-            Spacer()
-
-            if selectedZoneID != nil {
-                Button(role: .destructive) {
-                    deleteSelectedZone()
+            if viewport.isZoomed {
+                Button {
+                    viewport.reset()
                 } label: {
-                    Label("Delete zone", systemImage: "trash")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
                 }
-                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .help("Fit full duration")
             }
-        }
-    }
 
-    private var timeLabel: String {
-        let t = player.playingPath == currentTrack?.sourcePath ? player.currentTime : 0
-        let d = duration
-        return "\(FileHelpers.formattedTimestamp(t)) / \(FileHelpers.formattedTimestamp(d))"
+            Spacer()
+        }
     }
 
     // MARK: - Timeline
@@ -199,26 +199,30 @@ struct AutomationRegionEditorView: View {
                 }
                 .allowsHitTesting(false)
 
-                // Interaction layer
+                // Zoom / pan / Space (left mouse off so zone drag works).
+                AudioPreviewInteractionView(
+                    onSeek: { _, _ in },
+                    onScroll: { deltaY, location, size in
+                        let plot = plotRect(in: size)
+                        let anchor = min(1, max(0, Double((location.x - plot.minX) / max(1, plot.width))))
+                        viewport.zoom(deltaY: Double(deltaY), anchorFraction: anchor)
+                    },
+                    onMiddleDrag: { deltaX, size in
+                        viewport.pan(deltaX: Double(deltaX), canvasWidth: Double(max(1, size.width)))
+                    },
+                    onSpacebar: {
+                        togglePlayback()
+                    },
+                    handlesLeftMouse: false
+                )
+
+                // Zone create/move/resize on top for left-drag.
                 Color.clear
                     .contentShape(Rectangle())
-                    .gesture(timelineDragGesture(plot: plot, size: geo.size))
-                    .onTapGesture(count: 1) { location in
-                        // handled via drag for precision; optional seek on short click below
-                    }
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                if hypot(value.translation.width, value.translation.height) < 4,
-                                   duration > 0 {
-                                    let t = time(atX: value.location.x, plot: plot)
-                                    if let path = currentTrack?.sourcePath {
-                                        player.seek(path: path, time: t)
-                                    }
-                                }
-                            }
-                    )
+                    .gesture(zoneDragGesture(plot: plot))
             }
+            .onAppear { canvasSize = geo.size }
+            .onChange(of: geo.size) { canvasSize = $0 }
         }
     }
 
@@ -236,14 +240,13 @@ struct AutomationRegionEditorView: View {
         guard duration > 0 else { return plot.minX }
         let absFrac = min(1, max(0, t / duration))
         guard let vis = viewport.visibleFraction(forAbsoluteFraction: absFrac) else {
-            // Outside viewport — clamp to edges
             if absFrac < viewport.start { return plot.minX }
             return plot.maxX
         }
         return plot.minX + CGFloat(vis) * plot.width
     }
 
-    // MARK: - Drawing
+    // MARK: - Draw
 
     private func drawWaveform(context: inout GraphicsContext, plot: CGRect) {
         guard let peaks = analysis?.waveformPeaks, !peaks.isEmpty else { return }
@@ -280,18 +283,26 @@ struct AutomationRegionEditorView: View {
             let x1 = xPosition(forTime: zone.end, plot: plot)
             let rect = CGRect(x: min(x0, x1), y: plot.minY, width: max(4, abs(x1 - x0)), height: plot.height)
             let selected = zone.id == selectedZoneID
-            context.fill(Path(rect), with: .color(Color.red.opacity(selected ? 0.38 : 0.26)))
-            context.stroke(Path(rect), with: .color(Color.red.opacity(0.85)), lineWidth: selected ? 2 : 1)
-            // Edge handles
-            let handleW: CGFloat = 4
-            context.fill(Path(CGRect(x: rect.minX, y: plot.minY, width: handleW, height: plot.height)), with: .color(.red.opacity(0.9)))
-            context.fill(Path(CGRect(x: rect.maxX - handleW, y: plot.minY, width: handleW, height: plot.height)), with: .color(.red.opacity(0.9)))
+            context.fill(Path(rect), with: .color(Color.red.opacity(selected ? 0.40 : 0.26)))
+            context.stroke(Path(rect), with: .color(Color.red.opacity(0.9)), lineWidth: selected ? 2.2 : 1)
+            let handleW: CGFloat = 5
+            context.fill(
+                Path(CGRect(x: rect.minX, y: plot.minY, width: handleW, height: plot.height)),
+                with: .color(.red.opacity(0.95))
+            )
+            context.fill(
+                Path(CGRect(x: rect.maxX - handleW, y: plot.minY, width: handleW, height: plot.height)),
+                with: .color(.red.opacity(0.95))
+            )
         }
     }
 
     private func drawPlayhead(context: inout GraphicsContext, plot: CGRect) {
         guard duration > 0, player.playingPath == currentTrack?.sourcePath else { return }
-        let px = xPosition(forTime: player.currentTime, plot: plot)
+        let t = player.currentTime
+        // Don't draw playhead inside exclusion (already skipped).
+        if currentZones.contains(where: { t >= $0.start && t < $0.end }) { return }
+        let px = xPosition(forTime: t, plot: plot)
         var line = Path()
         line.move(to: CGPoint(x: px, y: plot.minY))
         line.addLine(to: CGPoint(x: px, y: plot.maxY))
@@ -300,77 +311,56 @@ struct AutomationRegionEditorView: View {
 
     // MARK: - Gestures
 
-    private func timelineDragGesture(plot: CGRect, size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 3, coordinateSpace: .local)
+    private func zoneDragGesture(plot: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 2, coordinateSpace: .local)
             .onChanged { value in
-                let forceCreate = NSEvent.modifierFlags.contains(.shift)
-                handleDragChanged(value, plot: plot, forceCreate: forceCreate)
+                handleDragChanged(value, plot: plot)
             }
             .onEnded { value in
                 handleDragEnded(value, plot: plot)
             }
     }
 
-    private func handleDragChanged(_ value: DragGesture.Value, plot: CGRect, forceCreate: Bool) {
+    private func handleDragChanged(_ value: DragGesture.Value, plot: CGRect) {
         guard let trackID = currentTrackID, duration > 0 else { return }
+        let forceCreate = NSEvent.modifierFlags.contains(.shift)
         let t0 = time(atX: value.startLocation.x, plot: plot)
         let t1 = time(atX: value.location.x, plot: plot)
 
         if dragMode == .none {
-            dragStartX = value.startLocation.x
             if forceCreate {
-                dragMode = .create
-                let zone = AutomationTimeRange(start: t0, end: t1)
-                selectedZoneID = zone.id
-                dragOriginalZone = zone
-                var zones = currentZones
-                zones.append(zone)
-                store.updateZones(for: trackID, zones: zones)
+                beginCreate(t0: t0, t1: t1, trackID: trackID)
                 return
             }
-            // Hit-test existing zone
             if let hit = hitTest(x: value.startLocation.x, plot: plot) {
                 selectedZoneID = hit.zone.id
                 dragOriginalZone = hit.zone
                 dragMode = hit.edge
             } else {
-                dragMode = .create
-                let zone = AutomationTimeRange(start: t0, end: t1)
-                selectedZoneID = zone.id
-                dragOriginalZone = zone
-                var zones = currentZones
-                zones.append(zone)
-                store.updateZones(for: trackID, zones: zones)
+                beginCreate(t0: t0, t1: t1, trackID: trackID)
             }
             return
         }
 
         guard var original = dragOriginalZone else { return }
+        let base = dragOriginalZone!
+        let startT = time(atX: value.startLocation.x, plot: plot)
+        let curT = time(atX: value.location.x, plot: plot)
+        let delta = curT - startT
+
         switch dragMode {
         case .create:
             original = AutomationTimeRange(id: original.id, start: t0, end: t1)
         case .move:
-            let base = dragOriginalZone!
             let width = base.end - base.start
-            let startT = time(atX: value.startLocation.x, plot: plot)
-            let curT = time(atX: value.location.x, plot: plot)
-            let delta = curT - startT
             var ns = base.start + delta
             ns = min(max(0, ns), max(0, duration - width))
             original = AutomationTimeRange(id: base.id, start: ns, end: ns + width)
         case .resizeLeft:
-            let base = dragOriginalZone!
-            let startT = time(atX: value.startLocation.x, plot: plot)
-            let curT = time(atX: value.location.x, plot: plot)
-            let delta = curT - startT
             var ns = base.start + delta
             ns = min(max(0, ns), base.end - 0.05)
             original = AutomationTimeRange(id: base.id, start: ns, end: base.end)
         case .resizeRight:
-            let base = dragOriginalZone!
-            let startT = time(atX: value.startLocation.x, plot: plot)
-            let curT = time(atX: value.location.x, plot: plot)
-            let delta = curT - startT
             var ne = base.end + delta
             ne = max(min(duration, ne), base.start + 0.05)
             original = AutomationTimeRange(id: base.id, start: base.start, end: ne)
@@ -378,24 +368,49 @@ struct AutomationRegionEditorView: View {
             break
         }
 
-        var zones = currentZones.filter { $0.id != original.id }
-        zones.append(original)
-        store.updateZones(for: trackID, zones: zones)
+        replaceZone(original, trackID: trackID)
         selectedZoneID = original.id
     }
 
+    private func beginCreate(t0: Double, t1: Double, trackID: UUID) {
+        dragMode = .create
+        let zone = AutomationTimeRange(start: t0, end: t1)
+        selectedZoneID = zone.id
+        dragOriginalZone = zone
+        var zones = currentZones
+        zones.append(zone)
+        store.updateZones(for: trackID, zones: zones, propagateToAllSelected: true)
+    }
+
+    private func replaceZone(_ zone: AutomationTimeRange, trackID: UUID) {
+        var zones = currentZones.filter { $0.id != zone.id }
+        zones.append(zone)
+        store.updateZones(for: trackID, zones: zones, propagateToAllSelected: true)
+    }
+
     private func handleDragEnded(_ value: DragGesture.Value, plot: CGRect) {
+        // Short click: select zone under cursor or seek
+        if hypot(value.translation.width, value.translation.height) < 4 {
+            if let hit = hitTest(x: value.startLocation.x, plot: plot) {
+                selectedZoneID = hit.zone.id
+            } else if let path = currentTrack?.sourcePath, duration > 0 {
+                let t = time(atX: value.startLocation.x, plot: plot)
+                // Don't seek into exclusion — jump to end of covering zone
+                let seekT = skipTimeIfInsideZone(t)
+                player.seek(path: path, time: seekT)
+                selectedZoneID = nil
+            }
+        }
+        if let trackID = currentTrackID {
+            store.updateZones(for: trackID, zones: currentZones, propagateToAllSelected: true)
+        }
         dragMode = .none
         dragOriginalZone = nil
-        if let trackID = currentTrackID {
-            // Normalize / merge
-            store.updateZones(for: trackID, zones: currentZones)
-        }
     }
 
     private struct ZoneHit {
         var zone: AutomationTimeRange
-        var edge: ZoneDragMode // move / resizeLeft / resizeRight
+        var edge: ZoneDragMode
     }
 
     private func hitTest(x: CGFloat, plot: CGRect) -> ZoneHit? {
@@ -405,15 +420,9 @@ struct AutomationRegionEditorView: View {
             let x1 = xPosition(forTime: zone.end, plot: plot)
             let left = min(x0, x1)
             let right = max(x0, x1)
-            if abs(x - left) <= handle {
-                return ZoneHit(zone: zone, edge: .resizeLeft)
-            }
-            if abs(x - right) <= handle {
-                return ZoneHit(zone: zone, edge: .resizeRight)
-            }
-            if x >= left && x <= right {
-                return ZoneHit(zone: zone, edge: .move)
-            }
+            if abs(x - left) <= handle { return ZoneHit(zone: zone, edge: .resizeLeft) }
+            if abs(x - right) <= handle { return ZoneHit(zone: zone, edge: .resizeRight) }
+            if x >= left && x <= right { return ZoneHit(zone: zone, edge: .move) }
         }
         return nil
     }
@@ -421,11 +430,44 @@ struct AutomationRegionEditorView: View {
     private func deleteSelectedZone() {
         guard let trackID = currentTrackID, let sid = selectedZoneID else { return }
         let zones = currentZones.filter { $0.id != sid }
-        store.updateZones(for: trackID, zones: zones)
+        store.updateZones(for: trackID, zones: zones, propagateToAllSelected: true)
         selectedZoneID = nil
     }
 
-    // MARK: - Analysis + playback skip
+    // MARK: - Playback
+
+    private func togglePlayback() {
+        guard let path = currentTrack?.sourcePath else { return }
+        // If starting inside a zone, jump out first
+        if !player.isPlaying || player.playingPath != path {
+            let t = skipTimeIfInsideZone(player.playingPath == path ? player.currentTime : 0)
+            player.seek(path: path, time: t)
+        }
+        player.toggle(path: path)
+    }
+
+    private func skipTimeIfInsideZone(_ t: Double) -> Double {
+        for zone in currentZones.sorted(by: { $0.start < $1.start }) {
+            if t >= zone.start && t < zone.end {
+                return min(duration, zone.end + 0.001)
+            }
+        }
+        return t
+    }
+
+    private func skipPlaybackThroughZonesIfNeeded() {
+        guard isPlaying, duration > 0 else { return }
+        let t = player.currentTime
+        for zone in currentZones {
+            // Jump as soon as we enter the zone — never play inside.
+            if t + 0.01 >= zone.start && t < zone.end {
+                if let path = currentTrack?.sourcePath {
+                    player.seek(path: path, time: min(duration, zone.end + 0.001))
+                }
+                return
+            }
+        }
+    }
 
     private func loadAnalysisForCurrentTrack() async {
         guard let track = currentTrack else {
@@ -436,6 +478,7 @@ struct AutomationRegionEditorView: View {
         analysisError = nil
         analysis = nil
         viewport.reset()
+        selectedZoneID = nil
         do {
             let result = try await backend.analyzeAudio(url: track.sourceURL)
             analysis = result
@@ -446,18 +489,5 @@ struct AutomationRegionEditorView: View {
             analysisError = error.localizedDescription
         }
         isAnalyzing = false
-    }
-
-    private func skipPlaybackThroughZonesIfNeeded() {
-        guard isPlaying, duration > 0 else { return }
-        let t = player.currentTime
-        for zone in currentZones {
-            if t >= zone.start && t < zone.end - 0.02 {
-                if let path = currentTrack?.sourcePath {
-                    player.seek(path: path, time: zone.end)
-                }
-                break
-            }
-        }
     }
 }

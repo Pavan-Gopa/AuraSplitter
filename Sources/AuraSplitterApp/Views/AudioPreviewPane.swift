@@ -647,6 +647,8 @@ struct AudioPreviewInteractionView: NSViewRepresentable {
     let onScroll: (CGFloat, CGPoint, CGSize) -> Void
     let onMiddleDrag: (CGFloat, CGSize) -> Void
     let onSpacebar: () -> Void
+    /// When false, left-click is ignored (zone editor handles it) but scroll / middle / Space still work.
+    var handlesLeftMouse: Bool = true
 
     func makeNSView(context: Context) -> AudioPreviewInteractionNSView {
         let view = AudioPreviewInteractionNSView()
@@ -654,6 +656,7 @@ struct AudioPreviewInteractionView: NSViewRepresentable {
         view.onScroll = onScroll
         view.onMiddleDrag = onMiddleDrag
         view.onSpacebar = onSpacebar
+        view.handlesLeftMouse = handlesLeftMouse
         return view
     }
 
@@ -662,6 +665,7 @@ struct AudioPreviewInteractionView: NSViewRepresentable {
         nsView.onScroll = onScroll
         nsView.onMiddleDrag = onMiddleDrag
         nsView.onSpacebar = onSpacebar
+        nsView.handlesLeftMouse = handlesLeftMouse
     }
 }
 
@@ -670,6 +674,7 @@ final class AudioPreviewInteractionNSView: NSView {
     var onScroll: ((CGFloat, CGPoint, CGSize) -> Void)?
     var onMiddleDrag: ((CGFloat, CGSize) -> Void)?
     var onSpacebar: (() -> Void)?
+    var handlesLeftMouse: Bool = true
 
     private var lastMiddleDragLocation: CGPoint?
 
@@ -686,10 +691,12 @@ final class AudioPreviewInteractionNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        guard handlesLeftMouse else { return }
         onSeek?(location(for: event), bounds.size)
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard handlesLeftMouse else { return }
         onSeek?(location(for: event), bounds.size)
     }
 

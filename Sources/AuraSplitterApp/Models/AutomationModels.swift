@@ -155,29 +155,27 @@ struct AutomationJob: Equatable, Codable {
 
 // MARK: - Wizard step
 
+/// Three-step wizard: Input/Output paths → region cuts → stem matrix + Process.
 enum AutomationWizardStep: Int, CaseIterable, Identifiable, Comparable {
-    case source = 0
+    case io = 0
     case regions = 1
     case matrix = 2
-    case run = 3
 
     var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .source: return "Source"
+        case .io: return "Input/Output"
         case .regions: return "Regions"
-        case .matrix: return "Stems"
-        case .run: return "Run"
+        case .matrix: return "Matrix"
         }
     }
 
     var subtitle: String {
         switch self {
-        case .source: return "Folder & tracks"
+        case .io: return "Source folder & Ready MIX"
         case .regions: return "Cut out unwanted parts"
-        case .matrix: return "Models & output names"
-        case .run: return "Ready MIX & process"
+        case .matrix: return "Stems & process"
         }
     }
 
