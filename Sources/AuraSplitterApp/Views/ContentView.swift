@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var didInitializeLayout = false
     @State private var batchProcessingTask: Task<Void, Never>?
     @State private var layerSettings = AudioPreviewLayerSettings()
+    @State private var isShowingAutomation = false
 
     var body: some View {
         ZStack {
@@ -102,6 +103,14 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 1220, minHeight: 700)
+        .sheet(isPresented: $isShowingAutomation) {
+            AutomationWizardView(
+                backend: backend,
+                processPresetID: selectedProcessPresetID,
+                processSettings: settings,
+                onClose: { isShowingAutomation = false }
+            )
+        }
         .task {
             isSettingsSidebarOpen = false
             await startBackend()
@@ -192,7 +201,8 @@ struct ContentView: View {
                 isDropTargeted: $isDropTargeted,
                 chooseFilesAction: loadInputFiles,
                 chooseFolderAction: loadInputFolder,
-                droppedURLAction: handleDroppedURL
+                droppedURLAction: handleDroppedURL,
+                automationAction: { isShowingAutomation = true }
             )
             .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
 

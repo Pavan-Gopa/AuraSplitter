@@ -9,6 +9,7 @@ struct WorkspaceWidgetRailView: View {
     let chooseFilesAction: ([URL]) -> Void
     let chooseFolderAction: (URL) -> Void
     let droppedURLAction: (URL) -> Void
+    var automationAction: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -50,6 +51,18 @@ struct WorkspaceWidgetRailView: View {
                 }
                 .controlSize(.small)
                 .disabled(backend.isBusy)
+
+                if let automationAction {
+                    Button(action: automationAction) {
+                        Label("Automation", systemImage: "gearshape.2.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(KSTheme.accent)
+                    .controlSize(.large)
+                    .disabled(backend.isBusy)
+                    .help("Batch cut regions, multi-model stems, export Ready MIX")
+                }
             }
             .padding(9)
             .background(dropBackground, in: RoundedRectangle(cornerRadius: 8))
