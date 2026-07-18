@@ -280,78 +280,150 @@ struct AutomationMatrixPlaceholderView: View {
     @ObservedObject var store: AutomationWizardStore
     @ObservedObject var backend: BackendClient
 
+    private let sourceColumnWidth: CGFloat = 168
+    private let finalColumnWidth: CGFloat = 168
+    private let modelColumnMinWidth: CGFloat = 108
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Stem matrix")
-                .font(.headline)
-            Text("Rows = tracks, columns = models. Toggle stems from each model’s expected outputs. Short names feed Ready MIX. Full grid UI next.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Stem matrix")
+                        .font(.headline)
+                    Text("Icons match Results. Tap to keep. Left = source file · right = Ready MIX name.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
 
-            ScrollView([.horizontal, .vertical]) {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(store.job.selectedTracks) { track in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(track.displayName)
-                                    .font(.callout.weight(.semibold))
-                                TextField(
-                                    "Short name",
-                                    text: Binding(
-                                        get: { track.shortOutputName },
-                                        set: { store.setShortName(for: track.id, name: $0) }
-                                    )
-                                )
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 200)
+            if store.job.selectedTracks.isEmpty {
+                Text("No tracks selected.")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            } else {
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        matrixHeaderRow
+                        Divider().opacity(0.5)
+                        ForEach(Array(store.job.selectedTracks.enumerated()), id: \.element.id) { index, track in
+                            matrixDataRow(track)
+                            if index < store.job.selectedTracks.count - 1 {
+                                Divider().opacity(0.25)
                             }
-                            FlowStemPickers(
-                                track: track,
-                                models: backend.presets,
-                                store: store
-                            )
                         }
-                        .padding(10)
-                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                     }
+                    .padding(.bottom, 8)
                 }
             }
         }
-        .padding(20)
+        .padding(16)
+    }
+
+    private var models: [SeparationPreset] { backend.presets }
+
+    private var matrixHeaderRow: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            Text("Source")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: sourceColumnWidth, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+
+            ForEach(models) { model in
+                Text(model.title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(minWidth: modelColumnMinWidth, maxWidth: modelColumnMinWidth)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 8)
+            }
+
+            Text("Final name")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: finalColumnWidth, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+        }
+        .background(Color.secondary.opacity(0.08))
+    }
+
+    private func matrixDataRow(_ track: AutomationTrackPlan) -> some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text(track.displayName)
+                .font(.callout.weight(.medium))
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .frame(width: sourceColumnWidth, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
+                .help(track.sourcePath)
+
+            ForEach(models) { model in
+                HStack(spacing: 4) {
+                    ForEach(model.expectedStems, id: \.self) { stem in
+                        StemRoleIconButton(
+                            stem: stem,
+                            isOn: store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem),
+                            action: {
+                                store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
+                            }
+                        )
+                    }
+                }
+                .frame(minWidth: modelColumnMinWidth, maxWidth: modelColumnMinWidth)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 8)
+            }
+
+            TextField(
+                "e.g. Main Vocal",
+                text: Binding(
+                    get: { track.shortOutputName },
+                    set: { store.setShortName(for: track.id, name: $0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: finalColumnWidth - 16)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+        }
+        .background(Color.primary.opacity(0.02))
     }
 }
 
-private struct FlowStemPickers: View {
-    let track: AutomationTrackPlan
-    let models: [SeparationPreset]
-    @ObservedObject var store: AutomationWizardStore
+/// Compact role icon toggle — same symbols/colors as Results stems.
+private struct StemRoleIconButton: View {
+    let stem: String
+    let isOn: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(models) { model in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        ForEach(model.expectedStems, id: \.self) { stem in
-                            let on = store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem)
-                            Button {
-                                store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
-                            } label: {
-                                Text(stem)
-                                    .font(.caption2.weight(.medium))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(on ? KSTheme.accent.opacity(0.85) : Color.secondary.opacity(0.15), in: Capsule())
-                                    .foregroundStyle(on ? Color.white : Color.primary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
+        Button(action: action) {
+            Image(systemName: StemRoleStyle.systemImage(for: stem))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isOn ? Color.white : StemRoleStyle.color(for: stem))
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(isOn ? StemRoleStyle.color(for: stem) : StemRoleStyle.color(for: stem).opacity(0.14))
+                )
+                .overlay(
+                    Circle()
+                        .strokeBorder(
+                            StemRoleStyle.color(for: stem).opacity(isOn ? 0 : 0.45),
+                            lineWidth: 1
+                        )
+                )
         }
+        .buttonStyle(.plain)
+        .help(StemRoleStyle.accessibilityLabel(for: stem) + (isOn ? " · keep" : " · skip"))
+        .accessibilityLabel(StemRoleStyle.accessibilityLabel(for: stem))
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 

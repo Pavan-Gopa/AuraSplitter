@@ -403,29 +403,11 @@ private struct ResultStemRow: View {
     }
 
     private var stemIconName: String {
-        switch stemBaseKind {
-        case "vocals", "lead_vocals", "lead": return "mic.fill"
-        case "drums", "kick", "snare", "toms": return "music.quarternote.3"
-        case "bass": return "waveform.path.badge.minus"
-        case "piano": return "pianokeys"
-        case "guitar": return "guitars"
-        default: return "waveform"
-        }
-    }
-
-    private var stemBaseKind: String {
-        stem.stem.replacingOccurrences(of: #"_\d+$"#, with: "", options: .regularExpression)
+        StemRoleStyle.systemImage(for: stem.stem)
     }
 
     private var stemColor: Color {
-        switch stemBaseKind {
-        case "vocals", "lead_vocals", "lead": return .orange
-        case "drums", "kick", "snare", "toms": return .red
-        case "bass": return .purple
-        case "piano": return .green
-        case "guitar": return .cyan
-        default: return .blue
-        }
+        StemRoleStyle.color(for: stem.stem)
     }
 
     private var subtitleText: String {

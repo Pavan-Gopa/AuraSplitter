@@ -160,24 +160,10 @@ struct StemRowView: View {
     }
 
     private var iconName: String {
-        switch stem.stem {
-        case "vocals", "lead_vocals": return "mic.fill"
-        case "drums", "kick", "snare", "toms": return "music.quarternote.3"
-        case "bass": return "waveform.path.badge.minus"
-        case "piano": return "pianokeys"
-        case "guitar": return "guitars"
-        default: return "waveform"
-        }
+        StemRoleStyle.systemImage(for: stem.stem)
     }
 
     private var color: Color {
-        switch stem.stem {
-        case "vocals", "lead_vocals": return .orange
-        case "drums", "kick", "snare", "toms": return .red
-        case "bass": return .purple
-        case "piano": return .green
-        case "guitar": return .cyan
-        default: return .blue
-        }
+        StemRoleStyle.color(for: stem.stem)
     }
 }
