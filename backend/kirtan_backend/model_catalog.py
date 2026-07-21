@@ -196,7 +196,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         model_type="MDXC",
         architecture="BS-RoFormer",
         backend="mlx",
-        summary="Alternative BS-RoFormer karaoke model for lead vocal and backing/instrument bed separation.",
+        summary="Lead / back split (Anvuew karaoke BS-RoFormer). Checkpoint YAML labels are inverted "
+        "(Vocals≈lead, Instrumental≈back); the engine renames outputs to lead/back.",
         expected_stems=("lead", "back"),
         target_stem="lead",
         license="GPL-3.0",

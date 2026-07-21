@@ -164,9 +164,20 @@ final class AudioPreviewPlayer: NSObject, ObservableObject {
         let clamped = min(max(0, time), duration)
         currentTime = clamped
         playbackStartTime = clamped
+        // Reset wall-clock so live UI time matches the new position even mid-playback.
+        playbackStartDate = wasPlaying ? Date() : nil
         if wasPlaying {
             playFromCurrentTime()
         }
+    }
+
+    /// Load a file for scrubbing without starting playback.
+    func prepare(path: String) {
+        if playingPath == path, audioFile != nil { return }
+        let previousVolume = volume
+        load(path: path)
+        // load() resets volume path only via gain node; restore level.
+        setVolume(previousVolume)
     }
 
     func setVolume(_ nextVolume: Double) {

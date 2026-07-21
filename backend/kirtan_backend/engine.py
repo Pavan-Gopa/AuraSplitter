@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from .audio_analysis import analyze_audio, analyze_audio_progressive, _bit_depth_from_stream
+from .ffmpeg_tools import ffmpeg_bin, ffprobe_bin
 from .jobs import SeparationJob
 from .model_catalog import (
     attach_model_pack_to_separator,
@@ -667,7 +668,7 @@ class MlxSeparatorEngine:
         try:
             output = subprocess.check_output(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-select_streams",
@@ -773,12 +774,17 @@ class MlxSeparatorEngine:
             safe_suffix = re.sub(r'[\\/*?:"<>|]', "", suffix).strip()
             safe_suffix = re.sub(r'\s+', ' ', safe_suffix).strip()
 
+            # Canonical role for filename _(role)_ — remap known mislabeled checkpoints.
+            raw_role = None
             match = re.search(r"\(([^)]+)\)", path.name)
             if match:
-                stem_in_parenthesis = match.group(1)
-                prefix = f"{source_path.stem}_({stem_in_parenthesis})"
+                raw_role = match.group(1)
             else:
-                prefix = f"{source_path.stem}_({self._stem_name(path).capitalize()})"
+                raw_role = self._stem_name(path)
+            role = self._canonical_stem_role(job.model_filename, raw_role)
+            # Title-case for display token: Lead / Back / Vocals…
+            role_label = role.replace("_", " ").strip().title() if role else "Stem"
+            prefix = f"{source_path.stem}_({role_label})"
 
             desired = path.with_name(f"{prefix}_{safe_suffix}{path.suffix}")
 
@@ -880,7 +886,7 @@ class MlxSeparatorEngine:
         try:
             output = subprocess.check_output(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-select_streams",
@@ -903,7 +909,7 @@ class MlxSeparatorEngine:
         try:
             output = subprocess.check_output(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-select_streams",
@@ -927,7 +933,7 @@ class MlxSeparatorEngine:
         try:
             output = subprocess.check_output(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-select_streams",
@@ -955,7 +961,7 @@ class MlxSeparatorEngine:
         try:
             output = subprocess.check_output(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-select_streams",
@@ -977,7 +983,7 @@ class MlxSeparatorEngine:
 
     def _convert_to_stereo(self, input_path: Path, output_path: Path):
         command = [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",
@@ -1009,7 +1015,7 @@ class MlxSeparatorEngine:
         temp_path = output_path.with_name(f"{output_path.stem}.format.tmp{output_path.suffix}")
         codec = codec or self._audio_codec_name(output_path) or ("flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le")
         command = [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",
@@ -1065,7 +1071,7 @@ class MlxSeparatorEngine:
             return
         temp_path = output_path.with_name(f"{output_path.stem}.metadata.tmp{output_path.suffix}")
         command = [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",
@@ -1222,6 +1228,40 @@ class MlxSeparatorEngine:
         suffix = path.stem.split("_")[-1]
         return suffix.strip().lower().replace(" ", "_")
 
+    def _canonical_stem_role(self, model_filename: str | None, role: str | None) -> str:
+        """Normalize stem labels; fix checkpoints whose YAML names are inverted.
+
+        Aura Lead / Back 2 (karaoke_bs_roformer_anvuew) — verified by ear:
+          - YAML "Vocals"        → actual **lead** vocal
+          - YAML "Instrumental"  → actual **back** / bed
+        (Previous mapping had these swapped.)
+        """
+        if not role:
+            return "stem"
+        role_n = str(role).strip().lower().replace(" ", "_").replace("-", "_")
+        role_n = re.sub(r"_+\d+$", "", role_n)
+
+        name = Path(model_filename or "").name.lower()
+        stem = Path(model_filename or "").stem.lower()
+        is_anvuew_karaoke = (
+            "karaoke_bs_roformer_anvuew" in name
+            or "karaoke_bs_roformer_anvuew" in stem
+            or name.startswith("karaoke_bs_roformer_anvuew")
+        )
+        if is_anvuew_karaoke:
+            # Raw checkpoint labels → correct role names.
+            if role_n in {"vocals", "vocal"}:
+                return "lead"
+            if role_n in {"instrumental", "instrument", "instruments", "inst", "other", "rest"}:
+                return "back"
+            # Already renamed on a prior pass — keep.
+            if role_n in {"lead", "lead_vocal", "lead_vocals"}:
+                return "lead"
+            if role_n in {"back", "back_vocal", "back_vocals", "backing", "backing_vocals"}:
+                return "back"
+
+        return role_n
+
     def _record_render_benchmark(self, job: SeparationJob, input_path: Path, elapsed_seconds: float) -> None:
         duration_seconds = self._audio_duration_seconds(input_path)
         if not duration_seconds:
@@ -1256,7 +1296,7 @@ class MlxSeparatorEngine:
         try:
             completed = subprocess.run(
                 [
-                    "ffprobe",
+                    ffprobe_bin(),
                     "-v",
                     "error",
                     "-show_entries",

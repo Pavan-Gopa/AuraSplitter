@@ -77,6 +77,22 @@ final class AutomationWizardStore: ObservableObject {
             if job.outputFolderPath == nil || job.outputFolderPath?.isEmpty == true {
                 return "Choose an output folder on Input/Output."
             }
+            // Optional pipeline step 2
+            if job.hasStep2 {
+                // Every intermediate (selected or not) needs a final name for Ready MIX export.
+                if job.step2Tracks.contains(where: {
+                    $0.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }) {
+                    return "Step 2: every intermediate needs a final name."
+                }
+                // Selected + stems → further split; deselected → passthrough as-is.
+                // At least one Step-1 stem must exist (step2Tracks non-empty already).
+                let further = job.step2Tracks.filter { $0.isSelected && $0.hasAnyStemSelection() }
+                let passthrough = job.step2Tracks.filter { !($0.isSelected && $0.hasAnyStemSelection()) }
+                if further.isEmpty && passthrough.isEmpty {
+                    return "Step 2: no intermediate tracks."
+                }
+            }
             return nil
         }
     }
@@ -89,6 +105,7 @@ final class AutomationWizardStore: ObservableObject {
         job.tracks = files.map { AutomationTrackPlan(sourceURL: $0) }
         job.outputFolderPath = AutomationJob.defaultOutputFolder(for: url).path
         job.regionEditorTrackID = job.tracks.first?.id
+        clearMatrixStep2()
         stepError = nil
     }
 
@@ -153,7 +170,7 @@ final class AutomationWizardStore: ObservableObject {
         updateZones(for: trackID, zones: [], propagateToAllSelected: true)
     }
 
-    // MARK: - Matrix
+    // MARK: - Matrix (step 1)
 
     func setShortName(for trackID: UUID, name: String) {
         guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
@@ -162,20 +179,157 @@ final class AutomationWizardStore: ObservableObject {
 
     func toggleStem(trackID: UUID, modelID: String, stem: String) {
         guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
-        var set = job.tracks[index].stemSelections[modelID] ?? []
+        // Mutate a local copy then reassign so @Published always notifies (nested
+        // dictionary/set edits can otherwise be silent and leave icons “dead”).
+        var tracks = job.tracks
+        var set = tracks[index].stemSelections[modelID] ?? []
         if set.contains(stem) {
             set.remove(stem)
         } else {
             set.insert(stem)
         }
         if set.isEmpty {
-            job.tracks[index].stemSelections.removeValue(forKey: modelID)
+            tracks[index].stemSelections.removeValue(forKey: modelID)
         } else {
-            job.tracks[index].stemSelections[modelID] = set
+            tracks[index].stemSelections[modelID] = set
         }
+        job.tracks = tracks
     }
 
     func isStemSelected(trackID: UUID, modelID: String, stem: String) -> Bool {
         job.tracks.first(where: { $0.id == trackID })?.stemSelections[modelID]?.contains(stem) == true
+    }
+
+    // MARK: - Matrix pipeline step 2 (max 2 steps)
+
+    /// Create / rebuild step 2 from step-1 final names + selected stems.
+    /// Left column becomes `MAIN_V(Vocal)`, `MAIN_V(Drum)`, … — only two steps total.
+    func addMatrixStep() {
+        stepError = validationMessageForAddingStep2()
+        guard stepError == nil else { return }
+        job.step2Tracks = AutomationJob.buildStep2Tracks(from: job.selectedTracks)
+        guard !job.step2Tracks.isEmpty else {
+            stepError = "Select stems in Step 1 first — they become Step 2 sources."
+            return
+        }
+        job.matrixPipelineStep = 2
+        stepError = nil
+    }
+
+    func removeMatrixStep() {
+        clearMatrixStep2()
+        stepError = nil
+    }
+
+    func setMatrixPipelineStep(_ step: Int) {
+        guard step == 1 || (step == 2 && job.hasStep2) else { return }
+        job.matrixPipelineStep = step
+    }
+
+    func clearMatrixStep2() {
+        job.step2Tracks = []
+        job.matrixPipelineStep = 1
+    }
+
+    func setStep2ShortName(for trackID: UUID, name: String) {
+        guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        job.step2Tracks[index].shortOutputName = name
+    }
+
+    func toggleStep2TrackSelection(_ id: UUID) {
+        guard let index = job.step2Tracks.firstIndex(where: { $0.id == id }) else { return }
+        job.step2Tracks[index].isSelected.toggle()
+    }
+
+    func toggleStep2Stem(trackID: UUID, modelID: String, stem: String) {
+        guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        var rows = job.step2Tracks
+        var set = rows[index].stemSelections[modelID] ?? []
+        if set.contains(stem) {
+            set.remove(stem)
+        } else {
+            set.insert(stem)
+        }
+        if set.isEmpty {
+            rows[index].stemSelections.removeValue(forKey: modelID)
+        } else {
+            rows[index].stemSelections[modelID] = set
+        }
+        job.step2Tracks = rows
+    }
+
+    func isStep2StemSelected(trackID: UUID, modelID: String, stem: String) -> Bool {
+        job.step2Tracks.first(where: { $0.id == trackID })?.stemSelections[modelID]?.contains(stem) == true
+    }
+
+    private func validationMessageForAddingStep2() -> String? {
+        let selected = job.selectedTracks
+        if selected.isEmpty { return "Select tracks on Input/Output first." }
+        if selected.contains(where: { $0.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return "Fill Final name on every track before Add Step."
+        }
+        if selected.allSatisfy({ !$0.hasAnyStemSelection() }) {
+            return "Select stems in Step 1 — they become Step 2 sources."
+        }
+        return nil
+    }
+
+    /// Apply a process-settings preset (Fast / Max / custom…) to the automation job.
+    func applyProcessPreset(_ preset: ProcessSettingsPreset) {
+        job.processPresetID = preset.id
+        job.processSettings = preset.snapshot
+        stepError = nil
+    }
+
+    /// Current settings reconstructed from the job snapshot (for dirty-title checks).
+    var processSettingsAsSeparation: SeparationSettings {
+        var s = SeparationSettings()
+        job.processSettings.apply(to: &s)
+        return s
+    }
+
+    // MARK: - Process runner
+
+    private var processTask: Task<Void, Never>?
+
+    var isProcessing: Bool {
+        runProgress.phase == .running
+    }
+
+    func startProcess(backend: BackendClient, processPresetStore: ProcessSettingsPresetStore) {
+        guard !isProcessing else { return }
+        if let msg = validationMessage(for: .matrix) {
+            stepError = msg
+            return
+        }
+        processTask?.cancel()
+        processTask = Task { [weak self] in
+            guard let self else { return }
+            let runner = AutomationProcessRunner(backend: backend, processPresetStore: processPresetStore)
+            do {
+                try await runner.run(store: self)
+            } catch is CancellationError {
+                self.runProgress.phase = .cancelled
+                self.runProgress.currentMessage = "Cancelled"
+            } catch {
+                if self.runProgress.phase == .running {
+                    self.runProgress.phase = .failed
+                    self.runProgress.currentMessage = error.localizedDescription
+                }
+                self.stepError = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelProcess(backend: BackendClient) {
+        processTask?.cancel()
+        processTask = nil
+        if runProgress.phase == .running {
+            runProgress.phase = .cancelled
+            runProgress.currentMessage = "Cancelling…"
+        }
+        Task {
+            await backend.cancelCurrentOperation()
+        }
     }
 }

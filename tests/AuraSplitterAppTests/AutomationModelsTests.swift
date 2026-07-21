@@ -39,11 +39,48 @@ final class AutomationModelsTests: XCTestCase {
         )
     }
 
+    func testIntermediateDisplayName() {
+        XCTAssertEqual(
+            AutomationNaming.intermediateDisplayName(shortOutputName: "MAIN_V", stem: "vocals"),
+            "MAIN_V(Vocal)"
+        )
+        XCTAssertEqual(
+            AutomationNaming.intermediateDisplayName(shortOutputName: "MAIN_V", stem: "drums"),
+            "MAIN_V(Drum)"
+        )
+        XCTAssertEqual(
+            AutomationNaming.intermediateDisplayName(shortOutputName: "BACK_V", stem: "lead"),
+            "BACK_V(Vocal)"
+        )
+        XCTAssertEqual(
+            AutomationNaming.intermediateDisplayName(shortOutputName: "X", stem: "kick"),
+            "X(Kick)"
+        )
+    }
+
+    func testBuildStep2TracksFromStep1Stems() {
+        var track = AutomationTrackPlan(sourceURL: URL(fileURLWithPath: "/tmp/01MAIN_V.WAV"))
+        track.shortOutputName = "MAIN_V"
+        track.stemSelections = [
+            "model_a": ["vocals", "drums"],
+        ]
+        let step2 = AutomationJob.buildStep2Tracks(from: [track])
+        XCTAssertEqual(step2.count, 2)
+        let names = Set(step2.map(\.displayName))
+        XCTAssertTrue(names.contains("MAIN_V(Drum)"))
+        XCTAssertTrue(names.contains("MAIN_V(Vocal)"))
+        XCTAssertEqual(step2.map(\.parentTrackID), [track.id, track.id])
+    }
+
     func testDefaultReadyMixFolder() {
         let source = URL(fileURLWithPath: "/tmp/Session")
         XCTAssertEqual(
             AutomationJob.defaultOutputFolder(for: source).path,
             "/tmp/Session/Ready MIX"
+        )
+        XCTAssertEqual(
+            AutomationJob.intermediateFolder(for: URL(fileURLWithPath: "/tmp/Session/Ready MIX")).path,
+            "/tmp/Session/Ready MIX/_AutomationStep1"
         )
     }
 }

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .ffmpeg_tools import ffmpeg_bin, ffprobe_bin
+
 
 KSBIN_VERSION = 1
 _KSBIN_HEADER = struct.Struct("<BIII")
@@ -204,7 +206,7 @@ def analyze_audio_progressive(
 def _ffprobe_audio_info(path: Path) -> dict:
     output = subprocess.check_output(
         [
-            "ffprobe",
+            ffprobe_bin(),
             "-v",
             "error",
             "-select_streams",
@@ -288,7 +290,7 @@ def _kirtan_splitter_metadata(tags: dict) -> dict:
 def _decode_mono_float(path: Path, sample_rate: int) -> np.ndarray:
     output = subprocess.check_output(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",

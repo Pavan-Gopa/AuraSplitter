@@ -106,8 +106,15 @@ struct ContentView: View {
         .sheet(isPresented: $isShowingAutomation) {
             AutomationWizardView(
                 backend: backend,
+                processPresetStore: processPresetStore,
                 processPresetID: selectedProcessPresetID,
                 processSettings: settings,
+                modelRatings: modelRatings,
+                onProcessPresetChange: { presetID in
+                    // Keep main header process dropdown in sync with Matrix choice.
+                    selectedProcessPresetID = presetID
+                    applyProcessPreset(presetID)
+                },
                 onClose: { isShowingAutomation = false }
             )
         }
@@ -201,7 +208,7 @@ struct ContentView: View {
                 isDropTargeted: $isDropTargeted,
                 chooseFilesAction: loadInputFiles,
                 chooseFolderAction: loadInputFolder,
-                droppedURLAction: handleDroppedURL,
+                droppedURLsAction: handleDroppedURLs,
                 automationAction: { isShowingAutomation = true }
             )
             .frame(width: WorkspaceLayoutMetrics.widgetRailWidth)
@@ -220,7 +227,9 @@ struct ContentView: View {
                 deleteStemAction: deleteStem,
                 selectedStemPaths: $selectedStemPaths,
                 closeSourceAction: closeSource,
-                compareAction: { isShowingComparison = true }
+                compareAction: { isShowingComparison = true },
+                isDropTargeted: $isDropTargeted,
+                droppedURLsAction: handleDroppedURLs
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -410,12 +419,33 @@ struct ContentView: View {
         replaceSources(with: BatchWorkspace.makeSources(from: files, defaultPresetID: settings.presetID))
     }
 
-    private func handleDroppedURL(_ url: URL) {
-        if isDirectory(url) {
-            loadInputFolder(url)
-        } else {
-            loadInputFiles([url])
+    private func handleDroppedURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        var files: [URL] = []
+        for url in urls {
+            // Security-scoped access for files dropped from Finder.
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+            }
+            if isDirectory(url) {
+                files.append(contentsOf: BatchWorkspace.audioFiles(in: url))
+            } else if BatchWorkspace.isSupportedAudioFile(url) {
+                files.append(url)
+            } else if isLikelyAudioFile(url) {
+                files.append(url)
+            }
         }
+        // De-dupe while preserving order.
+        var seen = Set<String>()
+        let unique = files.filter { seen.insert($0.path).inserted }
+        guard !unique.isEmpty else { return }
+        loadInputFiles(unique)
+    }
+
+    private func isLikelyAudioFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ["wav", "wave", "flac", "mp3", "aiff", "aif", "m4a", "caf", "ogg", "opus"].contains(ext)
     }
 
     private func replaceSources(with nextSources: [BatchSourceItem]) {

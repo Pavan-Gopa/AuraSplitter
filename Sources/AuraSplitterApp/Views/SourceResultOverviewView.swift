@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SourceResultOverviewView: View {
     @ObservedObject var backend: BackendClient
@@ -13,6 +14,8 @@ struct SourceResultOverviewView: View {
     @Binding var selectedStemPaths: Set<String>
     let closeSourceAction: (BatchSourceItem) -> Void
     let compareAction: () -> Void
+    @Binding var isDropTargeted: Bool
+    var droppedURLsAction: (([URL]) -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -31,7 +34,7 @@ struct SourceResultOverviewView: View {
 
             if sources.isEmpty {
                 emptyColumnText("Drop files or choose a folder.")
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
@@ -52,6 +55,56 @@ struct SourceResultOverviewView: View {
             }
         }
         .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isDropTargeted ? Color.orange.opacity(0.08) : Color.clear)
+        )
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.orange.opacity(0.7), style: StrokeStyle(lineWidth: 2, dash: [6]))
+            }
+        }
+        .contentShape(Rectangle())
+        .dropDestination(for: URL.self, action: { urls, _ in
+            guard !backend.isBusy, !urls.isEmpty else { return false }
+            droppedURLsAction?(urls)
+            return true
+        }, isTargeted: { targeted in
+            isDropTargeted = targeted
+        })
+        .onDrop(of: [.fileURL, .audio], isTargeted: $isDropTargeted) { providers in
+            handleLegacyDrop(providers)
+        }
+    }
+
+    private func handleLegacyDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard !backend.isBusy, droppedURLsAction != nil else { return false }
+        let fileProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+        guard !fileProviders.isEmpty else { return false }
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+        for provider in fileProviders {
+            group.enter()
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                defer { group.leave() }
+                if let url = item as? URL {
+                    lock.lock(); urls.append(url); lock.unlock()
+                } else if let data = item as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) {
+                    lock.lock(); urls.append(url); lock.unlock()
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            droppedURLsAction?(urls)
+        }
+        return true
     }
 
     private var resultColumn: some View {

@@ -130,8 +130,16 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 start_backend() {
+  # Detached backend inherits a minimal PATH when launched from some contexts
+  # (GUI / setsid). Prepend Homebrew so ffmpeg/ffprobe are always found.
+  local backend_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  if [[ -n "${PATH:-}" ]]; then
+    backend_path="$backend_path:$PATH"
+  fi
+
   /usr/bin/perl -MPOSIX=setsid -e 'exit 0 if fork; setsid(); exec @ARGV or die $!' \
     /usr/bin/env \
+    PATH="$backend_path" \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH="$RUNTIME_BACKEND:$SITE_PACKAGES" \
     KIRTAN_SPLITTER_MODEL_DIR="$RUNTIME_MODEL_DIR" \

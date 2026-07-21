@@ -8,7 +8,8 @@ struct WorkspaceWidgetRailView: View {
     @Binding var isDropTargeted: Bool
     let chooseFilesAction: ([URL]) -> Void
     let chooseFolderAction: (URL) -> Void
-    let droppedURLAction: (URL) -> Void
+    /// One or more files/folders dropped from Finder.
+    let droppedURLsAction: ([URL]) -> Void
     var automationAction: (() -> Void)? = nil
 
     var body: some View {
@@ -35,7 +36,7 @@ struct WorkspaceWidgetRailView: View {
                         .monospacedDigit()
                 }
 
-                Text(sources.isEmpty ? "Drop files here" : currentSourceName)
+                Text(sources.isEmpty ? "Drop files or folders here" : currentSourceName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -65,15 +66,30 @@ struct WorkspaceWidgetRailView: View {
                 }
             }
             .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(dropBackground, in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isDropTargeted ? Color.orange : Color.secondary.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [5]))
+                    .strokeBorder(
+                        isDropTargeted ? Color.orange : Color.secondary.opacity(0.18),
+                        style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1, dash: [5])
+                    )
             }
             .contentShape(Rectangle())
-            .onTapGesture(perform: pickInputFiles)
+            // Prefer dropDestination — more reliable for Finder file URLs on macOS than onDrop+Data cast.
+            .dropDestination(for: URL.self, action: { urls, _ in
+                guard !backend.isBusy, !urls.isEmpty else { return false }
+                droppedURLsAction(urls)
+                return true
+            }, isTargeted: { targeted in
+                isDropTargeted = targeted
+            })
+            // Fallback for providers that only expose UTType.fileURL as data.
             .onDrop(of: [.fileURL, .audio], isTargeted: $isDropTargeted) { providers in
                 handleDrop(providers)
+            }
+            .onTapGesture {
+                if !backend.isBusy { pickInputFiles() }
             }
         }
     }
@@ -203,19 +219,77 @@ struct WorkspaceWidgetRailView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
-                guard
-                    let data = item as? Data,
-                    let url = URL(dataRepresentation: data, relativeTo: nil)
-                else { return }
-                DispatchQueue.main.async {
-                    droppedURLAction(url)
+        guard !backend.isBusy else { return false }
+        let fileProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+                || $0.hasItemConformingToTypeIdentifier(UTType.audio.identifier)
+        }
+        guard !fileProviders.isEmpty else { return false }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var urls: [URL] = []
+
+        for provider in fileProviders {
+            group.enter()
+            // Try fileURL first (folders + any file), then generic loadObject(URL).
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    defer { group.leave() }
+                    if let url = Self.url(fromDropItem: item) {
+                        lock.lock()
+                        urls.append(url)
+                        lock.unlock()
+                    }
+                }
+            } else {
+                provider.loadObject(ofClass: URL.self) { object, _ in
+                    defer { group.leave() }
+                    if let url = object {
+                        lock.lock()
+                        urls.append(url)
+                        lock.unlock()
+                    }
                 }
             }
-            return true
         }
-        return false
+
+        group.notify(queue: .main) {
+            guard !urls.isEmpty else { return }
+            droppedURLsAction(urls)
+        }
+        return true
+    }
+
+    /// NSItemProvider may hand back URL, NSURL, Data (file URL bytes), or path String.
+    private static func url(fromDropItem item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+        if let url = item as? NSURL {
+            return url as URL
+        }
+        if let data = item as? Data {
+            if let url = URL(dataRepresentation: data, relativeTo: nil) {
+                return url
+            }
+            if let path = String(data: data, encoding: .utf8) {
+                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.hasPrefix("file:"), let url = URL(string: trimmed) {
+                    return url
+                }
+                if !trimmed.isEmpty {
+                    return URL(fileURLWithPath: trimmed)
+                }
+            }
+        }
+        if let path = item as? String, !path.isEmpty {
+            if path.hasPrefix("file:"), let url = URL(string: path) {
+                return url
+            }
+            return URL(fileURLWithPath: path)
+        }
+        return nil
     }
 }
 

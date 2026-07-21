@@ -256,6 +256,17 @@ struct ControlPaneView: View {
         .opacity(isVisibleInHeader ? 1 : 0.72)
     }
 
+    /// Chunk slider label: Off · 15s · 2m · 10m …
+    private func chunkDurationLabel(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        if total == 0 { return "Off" }
+        if total < 60 { return "\(total)s" }
+        let minutes = total / 60
+        let rem = total % 60
+        if rem == 0 { return "\(minutes)m" }
+        return "\(minutes)m \(rem)s"
+    }
+
     private func reselectVisibleProcessPresetIfNeeded() {
         guard !menuVisibility.isProcessPresetVisible(selectedProcessPresetID) else { return }
         guard let nextID = ProcessSettingsPreset.preferredVisiblePresetID(
@@ -292,11 +303,14 @@ struct ControlPaneView: View {
                 HStack {
                     Text("Chunk")
                     Spacer()
-                    Text(settings.chunkDuration == 0 ? "Off" : "\(Int(settings.chunkDuration))s")
+                    Text(chunkDurationLabel(settings.chunkDuration))
                         .foregroundStyle(.secondary)
+                        .monospacedDigit()
                 }
-                Slider(value: $settings.chunkDuration, in: 0...90, step: 15)
+                // 0 = off; up to 10 minutes for long multitracks / fewer chunk boundaries.
+                Slider(value: $settings.chunkDuration, in: 0...600, step: 15)
                     .disabled(backend.isBusy)
+                    .help("Chunk length in seconds (0 = off). Up to 10 minutes.")
             }
 
             Stepper(value: $settings.mdxcSegmentSize, in: 64...4096, step: 64) {
