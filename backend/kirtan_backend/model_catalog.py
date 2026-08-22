@@ -53,8 +53,6 @@ class ModelCatalogEntry:
     def backend_label(self) -> str:
         if self.backend == "mlx":
             return "MLX"
-        if self.backend in {"demucs_onnx", "polarformer_onnx"}:
-            return "ONNX/CoreML"
         return self.backend
 
     @property
@@ -92,7 +90,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         architecture="BS-RoFormer",
         backend="mlx",
         summary="Modern BS-RoFormer vocal / instrumental split with stronger vocal leaderboard SDR than ViperX 1296.",
-        expected_stems=("vocals", "instrumental"),
+        # YAML instruments: ['vocals', 'instrument'] (not "instrumental").
+        expected_stems=("vocals", "instrument"),
         target_stem="vocals",
         scores={"vocals": 11.4},
         license="community checkpoint; verify upstream terms before redistribution",
@@ -110,8 +109,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         architecture="BS-RoFormer",
         backend="mlx",
         summary="Modern BS-RoFormer focused on the instrumental side of vocal / instrumental separation.",
-        expected_stems=("instrumental", "vocals"),
-        target_stem="instrumental",
+        expected_stems=("instrument", "vocals"),
+        target_stem="instrument",
         scores={"instrumental": 17.4},
         license="community checkpoint; verify upstream terms before redistribution",
         source_url="https://huggingface.co/pcunwa/BS-Roformer-HyperACE",
@@ -128,7 +127,8 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         architecture="BS-RoFormer",
         backend="mlx",
         summary="Leap Xe BS-RoFormer vocal / instrumental split; strong public MVSep candidate.",
-        expected_stems=("vocals", "instrumental"),
+        # YAML instruments: ['vocals', 'other'] (residual is "other", not "instrumental").
+        expected_stems=("vocals", "other"),
         target_stem="vocals",
         scores={"vocals": 11.8},
         license="community checkpoint; verify upstream terms before redistribution",
@@ -146,8 +146,9 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         architecture="BS-RoFormer",
         backend="mlx",
         summary="Leap Xe BS-RoFormer focused on the instrumental side of vocal / instrumental separation.",
-        expected_stems=("instrumental", "vocals"),
-        target_stem="instrumental",
+        # YAML target_instrument: other (instrumental bed) + vocals residual.
+        expected_stems=("other", "vocals"),
+        target_stem="other",
         scores={"instrumental": 17.5},
         license="community checkpoint; verify upstream terms before redistribution",
         source_url="https://huggingface.co/pcunwa/BS-Roformer-Leap",
@@ -306,13 +307,69 @@ MODEL_PACK_ENTRIES: tuple[ModelCatalogEntry, ...] = (
         checkpoint_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep.ckpt"),
         config_url=hf_resolve("noblebarkrr/BS-Roformer-MVSep-Mega-53-stems", "v1/bs_mega_53stem_piano_mvsep_config.yaml"),
     ),
+    ModelCatalogEntry(
+        id="dereverb_vocal_anvuew",
+        title="Aura Vocal Dereverb",
+        technical_title="Dereverb MelBand Anvuew",
+        filename="dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+        config_filename="dereverb_mel_band_roformer_anvuew.yaml",
+        model_type="MDXC",
+        architecture="MelBand RoFormer",
+        backend="mlx",
+        summary="Post-pass that removes hall reverb and echo from a separated vocal stem. "
+        "Run it on the vocals output of a separation preset.",
+        # YAML instruments: ['noreverb', 'reverb']; dry voice is the target.
+        expected_stems=("noreverb", "reverb"),
+        target_stem="noreverb",
+        scores={"noreverb": 19.17},
+        license="GPL-3.0",
+        source_url="https://huggingface.co/anvuew/dereverb_mel_band_roformer",
+        checkpoint_url=hf_resolve("anvuew/dereverb_mel_band_roformer", "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt"),
+        config_url=hf_resolve("anvuew/dereverb_mel_band_roformer", "dereverb_mel_band_roformer_anvuew.yaml"),
+    ),
+    ModelCatalogEntry(
+        id="dereverb_strong_sucial",
+        title="Aura Strong Dereverb",
+        technical_title="Dereverb Big Reverb Sucial",
+        filename="de_big_reverb_mbr_ep_362.ckpt",
+        config_filename="config_dereverb_echo_mbr_v2.yaml",
+        model_type="MDXC",
+        architecture="MelBand RoFormer",
+        backend="mlx",
+        summary="Dereverb tuned for large-venue reverb tails; use when Aura Vocal Dereverb leaves "
+        "reverb behind on heavily reverberant recordings.",
+        # YAML instruments: ['dry', 'other']; dry voice is the target.
+        expected_stems=("dry", "other"),
+        target_stem="dry",
+        license="CC-BY-NC-SA-4.0",
+        source_url="https://huggingface.co/Sucial/Dereverb-Echo_Mel_Band_Roformer",
+        checkpoint_url=hf_resolve("Sucial/Dereverb-Echo_Mel_Band_Roformer", "de_big_reverb_mbr_ep_362.ckpt"),
+        config_url=hf_resolve("Sucial/Dereverb-Echo_Mel_Band_Roformer", "config_dereverb_echo_mbr_v2.yaml"),
+    ),
+    ModelCatalogEntry(
+        id="denoise_vocal_aufr33",
+        title="Aura Vocal Denoise",
+        technical_title="Denoise MelBand Aufr33",
+        filename="denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+        config_filename="model_mel_band_roformer_denoise.yaml",
+        model_type="MDXC",
+        architecture="MelBand RoFormer",
+        backend="mlx",
+        summary="Post-pass that removes hiss, hum, and crowd noise from a separated vocal stem.",
+        # YAML instruments: ['dry', 'other']; dry voice is the target.
+        expected_stems=("dry", "other"),
+        target_stem="dry",
+        scores={"dry": 27.99},
+        license="community checkpoint; verify upstream terms before redistribution",
+        source_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/tag/v.1.0.7",
+        checkpoint_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v.1.0.7/denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+        config_url="https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v.1.0.7/model_mel_band_roformer_denoise.yaml",
+    ),
 )
 
-EXPERIMENTAL_MODEL_CANDIDATES: tuple[ModelCatalogEntry, ...] = ()
 
 MODEL_PACK_BY_FILENAME = {entry.filename: entry for entry in MODEL_PACK_ENTRIES}
 MODEL_PACK_BY_ID = {entry.id: entry for entry in MODEL_PACK_ENTRIES}
-EXPERIMENTAL_BY_FILENAME = {entry.filename: entry for entry in EXPERIMENTAL_MODEL_CANDIDATES}
 MODEL_PACK_BY_STEM = {Path(entry.filename).stem: entry for entry in MODEL_PACK_ENTRIES}
 MODEL_PACK_BY_STEM.update(
     {
@@ -373,7 +430,7 @@ def get_model_pack_entry(filename: str) -> ModelCatalogEntry | None:
 
 
 def display_name_for_model(filename: str) -> str | None:
-    entry = MODEL_PACK_BY_FILENAME.get(filename) or EXPERIMENTAL_BY_FILENAME.get(filename)
+    entry = MODEL_PACK_BY_FILENAME.get(filename)
     if entry:
         return entry.title
     stem = Path(filename).stem
@@ -450,11 +507,6 @@ def ensure_model_pack_assets(
 ) -> ModelCatalogEntry | None:
     entry = MODEL_PACK_BY_FILENAME.get(filename)
     if not entry:
-        experimental = EXPERIMENTAL_BY_FILENAME.get(filename)
-        if experimental:
-            raise ValueError(
-                f"{experimental.title} is cataloged but not runnable yet: {experimental.summary}"
-            )
         return None
     if not entry.enabled:
         raise ValueError(f"{entry.title} is not enabled for the {entry.backend_label} backend")

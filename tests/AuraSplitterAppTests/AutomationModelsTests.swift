@@ -50,7 +50,8 @@ final class AutomationModelsTests: XCTestCase {
         )
         XCTAssertEqual(
             AutomationNaming.intermediateDisplayName(shortOutputName: "BACK_V", stem: "lead"),
-            "BACK_V(Vocal)"
+            // stemRoleShortLabel maps lead → Lead (matches engine's canonical roles).
+            "BACK_V(Lead)"
         )
         XCTAssertEqual(
             AutomationNaming.intermediateDisplayName(shortOutputName: "X", stem: "kick"),
@@ -81,6 +82,14 @@ final class AutomationModelsTests: XCTestCase {
         XCTAssertEqual(
             AutomationJob.intermediateFolder(for: URL(fileURLWithPath: "/tmp/Session/Ready MIX")).path,
             "/tmp/Session/Ready MIX/_AutomationStep1"
+        )
+        XCTAssertEqual(
+            AutomationJob.step1ArchiveFolder(for: URL(fileURLWithPath: "/tmp/Session/Ready MIX")).path,
+            "/tmp/Session/Ready MIX/Step 1"
+        )
+        XCTAssertEqual(
+            AutomationJob.step2ArchiveFolder(for: URL(fileURLWithPath: "/tmp/Session/Ready MIX")).path,
+            "/tmp/Session/Ready MIX/Step 2"
         )
     }
 }

@@ -61,6 +61,8 @@ final class BackendClient: ObservableObject {
     private var isPerformingBackendLifecycle = false
     /// Set when the active NWConnection fails; aborts waitUntilReady early.
     private var connectionFailure: Error?
+    private var lastProgressUpdate = Date.distantPast
+    private let progressThrottleInterval: TimeInterval = 0.15
 
     var isBusy: Bool {
         isProcessing || isCancelling || isPerformingBackendLifecycle
@@ -656,6 +658,7 @@ final class BackendClient: ObservableObject {
 
         return try await withCheckedThrowingContinuation { continuation in
             pendingRequests[requestID] = continuation
+
             var line = data
             line.append(contentsOf: "\n".utf8)
             if let pipe = inputPipe {
@@ -901,6 +904,15 @@ final class BackendClient: ObservableObject {
             refreshBackendLogFromFile()
 
         case "progress":
+            let now = Date()
+            let isFinal = (message["progress"] as? Double ?? 0) >= 1.0
+            guard isFinal || now.timeIntervalSince(lastProgressUpdate) >= progressThrottleInterval else {
+                if let requestID, let sink = analysisProgressSinks[requestID] {
+                    sink(message)
+                }
+                return
+            }
+            lastProgressUpdate = now
             currentStage = (message["message"] as? String) ?? (message["stage"] as? String) ?? "Working"
             progress = message["progress"] as? Double ?? progress
             statusLine = currentStage
@@ -1067,19 +1079,68 @@ final class BackendClient: ObservableObject {
         let runtimeDir = ModelStoragePaths.defaultRuntimeDirectory()
         let tcpHost = env["KIRTAN_SPLITTER_BACKEND_HOST"] ?? bundledTCPHost
         let tcpPort = (env["KIRTAN_SPLITTER_BACKEND_PORT"] ?? bundledTCPPort).flatMap(Int.init)
+        // Portable (release) installs: when the staged absolute paths from the
+        // Info.plist do not exist on this machine, fall back to the backend
+        // shipped inside the app bundle and self-install it into App Support.
+        var resolvedServer = server
+        var resolvedLauncher = backendLauncher
+        var resolvedBackendDir = backendDir
+        var resolvedPythonPath = pythonPath
+        let needsPortableFallback =
+            env["KIRTAN_SPLITTER_BACKEND_SERVER"] == nil
+            && env["KIRTAN_SPLITTER_BACKEND_LAUNCHER"] == nil
+            && !FileManager.default.fileExists(atPath: server)
+        if needsPortableFallback,
+           let bundledServer = Bundle.main.url(forResource: "server", withExtension: "py", subdirectory: "backend") {
+            let support = ModelStoragePaths.applicationSupportDirectory()
+            let targetBackendDir = URL(fileURLWithPath: support).appendingPathComponent("backend", isDirectory: true)
+            installBundledBackend(from: bundledServer.deletingLastPathComponent(), to: targetBackendDir)
+            resolvedServer = targetBackendDir.appendingPathComponent("server.py").path
+            resolvedBackendDir = targetBackendDir.path
+            resolvedPythonPath = ([targetBackendDir.path]
+                + pythonPath.split(separator: ":")
+                    .map { String($0) }
+                    .filter { !$0.hasSuffix("/backend") }
+            ).joined(separator: ":")
+            if let bundledLauncher = Bundle.main.url(forResource: "run_backend", withExtension: "sh") {
+                let targetLauncher = URL(fileURLWithPath: support).appendingPathComponent("run_backend.sh")
+                if !FileManager.default.fileExists(atPath: targetLauncher.path) {
+                    try? FileManager.default.copyItem(at: bundledLauncher, to: targetLauncher)
+                    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetLauncher.path)
+                }
+                resolvedLauncher = targetLauncher.path
+            }
+        }
+
         return BackendPaths(
             projectRoot: projectRoot,
-            backendDir: backendDir,
+            backendDir: resolvedBackendDir,
             python: python,
-            pythonPath: pythonPath,
-            server: server,
-            backendLauncher: backendLauncher,
+            pythonPath: resolvedPythonPath,
+            server: resolvedServer,
+            backendLauncher: resolvedLauncher,
             modelDir: modelDir,
             logFile: logFile,
             runtimeDir: runtimeDir,
             tcpHost: tcpHost,
             tcpPort: tcpPort
         )
+    }
+
+    /// Copies the bundle-shipped backend sources into App Support (idempotent).
+    private func installBundledBackend(from sourceDir: URL, to targetDir: URL) {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: targetDir.appendingPathComponent("server.py").path) else { return }
+        do {
+            try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+            let items = try fm.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
+            for item in items where item.pathExtension == "py" || item.pathExtension == "sh" {
+                try? fm.removeItem(at: targetDir.appendingPathComponent(item.lastPathComponent))
+                try fm.copyItem(at: item, to: targetDir.appendingPathComponent(item.lastPathComponent))
+            }
+        } catch {
+            errorMessage = errorMessage ?? "Could not install bundled backend: \(error.localizedDescription)"
+        }
     }
 }
 

@@ -12,6 +12,7 @@ class SeparationPreset:
     model_filename: str
     summary: str
     expected_stems: tuple[str, ...]
+    post_passes: tuple[PostPassSpec, ...] = ()
 
     def to_dict(self, usage_count: int = 0) -> dict:
         return {
@@ -21,7 +22,25 @@ class SeparationPreset:
             "summary": self.summary,
             "expectedStems": list(self.expected_stems),
             "usageCount": max(0, int(usage_count)),
+            "postPasses": [
+                {
+                    "presetId": post.preset_id,
+                    "title": post.title,
+                    "sourceStem": post.source_stem,
+                }
+                for post in self.post_passes
+            ],
         }
+
+
+@dataclass(frozen=True)
+class PostPassSpec:
+    """One post-processing stage: feed a stem through another preset's model."""
+
+    preset_id: str
+    title: str
+    model_filename: str
+    source_stem: str
 
 
 PRESETS: dict[str, SeparationPreset] = {
@@ -158,17 +177,76 @@ PRESETS: dict[str, SeparationPreset] = {
         summary=MODEL_PACK_BY_ID["mega_piano"].summary,
         expected_stems=MODEL_PACK_BY_ID["mega_piano"].expected_stems,
     ),
+    "dereverb_vocal_anvuew": SeparationPreset(
+        id="dereverb_vocal_anvuew",
+        title=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].title,
+        model_filename=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].filename,
+        summary=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].summary,
+        expected_stems=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].expected_stems,
+    ),
+    "dereverb_strong_sucial": SeparationPreset(
+        id="dereverb_strong_sucial",
+        title=MODEL_PACK_BY_ID["dereverb_strong_sucial"].title,
+        model_filename=MODEL_PACK_BY_ID["dereverb_strong_sucial"].filename,
+        summary=MODEL_PACK_BY_ID["dereverb_strong_sucial"].summary,
+        expected_stems=MODEL_PACK_BY_ID["dereverb_strong_sucial"].expected_stems,
+    ),
+    "denoise_vocal_aufr33": SeparationPreset(
+        id="denoise_vocal_aufr33",
+        title=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].title,
+        model_filename=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].filename,
+        summary=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].summary,
+        expected_stems=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].expected_stems,
+    ),
+    "vocals_pro_live": SeparationPreset(
+        id="vocals_pro_live",
+        title="Aura Vocal Live",
+        model_filename=MODEL_PACK_BY_ID["hyperace_v2_vocal"].filename,
+        summary="HyperACE v2 split followed by an automatic dereverb pass on the vocal stem "
+        "for live recordings.",
+        expected_stems=("vocals", "instrument", "noreverb", "reverb"),
+        post_passes=(
+            PostPassSpec(
+                preset_id="dereverb_vocal_anvuew",
+                title=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].title,
+                model_filename=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].filename,
+                source_stem="vocals",
+            ),
+        ),
+    ),
+    "vocals_pro_live_max": SeparationPreset(
+        id="vocals_pro_live_max",
+        title="Aura Vocal Live Max",
+        model_filename=MODEL_PACK_BY_ID["leap_xe_vocal"].filename,
+        summary="Leap Xe split, then denoise (hiss, hum, crowd) and dereverb passes on the "
+        "vocal stem for noisy live recordings.",
+        expected_stems=("vocals", "other", "dry", "noreverb", "reverb"),
+        post_passes=(
+            PostPassSpec(
+                preset_id="denoise_vocal_aufr33",
+                title=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].title,
+                model_filename=MODEL_PACK_BY_ID["denoise_vocal_aufr33"].filename,
+                source_stem="vocals",
+            ),
+            PostPassSpec(
+                preset_id="dereverb_vocal_anvuew",
+                title=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].title,
+                model_filename=MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].filename,
+                source_stem="dry",
+            ),
+        ),
+    ),
 }
 
 
 def preset_list(model_dir: str | None = None) -> list[dict]:
     usage_counts = {}
     if model_dir:
-        from .render_estimates import model_usage_counts
+        from .render_estimates import preset_usage_counts
 
-        usage_counts = model_usage_counts(model_dir)
+        usage_counts = preset_usage_counts(model_dir)
     return [
-        preset.to_dict(usage_count=usage_counts.get(preset.model_filename, 0))
+        preset.to_dict(usage_count=usage_counts.get(preset.id, 0))
         for preset in PRESETS.values()
     ]
 
@@ -179,3 +257,8 @@ def resolve_model_filename(preset_id: str | None, explicit_model: str | None) ->
     if preset_id and preset_id in PRESETS:
         return PRESETS[preset_id].model_filename
     return PRESETS["kirtan_pro"].model_filename
+
+
+def resolve_post_pass_chain(preset_id: str | None) -> tuple[PostPassSpec, ...]:
+    preset = PRESETS.get(preset_id or "")
+    return preset.post_passes if preset else ()

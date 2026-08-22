@@ -11,22 +11,24 @@ MLX/Metal.
 - Local Python backend launched by the SwiftUI app.
 - MLX/Metal acceleration through `mlx-audio-separator`.
 - Presets for:
-  - `Kirtan Pro`: `BS-Roformer-SW.ckpt` 6-stem split.
-  - `Kirtan Clean Split`: ViperX 1297 vocal / instrumental split.
-  - `Kirtan Vocal Classic`: ViperX 1296 vocal / instrumental split.
-  - `Kirtan Karaoke Classic`: ViperX karaoke-style split.
-  - `Kirtan Instrument Clean`: instrumental cleanup when vocal bleed remains.
-  - `Kirtan Drum Classic`: classic drums / no-drums split.
+  - `Aura Pro`: `BS-Roformer-SW.ckpt` 6-stem split.
+  - `Aura Clean Split`: ViperX 1297 vocal / instrumental split.
+  - `Aura Vocal Classic`: ViperX 1296 vocal / instrumental split.
+  - `Aura Karaoke Classic`: ViperX karaoke-style split.
+  - `Aura Instrument Clean`: instrumental cleanup when vocal bleed remains.
+  - `Aura Drum Classic`: classic drums / no-drums split.
   - Model Pack V1 presets that download public checkpoints on first use:
-    `Kirtan Vocal Pro`, `Kirtan Instrument Pro`, `Kirtan Vocal Elite`,
-    `Kirtan Instrument Elite`, `Kirtan Vocal / Instrumental`,
-    `Kirtan Lead / Back`, `Kirtan Lead / Back 2`, `Kirtan Drum Split`,
+    `Aura Vocal Pro`, `Aura Instrument Pro`, `Aura Vocal Elite`,
+    `Aura Instrument Elite`, `Aura Vocal / Instrumental`,
+    `Aura Lead / Back`, `Aura Lead / Back 2`, `Aura Drum Split`,
     and selected MVSep Mega 53 single-target
     models for lead vocal, back vocal, drums, sitar, and piano.
-  - ONNX/CoreML presets:
-    `Kirtan Vocal Max` cataloging BS PolarFormer vocal / instrumental separation,
-    `Kirtan Stems Pro` for vocals, drums, bass, and other, and
-    `Kirtan Stems Max` for vocals, drums, bass, guitar, piano, and other.
+  - Post-processing chains that run extra passes automatically:
+    `Aura Vocal Live` (HyperACE v2 split, then vocal dereverb) and
+    `Aura Vocal Live Max` (Leap Xe split, then vocal denoise and dereverb).
+  - Post-process presets that run on an already generated vocal stem:
+    `Aura Vocal Dereverb` (hall reverb/echo removal), `Aura Strong Dereverb`
+    (large-venue reverb tails), and `Aura Vocal Denoise` (hiss, hum, crowd noise).
 - Model picker with the full live model catalog exposed by the backend, using
   simple Kirtan-facing names. Technical checkpoint names are kept in the
   diagnostics sidebar metadata instead of the header picker.
@@ -84,10 +86,6 @@ MLX/Metal.
 - `ffmpeg` for audio decoding/encoding.
 - `torch` is installed into `.venv` only so `.ckpt` RoFormer models can be
   converted to MLX safetensors on first use. Inference is still MLX/Metal.
-- `demucs-onnx` and `onnxruntime` are installed for the optional ONNX/CoreML
-  presets. Demucs uses its own local cache under the KirtanSplitter model
-  folder; PolarFormer downloads its ONNX model and YAML config into the same
-  visible model folder as the other KirtanSplitter models.
 
 Install external tools:
 
@@ -126,11 +124,6 @@ back to macOS `ioreg` when `powermetrics` is unavailable without elevated
 privileges. GPU power still depends on `powermetrics`; if the OS denies access,
 the GPU widget shows utilization without inventing power data.
 
-ONNX/CoreML presets request Core ML with `MLComputeUnits=ALL`, which allows
-Core ML to schedule supported operators across CPU, GPU, and Neural Engine.
-The NPU widget reports this CoreML/Neural Engine availability mode; macOS does
-not provide a stable public per-process Neural Engine utilization percentage
-that can be shown as honestly as CPU or GPU usage.
 
 `Speed` is a runtime profile passed to `mlx-audio-separator`, not an output
 quality preset. `default` leaves the library defaults untouched, `latency_safe`
@@ -201,22 +194,10 @@ The previous hand-written `bsroformer_mlx.py` prototype is still preserved under
 working path uses `mlx-audio-separator`, which already supports RoFormer, MDXC,
 MDX, VR, and Demucs models on MLX.
 
-## Model Architecture Notes
-
-Model Pack V1 exposes MLX-compatible models through `mlx-audio-separator`:
+Model Pack exposes MLX-compatible models through `mlx-audio-separator`:
 BS-RoFormer, MelBand RoFormer, and MDX23C/MDXC-style checkpoints with YAML
-configs. It also adds separate ONNX/CoreML backends for Demucs ONNX models via
-`demucs-onnx` and BS PolarFormer via a model-specific STFT/ONNX/iSTFT adapter.
-Those presets are routed outside MLX and use ONNX Runtime provider selection,
-which can choose CoreML on Apple Silicon when the runtime supports it.
-PolarFormer uses a dedicated CoreML cache under the visible model folder and
-reports real chunk-level progress instead of a synthetic long-running heartbeat
-when a CoreML session is available. The current public BS PolarFormer ONNX
-checkpoint has unbounded dynamic dimensions that CoreML cannot compile on this
-machine; CPU fallback is intentionally disabled because it takes hours. Keep it
-cataloged for a future static CoreML/MLX export, and use the MLX RoFormer presets
-for production runs.
-
-Generic ONNX files are not interchangeable: each one can require different audio
-windowing, spectrogram inputs, and postprocessing. DrumSep ONNX remains
-cataloged as an experimental candidate until it has its own adapter.
+configs, all running on MLX/Metal. Post-processing chains reuse the same
+RoFormer path for denoise and dereverb passes on a previously generated stem.
+Former ONNX/CoreML routes (Demucs ONNX, BS PolarFormer) were removed from the
+catalog; they return when a static CoreML/MLX export exists that compiles on
+Apple Silicon.

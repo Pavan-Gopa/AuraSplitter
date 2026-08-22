@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from .engine import MlxSeparatorEngine
+from .ffmpeg_tools import ensure_ffmpeg_on_path
 from .protocol import BackendRequest, error_response, handle_request
 
 
@@ -196,6 +197,10 @@ def run_tcp(args, engine, log_path: Path, logger: logging.Logger) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Make sure descendant subprocesses (e.g. mlx-audio-separator calling bare
+    # ``ffmpeg``) can find Homebrew binaries even when the backend is launched
+    # with a minimal GUI PATH. Idempotent; also runs at ffmpeg_tools import.
+    ensure_ffmpeg_on_path()
     args = build_parser().parse_args(argv)
     log_path = configure_logging(args.log_file, args.debug)
     logger = logging.getLogger("kirtan_backend")

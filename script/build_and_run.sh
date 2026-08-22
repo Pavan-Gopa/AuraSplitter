@@ -2,6 +2,8 @@
 set -euo pipefail
 
 MODE="${1:-run}"
+# Debug for dev runs; release via script/release.sh (BUILD_CONFIG=release).
+BUILD_CONFIG="${BUILD_CONFIG:-debug}"
 # Binary/process name (SwiftPM executable).
 APP_NAME="AuraSplitter"
 # User-visible brand folders (models, logs, App Support).
@@ -11,6 +13,10 @@ BUNDLE_ID="com.pavan.aurasplitter"
 MIN_SYSTEM_VERSION="13.0"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Release version (bumped by script/release.sh; drives CFBundleShortVersionString).
+APP_VERSION="$(cat "$ROOT_DIR/VERSION" 2>/dev/null | tr -d '[:space:]' || true)"
+APP_VERSION="${APP_VERSION:-1.0.0}"
+
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
@@ -46,8 +52,8 @@ launchctl remove "com.pavan.kirtansplitter.backend" >/dev/null 2>&1 || true
 pkill -f "backend/server.py" >/dev/null 2>&1 || true
 pkill -f "run_backend.sh" >/dev/null 2>&1 || true
 
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build -c "$BUILD_CONFIG"
+BUILD_BINARY="$(swift build --show-bin-path -c "$BUILD_CONFIG")/$APP_NAME"
 
 rm -rf "$APP_BUNDLE"
 rm -rf "$RUNTIME_BACKEND"
@@ -79,6 +85,10 @@ mkdir -p "$RUNTIME_BACKEND"
 rsync -a --delete "$ROOT_DIR/backend/" "$RUNTIME_BACKEND/"
 cp "$ROOT_DIR/script/run_backend.sh" "$RUNTIME_LAUNCHER"
 chmod +x "$RUNTIME_LAUNCHER"
+# Ship backend sources inside the bundle so release installs can self-bootstrap.
+mkdir -p "$APP_RESOURCES/backend"
+rsync -a --delete "$ROOT_DIR/backend/" "$APP_RESOURCES/backend/"
+cp "$ROOT_DIR/script/run_backend.sh" "$APP_RESOURCES/run_backend.sh"
 if [[ -d "$ROOT_DIR/models" ]]; then
   rsync -a --ignore-existing "$ROOT_DIR/models/" "$RUNTIME_MODEL_DIR/"
 fi
@@ -101,6 +111,10 @@ cat >"$INFO_PLIST" <<PLIST
   <string>AuraSplitter.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>$APP_VERSION</string>
+  <key>CFBundleVersion</key>
+  <string>$APP_VERSION</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>NSHighResolutionCapable</key>
@@ -173,6 +187,10 @@ case "$MODE" in
   run)
     open_app
     ;;
+  stage)
+    # Staging only (used by script/release.sh): no launch, no backend start.
+    echo "Staged $APP_BUNDLE (config=$BUILD_CONFIG, version=$APP_VERSION)"
+    ;;
   --debug|debug)
     lldb -- "$APP_BINARY"
     ;;
@@ -191,7 +209,7 @@ case "$MODE" in
     echo "$APP_NAME is running from $APP_BUNDLE"
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|stage|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac

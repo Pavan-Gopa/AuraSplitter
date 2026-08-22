@@ -15,7 +15,6 @@ Rules:
 
 After every code change:
 1. Kill the running app: `pkill -f AuraSplitter`
-2. Rebuild: `swift build`
-3. Relaunch in background: `.build/debug/AuraSplitter` (use background_process tool)
+2. Rebuild and relaunch: `bash script/build_and_run.sh` (creates .app bundle with logo/resources)
 
-Never leave a stale build running after code modifications.
+Never launch `.build/debug/AuraSplitter` directly — it lacks the .app bundle Resources (logo, icons).

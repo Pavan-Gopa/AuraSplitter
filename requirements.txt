@@ -1,6 +1,5 @@
-mlx-audio-separator==0.1.5
-demucs-onnx==0.3.4
+mlx-audio-separator==0.1.7
 pytest==9.1.1
-torch
+torch>=2.6
 onnx
 

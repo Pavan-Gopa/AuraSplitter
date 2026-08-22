@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
+import Combine
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var mainWindow: NSWindow?
@@ -23,9 +25,136 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWindow.didBecomeKeyNotification,
             object: nil
         )
+
+        // Update system: dynamic tray menu + periodic checks.
+        refreshStatusMenu()
+        UpdateService.shared.startAutoChecks()
+        observeUpdateState()
     }
 
     private var statusMenu: NSMenu?
+
+    private var updateStateCancellable: AnyCancellable?
+    private var winkTimer: Timer?
+
+    /// Tray feedback: rebuild the menu for the update state and make the logo
+    /// "wink" while an update is waiting.
+    private func observeUpdateState() {
+        updateStateCancellable = UpdateService.shared.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshStatusMenu()
+                self?.updateWinkAnimation()
+            }
+    }
+
+    private func refreshStatusMenu() {
+        let menu = NSMenu()
+        let state = UpdateService.shared.state
+
+        func addUpdateItem(_ title: String, action: Selector?, bold: Bool = false, enabled: Bool = true) {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = action != nil ? self : nil
+            item.isEnabled = enabled
+            if bold {
+                item.attributedTitle = NSAttributedString(
+                    string: title,
+                    attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)]
+                )
+            }
+            menu.addItem(item)
+        }
+
+        switch state {
+        case .available(let release):
+            addUpdateItem("Update to \(release.version.displayString) — Download", action: #selector(downloadUpdateClicked(_:)), bold: true)
+        case .downloading(let release, let fraction):
+            addUpdateItem("Downloading \(release.version.displayString)… \(Int(fraction * 100))%", action: nil, enabled: false)
+        case .readyToInstall(let release, _):
+            addUpdateItem("Install \(release.version.displayString) and Relaunch", action: #selector(installUpdateClicked(_:)), bold: true)
+        case .checking:
+            addUpdateItem("Checking for Updates…", action: nil, enabled: false)
+        case .failed:
+            addUpdateItem("Update check failed — retry", action: #selector(checkUpdatesClicked(_:)))
+        case .upToDate(let current):
+            addUpdateItem("Version \(current) — up to date", action: nil, enabled: false)
+        case .idle:
+            addUpdateItem("Version \(AppVersion.current) — up to date", action: nil, enabled: false)
+        }
+        let check = NSMenuItem(title: "Check for Updates…", action: #selector(checkUpdatesClicked(_:)), keyEquivalent: "")
+        check.target = self
+        menu.addItem(check)
+        menu.addItem(.separator())
+
+        menu.addItem(NSMenuItem(title: "Show AuraSplitter", action: #selector(showApp), keyEquivalent: "s"))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
+        statusMenu = menu
+    }
+
+    private func updateWinkAnimation() {
+        let state = UpdateService.shared.state
+        var shouldWink = false
+        if case .available = state { shouldWink = true }
+        if case .readyToInstall = state { shouldWink = true }
+
+        if shouldWink, winkTimer == nil {
+            winkTimer = Timer.scheduledTimer(withTimeInterval: 2.4, repeats: true) { [weak self] _ in
+                self?.performWink()
+            }
+        } else if !shouldWink, let timer = winkTimer {
+            timer.invalidate()
+            winkTimer = nil
+            restoreTrayImage()
+        }
+    }
+
+    private func performWink() {
+        guard let button = statusItem?.button, let logo = trayLogoImage() else { return }
+        // Quick open → squint → open reads as a wink at status-bar size.
+        let squint = logo.copy() as! NSImage
+        squint.size = NSSize(width: logo.size.width, height: max(4, logo.size.height * 0.25))
+        button.image = squint
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+            guard let self, let button = self.statusItem?.button else { return }
+            button.image = self.trayLogoImage()
+        }
+    }
+
+    private func restoreTrayImage() {
+        guard let button = statusItem?.button else { return }
+        button.image = trayLogoImage() ?? button.image
+    }
+
+    private func trayLogoImage() -> NSImage? {
+        if let svgURL = Bundle.main.url(forResource: "AuraSplitter_2", withExtension: "svg"),
+           let image = NSImage(contentsOf: svgURL) {
+            image.size = NSSize(width: 18, height: 18)
+            return image
+        }
+        return nil
+    }
+
+    @objc func checkUpdatesClicked(_ sender: Any?) {
+        Task { @MainActor in
+            await UpdateService.shared.checkForUpdates(manual: true)
+            showApp()
+        }
+    }
+
+    @objc func downloadUpdateClicked(_ sender: Any?) {
+        Task { @MainActor in
+            showApp()
+            await UpdateService.shared.downloadAndPrepare()
+        }
+    }
+
+    @objc func installUpdateClicked(_ sender: Any?) {
+        Task { @MainActor in
+            showApp()
+            UpdateService.shared.requestInstall()
+        }
+    }
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -45,11 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Build the context menu but do NOT assign it to statusItem.menu
         // so that left-click can trigger the action instead of showing the menu.
-        let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Show AuraSplitter", action: #selector(showApp), keyEquivalent: "s"))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
-        statusMenu = menu
+        refreshStatusMenu()
     }
     
     @objc func statusBarButtonClicked(_ sender: Any?) {
@@ -121,11 +246,20 @@ struct AuraSplitterApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(UpdateService.shared)
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    Task { @MainActor in
+                        await UpdateService.shared.checkForUpdates(manual: true)
+                    }
+                }
+                .keyboardShortcut("u", modifiers: [.command])
+            }
         }
 
         Settings {

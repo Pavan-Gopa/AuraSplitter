@@ -1,10 +1,11 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var backend = BackendClient()
-    @StateObject private var audioPreviewPlayer = AudioPreviewPlayer()
+    @StateObject private var backend: BackendClient
+    @StateObject private var audioPreviewPlayer: AudioPreviewPlayer
     @StateObject private var processPresetStore = ProcessSettingsPresetStore()
     @ObservedObject private var menuVisibility = MenuVisibilityStore.shared
+    @StateObject private var preview: PreviewStore
 
     @State private var sources: [BatchSourceItem] = []
     @State private var outputDirectory: URL?
@@ -15,21 +16,20 @@ struct ContentView: View {
     @State private var isShowingComparison = false
     @State private var selectedProcessPresetID = ProcessSettingsPreset.defaultPresetID
     @State private var resultGroups: [BatchResultGroup] = []
-    @State private var previewSelection: AudioPreviewSelection = .none
-    @State private var previewAnalysis: AudioAnalysis?
-    @State private var previewAnalysisError: String?
-    @State private var resultPreviewCache = AudioPreviewAnalysisCache()
-    @State private var isAnalyzingPreview = false
     @State private var isDropTargeted = false
-    @State private var previewHeightFraction = AudioPreviewLayout.defaultBottomFraction
-    @State private var previewResizeStartFraction: CGFloat?
-    @State private var isPreviewFullscreen = false
     @State private var isSettingsSidebarOpen = false
     @State private var settingsDrawerSection: SettingsDrawerSection = .process
     @State private var didInitializeLayout = false
     @State private var batchProcessingTask: Task<Void, Never>?
-    @State private var layerSettings = AudioPreviewLayerSettings()
     @State private var isShowingAutomation = false
+
+    init() {
+        let be = BackendClient()
+        let player = AudioPreviewPlayer()
+        _backend = StateObject(wrappedValue: be)
+        _audioPreviewPlayer = StateObject(wrappedValue: player)
+        _preview = StateObject(wrappedValue: PreviewStore(backend: be, player: player))
+    }
 
     var body: some View {
         ZStack {
@@ -57,7 +57,7 @@ struct ContentView: View {
                     mainWorkspace
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if isSettingsSidebarOpen && !isPreviewFullscreen {
+                    if isSettingsSidebarOpen && !preview.isFullscreen {
                         Divider()
                         SettingsDrawerView(
                             backend: backend,
@@ -75,12 +75,35 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
-            .animation(.easeInOut(duration: 0.18), value: isPreviewFullscreen)
+            .animation(.easeInOut(duration: 0.18), value: preview.isFullscreen)
             .onChange(of: backend.lastSummary?.completedAt) { _ in
                 guard backend.lastSummary != nil else { return }
                 // Surface Post Run Stats immediately after a finished separation.
                 settingsDrawerSection = .run
                 isSettingsSidebarOpen = true
+            }
+            .onChange(of: backend.isBusy) { busy in
+                if !busy {
+                    // A scheduled update installs as soon as processing drains.
+                    UpdateService.shared.performInstallIfPending()
+                }
+            }
+            .onAppear {
+                UpdateService.shared.isBusyProvider = { [weak backend] in backend?.isBusy ?? false }
+                UpdateService.shared.unsavedWorkProvider = {
+                    var reasons: [String] = []
+                    if !sources.isEmpty {
+                        reasons.append("\(sources.count) file(s) are still in the queue")
+                    }
+                    if ProcessSettingsPreset.displayTitle(
+                        for: selectedProcessPresetID,
+                        in: processPresetStore.presets,
+                        settings: settings
+                    ) == "Custom" {
+                        reasons.append("Process settings were changed but not saved as a preset")
+                    }
+                    return reasons
+                }
             }
 
             if let message = backend.modelSetupMessage {
@@ -92,11 +115,11 @@ struct ContentView: View {
                     stems: selectedStemsToCompare,
                     player: audioPreviewPlayer,
                     backend: backend,
-                    resultPreviewCache: $resultPreviewCache,
+                    resultPreviewCache: $preview.resultCache,
                     onClose: {
                         isShowingComparison = false
                     },
-                    layerSettings: $layerSettings
+                    layerSettings: $preview.layerSettings
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 .zIndex(2)
@@ -154,13 +177,13 @@ struct ContentView: View {
     private var mainWorkspace: some View {
         GeometryReader { geometry in
             let handleHeight: CGFloat = 8
-            let bottomFraction = AudioPreviewLayout.clampedBottomFraction(previewHeightFraction)
+            let bottomFraction = AudioPreviewLayout.clampedBottomFraction(preview.heightFraction)
             let bottomHeight = max(220, (geometry.size.height - handleHeight) * bottomFraction)
             let topHeight = max(260, geometry.size.height - bottomHeight - handleHeight)
 
             // Keep a single AudioPreviewPane identity so zoom/layers survive expand.
             VStack(spacing: 0) {
-                if !isPreviewFullscreen {
+                if !preview.isFullscreen {
                     topWorkspace
                         .frame(height: topHeight)
 
@@ -169,15 +192,15 @@ struct ContentView: View {
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    if previewResizeStartFraction == nil {
-                                        previewResizeStartFraction = previewHeightFraction
+                                    if preview.resizeStartFraction == nil {
+                                        preview.resizeStartFraction = preview.heightFraction
                                     }
-                                    let startFraction = previewResizeStartFraction ?? previewHeightFraction
+                                    let startFraction = preview.resizeStartFraction ?? preview.heightFraction
                                     let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
-                                    previewHeightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
+                                    preview.heightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
                                 }
                                 .onEnded { _ in
-                                    previewResizeStartFraction = nil
+                                    preview.resizeStartFraction = nil
                                 }
                         )
                 }
@@ -190,13 +213,13 @@ struct ContentView: View {
 
     private var audioPreviewPane: some View {
         AudioPreviewPane(
-            analysis: previewAnalysis,
-            analysisError: previewAnalysisError,
-            isAnalyzing: isAnalyzingPreview,
+            analysis: preview.analysis,
+            analysisError: preview.analysisError,
+            isAnalyzing: preview.isAnalyzing,
             previewProgress: backend.previewProgress,
             player: audioPreviewPlayer,
-            isFullscreen: $isPreviewFullscreen,
-            layerSettings: $layerSettings
+            isFullscreen: $preview.isFullscreen,
+            layerSettings: $preview.layerSettings
         )
     }
 
@@ -221,7 +244,7 @@ struct ContentView: View {
                 presets: backend.presets,
                 usesPerSourcePresets: usesPerSourcePresets,
                 resultGroups: resultGroups,
-                previewSelection: previewSelection,
+                previewSelection: preview.selection,
                 previewSourceAction: previewSource,
                 previewStemAction: previewStem,
                 deleteStemAction: deleteStem,
@@ -279,11 +302,9 @@ struct ContentView: View {
             get: { selectedProcessPresetID },
             set: { presetID in
                 selectedProcessPresetID = presetID
-                applyProcessPreset(presetID)
             }
         )
     }
-
     private var hasSelectedSources: Bool {
         sources.contains { $0.isSelectedForProcessing }
     }
@@ -452,19 +473,19 @@ struct ContentView: View {
         audioPreviewPlayer.stop()
         sources = nextSources
         resultGroups = []
-        resultPreviewCache.removeAll()
+        preview.resultCache.removeAll()
         selectedStemPaths = []
-        previewSelection = .none
-        previewAnalysis = nil
-        previewAnalysisError = nil
-        isAnalyzingPreview = false
+        preview.selection = .none
+        preview.analysis = nil
+        preview.analysisError = nil
+        preview.isAnalyzing = false
 
         // Pull in any stems already on disk (e.g. previous experiments in Song_stems/).
         loadExistingResults(for: nextSources)
 
         guard let first = nextSources.first else { return }
-        previewSelection = .source(first.id)
-        isAnalyzingPreview = backend.isReady
+        preview.selection = .source(first.id)
+        preview.isAnalyzing = backend.isReady
         analyzeLoadedSources()
     }
 
@@ -501,10 +522,10 @@ struct ContentView: View {
         let path = source.url.path
         let previousTime = audioPreviewPlayer.currentTime
         
-        previewSelection = .source(source.id)
-        previewAnalysis = source.analysis
-        previewAnalysisError = source.analysisError
-        isAnalyzingPreview = source.isAnalyzing
+        preview.selection = .source(source.id)
+        preview.analysis = source.analysis
+        preview.analysisError = source.analysisError
+        preview.isAnalyzing = source.isAnalyzing
 
         audioPreviewPlayer.seek(path: path, time: previousTime)
 
@@ -520,10 +541,10 @@ struct ContentView: View {
         let previousTime = audioPreviewPlayer.currentTime
         
         let selection = AudioPreviewSelection.result(path)
-        previewSelection = selection
-        previewAnalysis = nil
-        previewAnalysisError = nil
-        isAnalyzingPreview = false
+        preview.selection = selection
+        preview.analysis = nil
+        preview.analysisError = nil
+        preview.isAnalyzing = false
 
         audioPreviewPlayer.seek(path: path, time: previousTime)
 
@@ -547,19 +568,19 @@ struct ContentView: View {
             sources[index].analysis = cached
             sources[index].analysisError = nil
             sources[index].isAnalyzing = false
-            if previewSelection == .source(id) {
-                previewAnalysis = cached
-                previewAnalysisError = nil
-                isAnalyzingPreview = false
+            if preview.selection == .source(id) {
+                preview.analysis = cached
+                preview.analysisError = nil
+                preview.isAnalyzing = false
             }
             return
         }
 
         sources[index].isAnalyzing = true
         sources[index].analysisError = nil
-        if previewSelection == .source(id) {
-            isAnalyzingPreview = true
-            previewAnalysisError = nil
+        if preview.selection == .source(id) {
+            preview.isAnalyzing = true
+            preview.analysisError = nil
         }
 
         do {
@@ -569,42 +590,42 @@ struct ContentView: View {
             sources[currentIndex].analysisError = nil
             sources[currentIndex].isAnalyzing = false
             PreviewAnalysisDiskCache.shared.store(analysis)
-            if previewSelection == .source(id) {
-                previewAnalysis = analysis
-                previewAnalysisError = nil
-                isAnalyzingPreview = false
+            if preview.selection == .source(id) {
+                preview.analysis = analysis
+                preview.analysisError = nil
+                preview.isAnalyzing = false
             }
         } catch {
             guard let currentIndex = sources.firstIndex(where: { $0.id == id }) else { return }
             sources[currentIndex].analysisError = error.localizedDescription
             sources[currentIndex].isAnalyzing = false
-            if previewSelection == .source(id) {
-                previewAnalysisError = error.localizedDescription
-                isAnalyzingPreview = false
+            if preview.selection == .source(id) {
+                preview.analysisError = error.localizedDescription
+                preview.isAnalyzing = false
             }
         }
     }
 
     @discardableResult
     private func applyCachedResultPreview(for path: String) -> Bool {
-        if let analysis = resultPreviewCache.analysis(for: path) {
-            previewAnalysis = analysis
-            previewAnalysisError = nil
-            isAnalyzingPreview = false
+        if let analysis = preview.resultCache.analysis(for: path) {
+            preview.analysis = analysis
+            preview.analysisError = nil
+            preview.isAnalyzing = false
             return true
         }
 
-        if let error = resultPreviewCache.error(for: path) {
-            previewAnalysis = nil
-            previewAnalysisError = error
-            isAnalyzingPreview = false
+        if let error = preview.resultCache.error(for: path) {
+            preview.analysis = nil
+            preview.analysisError = error
+            preview.isAnalyzing = false
             return true
         }
 
-        if resultPreviewCache.isAnalyzing(path) {
-            previewAnalysis = nil
-            previewAnalysisError = nil
-            isAnalyzingPreview = true
+        if preview.resultCache.isAnalyzing(path) {
+            preview.analysis = nil
+            preview.analysisError = nil
+            preview.isAnalyzing = true
             return true
         }
 
@@ -614,53 +635,53 @@ struct ContentView: View {
     @MainActor
     private func analyzeResultStem(path: String) async {
         let selection = AudioPreviewSelection.result(path)
-        guard resultPreviewCache.shouldStartAnalysis(for: path) else {
-            if previewSelection == selection {
+        guard preview.resultCache.shouldStartAnalysis(for: path) else {
+            if preview.selection == selection {
                 applyCachedResultPreview(for: path)
             }
             return
         }
 
-        if previewSelection == selection {
-            previewAnalysis = nil
-            previewAnalysisError = nil
-            isAnalyzingPreview = true
+        if preview.selection == selection {
+            preview.analysis = nil
+            preview.analysisError = nil
+            preview.isAnalyzing = true
         }
 
         do {
             let url = URL(fileURLWithPath: path)
             let analysis = try await backend.analyzeAudio(url: url)
             guard FileManager.default.fileExists(atPath: path) else {
-                resultPreviewCache.remove(path)
-                if previewSelection == selection {
-                    previewSelection = .none
-                    previewAnalysis = nil
-                    previewAnalysisError = nil
-                    isAnalyzingPreview = false
+                preview.resultCache.remove(path)
+                if preview.selection == selection {
+                    preview.selection = .none
+                    preview.analysis = nil
+                    preview.analysisError = nil
+                    preview.isAnalyzing = false
                 }
                 return
             }
-            resultPreviewCache.store(analysis, for: path)
-            guard previewSelection == selection else { return }
-            previewAnalysis = analysis
-            previewAnalysisError = nil
-            isAnalyzingPreview = false
+            preview.resultCache.store(analysis, for: path)
+            guard preview.selection == selection else { return }
+            preview.analysis = analysis
+            preview.analysisError = nil
+            preview.isAnalyzing = false
         } catch {
             if !FileManager.default.fileExists(atPath: path) {
-                resultPreviewCache.remove(path)
-                if previewSelection == selection {
-                    previewSelection = .none
-                    previewAnalysis = nil
-                    previewAnalysisError = nil
-                    isAnalyzingPreview = false
+                preview.resultCache.remove(path)
+                if preview.selection == selection {
+                    preview.selection = .none
+                    preview.analysis = nil
+                    preview.analysisError = nil
+                    preview.isAnalyzing = false
                 }
                 return
             }
-            resultPreviewCache.storeError(error.localizedDescription, for: path)
-            guard previewSelection == selection else { return }
-            previewAnalysis = nil
-            previewAnalysisError = error.localizedDescription
-            isAnalyzingPreview = false
+            preview.resultCache.storeError(error.localizedDescription, for: path)
+            guard preview.selection == selection else { return }
+            preview.analysis = nil
+            preview.analysisError = error.localizedDescription
+            preview.isAnalyzing = false
         }
     }
 
@@ -794,12 +815,12 @@ struct ContentView: View {
                 audioPreviewPlayer.stop()
             }
             try BatchWorkspace.deleteStem(at: stem.path, from: &resultGroups)
-            resultPreviewCache.remove(stem.path)
-            if previewSelection == .result(stem.path) {
-                previewSelection = .none
-                previewAnalysis = nil
-                previewAnalysisError = nil
-                isAnalyzingPreview = false
+            preview.resultCache.remove(stem.path)
+            if preview.selection == .result(stem.path) {
+                preview.selection = .none
+                preview.analysis = nil
+                preview.analysisError = nil
+                preview.isAnalyzing = false
             }
         } catch {
             backend.errorMessage = "Could not delete \(stem.fileName): \(error.localizedDescription)"
@@ -810,11 +831,11 @@ struct ContentView: View {
         if audioPreviewPlayer.playingPath == source.url.path {
             audioPreviewPlayer.stop()
         }
-        if previewSelection == .source(source.id) {
-            previewSelection = .none
-            previewAnalysis = nil
-            previewAnalysisError = nil
-            isAnalyzingPreview = false
+        if preview.selection == .source(source.id) {
+            preview.selection = .none
+            preview.analysis = nil
+            preview.analysisError = nil
+            preview.isAnalyzing = false
         }
 
         if let groupIndex = resultGroups.firstIndex(where: { $0.sourceURL == source.url }) {
@@ -823,13 +844,13 @@ struct ContentView: View {
                 if audioPreviewPlayer.playingPath == stem.path {
                     audioPreviewPlayer.stop()
                 }
-                if previewSelection == .result(stem.path) {
-                    previewSelection = .none
-                    previewAnalysis = nil
-                    previewAnalysisError = nil
-                    isAnalyzingPreview = false
+                if preview.selection == .result(stem.path) {
+                    preview.selection = .none
+                    preview.analysis = nil
+                    preview.analysisError = nil
+                    preview.isAnalyzing = false
                 }
-                resultPreviewCache.remove(stem.path)
+                preview.resultCache.remove(stem.path)
             }
             resultGroups.remove(at: groupIndex)
         }
@@ -971,6 +992,7 @@ private struct AppHeaderView: View {
             }
             .frame(minWidth: 260, maxWidth: .infinity)
 
+            UpdatePillButton()
             Button(action: primaryAction) {
                 Label(presentation.primaryTitle, systemImage: presentation.primarySystemImage)
                     .frame(width: 112)
@@ -1039,6 +1061,45 @@ private struct AppHeaderView: View {
             return .orange
         }
         return backend.isReady ? .green : .orange
+    }
+}
+
+/// Header pill shown only while an update is available / downloading / staged.
+struct UpdatePillButton: View {
+    @EnvironmentObject private var updates: UpdateService
+    @State private var pulsing = false
+
+    var body: some View {
+        switch updates.state {
+        case .available(let release):
+            pill(title: "Update \(release.version.displayString)", icon: "arrow.down.circle.fill", progress: nil) {
+                Task { await updates.downloadAndPrepare() }
+            }
+        case .downloading(let release, let fraction):
+            pill(title: "\(release.version.displayString) \(Int(fraction * 100))%", icon: "arrow.down.circle", progress: fraction, action: {})
+        case .readyToInstall(let release, _):
+            pill(title: "Install \(release.version.displayString)", icon: "arrow.triangle.2.circlepath", progress: nil) {
+                updates.requestInstall()
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private func pill(title: String, icon: String, progress: Double?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .tint(.blue)
+        .controlSize(.small)
+        .opacity(pulsing ? 1.0 : 0.55)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulsing = true }
+        }
+        .help(progress != nil ? "Downloading update…" : "Update available — click to continue")
     }
 }
 

@@ -57,6 +57,22 @@ final class PreviewAnalysisDiskCache {
         }
     }
 
+    /// Non-blocking variant for use from the main actor.
+    func loadAsync(path: String) async -> AudioAnalysis? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                guard let key = self.cacheKey(forPath: path),
+                      let data = try? Data(contentsOf: self.fileURL(forKey: key)),
+                      let analysis = try? JSONDecoder().decode(AudioAnalysis.self, from: data) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.touch(key)
+                continuation.resume(returning: analysis)
+            }
+        }
+    }
+
     /// Persists `analysis` to disk and updates the LRU index, evicting as needed.
     func store(_ analysis: AudioAnalysis) {
         guard let key = cacheKey(forPath: analysis.path) else { return }
@@ -66,6 +82,27 @@ final class PreviewAnalysisDiskCache {
             try? data.write(to: fileURL, options: .atomic)
             upsert(key: key, sizeBytes: data.count)
             enforceLimits()
+        }
+    }
+
+    /// Non-blocking variant for use from the main actor.
+    func storeAsync(_ analysis: AudioAnalysis) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async {
+                guard let key = self.cacheKey(forPath: analysis.path) else {
+                    continuation.resume()
+                    return
+                }
+                let fileURL = self.fileURL(forKey: key)
+                guard let data = try? JSONEncoder().encode(analysis) else {
+                    continuation.resume()
+                    return
+                }
+                try? data.write(to: fileURL, options: .atomic)
+                self.upsert(key: key, sizeBytes: data.count)
+                self.enforceLimits()
+                continuation.resume()
+            }
         }
     }
 

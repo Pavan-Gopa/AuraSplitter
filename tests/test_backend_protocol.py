@@ -14,7 +14,7 @@ from kirtan_backend.engine import MlxSeparatorEngine
 from kirtan_backend.jobs import SeparationJob
 from kirtan_backend.protocol import BackendRequest, handle_request
 from kirtan_backend.render_estimates import record_render_benchmark
-from kirtan_backend.presets import PRESETS
+from kirtan_backend.presets import PRESETS, resolve_model_filename
 from kirtan_backend.server import should_restart_after_cancel
 
 
@@ -196,6 +196,11 @@ def test_list_presets_exposes_kirtan_focused_defaults():
         "lead_back_bve_gonza",
         "drumsep_mdx23c_5stem",
         "mega_lead_vocal",
+        "dereverb_vocal_anvuew",
+        "dereverb_strong_sucial",
+        "denoise_vocal_aufr33",
+        "vocals_pro_live",
+        "vocals_pro_live_max",
     }.issubset(preset_ids)
     assert PRESETS["kirtan_pro"].model_filename == "BS-Roformer-SW.ckpt"
     assert PRESETS["vocal_clean"].model_filename == "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
@@ -203,6 +208,166 @@ def test_list_presets_exposes_kirtan_focused_defaults():
     assert PRESETS["vocal_clean"].model_filename != PRESETS["viperx_vocal"].model_filename
     assert PRESETS["viperx_karaoke"].model_filename == "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
     assert PRESETS["hyperace_v2_vocal"].model_filename == "bs_roformer_voc_hyperacev2.ckpt"
+    assert resolve_model_filename("vocals_pro_live", None) == "bs_roformer_voc_hyperacev2.ckpt"
+    assert resolve_model_filename("vocals_pro_live_max", None) == "bs_leap_xe_voc.ckpt"
+
+
+def test_post_process_model_pack_entries_are_wired_end_to_end():
+    from kirtan_backend.model_catalog import MODEL_PACK_BY_ID
+
+    for entry_id in ("dereverb_vocal_anvuew", "dereverb_strong_sucial", "denoise_vocal_aufr33"):
+        entry = MODEL_PACK_BY_ID[entry_id]
+        assert entry.checkpoint_url and entry.config_url
+        assert entry.target_stem in entry.expected_stems
+        assert PRESETS[entry_id].model_filename == entry.filename
+
+    # Stem names must match the upstream YAML instrument lists.
+    assert MODEL_PACK_BY_ID["dereverb_vocal_anvuew"].expected_stems == ("noreverb", "reverb")
+    assert MODEL_PACK_BY_ID["dereverb_strong_sucial"].expected_stems == ("dry", "other")
+    assert MODEL_PACK_BY_ID["denoise_vocal_aufr33"].expected_stems == ("dry", "other")
+
+
+def test_chain_presets_are_internally_consistent():
+    for chain_id in ("vocals_pro_live", "vocals_pro_live_max"):
+        preset = PRESETS[chain_id]
+        assert preset.post_passes, f"{chain_id} must define post passes"
+
+        produced_stems = set(preset.expected_stems)
+        previous_stage_stems = set(preset.expected_stems)
+        for index, spec in enumerate(preset.post_passes):
+            # Every pass references a real preset, and consumes a stem the
+            # previous stage actually produces.
+            assert spec.preset_id in PRESETS
+            stage_preset = PRESETS[spec.preset_id]
+            assert stage_preset.model_filename == spec.model_filename
+            assert spec.source_stem in previous_stage_stems, (
+                f"{chain_id} pass {index} consumes '{spec.source_stem}' "
+                f"which the previous stage does not produce"
+            )
+            produced_stems.update(stage_preset.expected_stems)
+            previous_stage_stems = set(stage_preset.expected_stems)
+
+        assert set(preset.expected_stems) == produced_stems
+
+
+def test_list_presets_reports_post_passes_payload():
+    response, _ = handle_request(
+        BackendRequest(id="r2", method="list_presets", params={}),
+        engine=FakeEngine(),
+    )
+    presets = {preset["id"]: preset for preset in response["result"]["presets"]}
+
+    chain = presets["vocals_pro_live_max"]
+    assert [post["presetId"] for post in chain["postPasses"]] == [
+        "denoise_vocal_aufr33",
+        "dereverb_vocal_anvuew",
+    ]
+    assert chain["postPasses"][0]["sourceStem"] == "vocals"
+    assert chain["postPasses"][1]["sourceStem"] == "dry"
+    assert chain["postPasses"][0]["title"] == "Aura Vocal Denoise"
+
+    standalone = presets["dereverb_vocal_anvuew"]
+    assert standalone["postPasses"] == []
+
+
+def _install_chain_stage_stub(monkeypatch, engine, stage_results):
+    """Stub _run_separation_stage to replay canned per-preset results."""
+    executed = []
+
+    def fake_stage(self, job, progress):
+        executed.append(job)
+        return stage_results[job.preset]
+
+    monkeypatch.setattr(type(engine), "_run_separation_stage", fake_stage)
+    return executed
+
+
+def test_post_pass_chain_runs_each_stage_once_in_order(tmp_path, monkeypatch):
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+    stage_results = {
+        "vocals_pro_live": {
+            "files": [
+                {"stem": "vocals", "path": str(tmp_path / "vocals.wav"), "sizeBytes": 1},
+                {"stem": "instrument", "path": str(tmp_path / "instrument.wav"), "sizeBytes": 1},
+            ],
+            "modelHot": False,
+            "elapsedSeconds": 2.0,
+            "metrics": {"stage": 1},
+            "postRunStats": {"modelPreset": "vocals_pro_live"},
+        },
+        "dereverb_vocal_anvuew": {
+            "files": [
+                {"stem": "noreverb", "path": str(tmp_path / "noreverb.wav"), "sizeBytes": 1},
+                {"stem": "reverb", "path": str(tmp_path / "reverb.wav"), "sizeBytes": 1},
+            ],
+            "modelHot": True,
+            "elapsedSeconds": 3.0,
+            "metrics": {"stage": 2},
+            "postRunStats": {"modelPreset": "dereverb_vocal_anvuew"},
+        },
+    }
+    executed = _install_chain_stage_stub(monkeypatch, engine, stage_results)
+
+    result = engine.separate(
+        SeparationJob(
+            input_path="song.wav",
+            output_dir=str(tmp_path / "out"),
+            model_filename=PRESETS["vocals_pro_live"].model_filename,
+            preset="vocals_pro_live",
+        ),
+        progress=lambda *_args: None,
+    )
+
+    # Regression: the loop must run split → dereverb, never the split twice.
+    assert [job.preset for job in executed] == ["vocals_pro_live", "dereverb_vocal_anvuew"]
+    # The dereverb pass consumes the vocals stem produced by the split stage.
+    assert executed[1].input_path == str(tmp_path / "vocals.wav")
+    assert [f["stem"] for f in result["files"]] == [
+        "vocals",
+        "instrument",
+        "noreverb",
+        "reverb",
+    ]
+    assert result["chainStages"] == ["Aura Vocal Live", "Aura Vocal Dereverb"]
+    assert result["preset"] == "vocals_pro_live"
+    assert result["elapsedSeconds"] == 5.0
+    assert result["metrics"] == {"stage": 2}
+
+
+def test_post_pass_chain_honors_cancel_between_stages(tmp_path, monkeypatch):
+    import pytest
+
+    from kirtan_backend.engine import BackendOperationCancelled
+
+    engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
+    executed = []
+    stage_result = {
+        "files": [{"stem": "vocals", "path": str(tmp_path / "vocals.wav"), "sizeBytes": 1}],
+        "modelHot": False,
+        "elapsedSeconds": 1.0,
+        "metrics": {},
+        "postRunStats": {},
+    }
+
+    def fake_stage(self, job, progress):
+        executed.append(job.preset)
+        if len(executed) == 1:
+            # Cancel lands after the split finished, before the next dispatch.
+            engine.cancel_current("user aborted")
+        return stage_result
+
+    monkeypatch.setattr(type(engine), "_run_separation_stage", fake_stage)
+
+    with pytest.raises(BackendOperationCancelled):
+        engine.separate(
+            SeparationJob(
+                input_path="song.wav",
+                output_dir=str(tmp_path / "out"),
+                model_filename=PRESETS["vocals_pro_live"].model_filename,
+                preset="vocals_pro_live",
+            ),
+            progress=lambda *_args: None,
+        )
 
 
 def test_list_presets_reports_local_usage_count(tmp_path):
@@ -1296,7 +1461,7 @@ def test_engine_reloads_separator_when_fingerprint_changes(tmp_path, monkeypatch
     assert len(loads) == 2
 
 
-def test_engine_invalidates_separator_cache_on_cancel(tmp_path, monkeypatch):
+def test_engine_keeps_separator_cache_warm_across_cancel(tmp_path, monkeypatch):
     input_path = tmp_path / "stereo.wav"
     _write_silent_wav(input_path, channels=2)
     model_dir = tmp_path / "models"
@@ -1333,8 +1498,9 @@ def test_engine_invalidates_separator_cache_on_cancel(tmp_path, monkeypatch):
     engine.cancel_current("User aborted")
     engine.separate(job, progress=lambda *_args: None)
 
-    # Cancel invalidated the cache, so the second run is cold again.
-    assert len(loads) == 2
+    # Cancel no longer invalidates the warm cache (backend restart handles the
+    # reset), so the second run reuses the loaded model.
+    assert len(loads) == 1
 
 
 def test_engine_separator_fingerprint_distinguishes_parameters():
@@ -1366,7 +1532,7 @@ def test_engine_runtime_stats_reports_model_hot_flag(tmp_path):
     engine = MlxSeparatorEngine(model_dir=str(tmp_path / "models"))
     assert engine.runtime_stats()["modelHot"] is False
 
-    engine._cached_separator = object()
+    engine._separator_cache["fingerprint"] = (object(), "model.ckpt")
     assert engine.runtime_stats()["modelHot"] is True
 
 

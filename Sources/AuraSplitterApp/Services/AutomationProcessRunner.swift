@@ -4,11 +4,11 @@ import Foundation
 ///
 /// Pipeline rules:
 /// - Original source files are never deleted.
-/// - With Step 2: Step 1 stems land in `_AutomationStep1/`.
-///   - Step-2 rows **with** stem picks are re-separated → Ready MIX finals.
-///   - Step-2 rows **without** further picks (deselected / empty) are **copied** to Ready MIX
-///     as-is (e.g. `MAIN_V(Drum).wav`) — previously these were wiped with the temp folder.
-/// - Intermediate folder is removed only after all exports succeed.
+/// - With Step 2 (default): Step 1 stems land in `_AutomationStep1/` (deleted after success).
+///   - Step-2 rows **with** stem picks are re-separated → Ready MIX finals (root).
+///   - Step-2 rows **without** further picks are **copied** to Ready MIX as-is.
+/// - With Step 2 + **Save Step 1**: `Ready MIX/Step 1/` keeps all Step 1 stems permanently;
+///   Step 2 finals go to `Ready MIX/Step 2/`. The temp `_AutomationStep1` folder is not used.
 @MainActor
 final class AutomationProcessRunner {
     private let backend: BackendClient
@@ -35,10 +35,26 @@ final class AutomationProcessRunner {
         try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
         let hasStep2 = store.job.hasStep2
-        let intermediateDir = AutomationJob.intermediateFolder(for: outputDir)
+        let saveStep1 = hasStep2 && store.job.saveStep1Outputs
+        // Where Step 1 stems live (input to Step 2).
+        let intermediateDir: URL = saveStep1
+            ? AutomationJob.step1ArchiveFolder(for: outputDir)
+            : AutomationJob.intermediateFolder(for: outputDir)
+        // Where Step 2 / passthrough finals land.
+        let finalsDir: URL = saveStep1
+            ? AutomationJob.step2ArchiveFolder(for: outputDir)
+            : outputDir
         if hasStep2 {
-            try? fm.removeItem(at: intermediateDir)
-            try fm.createDirectory(at: intermediateDir, withIntermediateDirectories: true)
+            if saveStep1 {
+                // Fresh archive folders for this run (keep Ready MIX root clean).
+                try? fm.removeItem(at: intermediateDir)
+                try? fm.removeItem(at: finalsDir)
+                try fm.createDirectory(at: intermediateDir, withIntermediateDirectories: true)
+                try fm.createDirectory(at: finalsDir, withIntermediateDirectories: true)
+            } else {
+                try? fm.removeItem(at: intermediateDir)
+                try fm.createDirectory(at: intermediateDir, withIntermediateDirectories: true)
+            }
         }
 
         // Re-load process preset from store so Matrix choice (e.g. Max_off) is exact,
@@ -71,6 +87,7 @@ final class AutomationProcessRunner {
 
         let plannedItems = planOutputItems(
             hasStep2: hasStep2,
+            saveStep1: saveStep1,
             step1Tracks: step1Tracks,
             step2Further: step2Further,
             step2Passthrough: step2Passthrough
@@ -254,7 +271,14 @@ final class AutomationProcessRunner {
                         }
 
                         if let fr = furtherRow {
-                            let destName = AutomationNaming.sanitize(display) + "_\(pair.modelID).wav"
+                            // Saved Step 1: human name MAIN_V(Vocal).wav; temp mode keeps model id.
+                            let destName = saveStep1
+                                ? uniqueName(
+                                    preferred: AutomationNaming.sanitize(display) + ".wav",
+                                    in: intermediateDir,
+                                    fallbackTag: pair.modelID
+                                )
+                                : AutomationNaming.sanitize(display) + "_\(pair.modelID).wav"
                             let dest = intermediateDir.appendingPathComponent(destName)
                             try linkOrCopy(from: src, to: dest)
                             intermediateFiles[idKey] = dest
@@ -267,19 +291,27 @@ final class AutomationProcessRunner {
                                     url: dest
                                 )
                             )
-                            markStep1Done(store, titleContains: fr.shortOutputName, unitStartedAt: unitStartedAt)
+                            if saveStep1 {
+                                // Also list Step 1 archives in the status checklist.
+                                markProduced(store, path: dest.path, title: "Step 1/\(destName)", unitStartedAt: unitStartedAt)
+                            } else {
+                                markStep1Done(store, titleContains: fr.shortOutputName, unitStartedAt: unitStartedAt)
+                            }
                         } else {
                             let s2 = passRow
                             let destName = s2.map { finalPassthroughName($0) }
                                 ?? (AutomationNaming.sanitize(display) + ".wav")
-                            let dest = outputDir.appendingPathComponent(destName)
+                            // Passthrough: Step 1 only (no second split). Save with Step 1 folder if archiving.
+                            let passthroughDir = saveStep1 ? intermediateDir : finalsDir
+                            let dest = passthroughDir.appendingPathComponent(destName)
                             try linkOrCopy(from: src, to: dest)
-                            markProduced(store, path: dest.path, title: destName, unitStartedAt: unitStartedAt)
+                            let listTitle = saveStep1 ? "Step 1/\(destName)" : destName
+                            markProduced(store, path: dest.path, title: listTitle, unitStartedAt: unitStartedAt)
                             exportedPassthroughKeys.insert(idKey)
                             exportedPassthroughKeys.insert(
                                 parentStemKey(parentID: track.id, stem: pair.stem)
                             )
-                            store.runProgress.currentMessage = "Ready \u{00b7} \(destName)"
+                            store.runProgress.currentMessage = "Ready \u{00b7} \(listTitle)"
                         }
                     }
                 } catch is CancellationError {
@@ -372,8 +404,34 @@ final class AutomationProcessRunner {
                             settings: settings,
                             processPreset: processPreset
                         )
+                        // Claim each engine file at most once — otherwise "other" can hardlink
+                        // the same path as "back-vocal" (identical Ready MIX twins).
+                        var claimedIndices = Set<Int>()
+                        var assignments: [(stem: String, file: StemFile?)] = []
                         for (_, stem) in modelPairs {
-                            guard let stemFile = matchStem(stem, in: summary.files, modelID: modelID) else {
+                            if let (idx, file) = matchStemIndexed(
+                                stem,
+                                in: summary.files,
+                                modelID: modelID,
+                                excluding: claimedIndices
+                            ) {
+                                claimedIndices.insert(idx)
+                                assignments.append((stem, file))
+                            } else {
+                                assignments.append((stem, nil))
+                            }
+                        }
+                        let unclaimed = summary.files.enumerated()
+                            .filter { !claimedIndices.contains($0.offset) }
+                            .map(\.element)
+                        var fallbackIter = unclaimed.makeIterator()
+                        for i in assignments.indices where assignments[i].file == nil {
+                            assignments[i].file = fallbackIter.next()
+                        }
+
+                        for entry in assignments {
+                            let stem = entry.stem
+                            guard let stemFile = entry.file else {
                                 let available = summary.files.map(\.stem).joined(separator: ", ")
                                 store.runProgress.errors.append(
                                     "\(s2.displayName): stem “\(stem)” not in [\(available)] from \(modelTitle)"
@@ -386,9 +444,10 @@ final class AutomationProcessRunner {
                                 stem: stem,
                                 stemCount: stemCountForNaming
                             )
-                            let dest = outputDir.appendingPathComponent(fileName)
+                            let dest = finalsDir.appendingPathComponent(fileName)
                             try linkOrCopy(from: src, to: dest)
-                            markProduced(store, path: dest.path, title: fileName, unitStartedAt: unitStartedAt)
+                            let listTitle = saveStep1 ? "Step 2/\(fileName)" : fileName
+                            markProduced(store, path: dest.path, title: listTitle, unitStartedAt: unitStartedAt)
                             producedForThisRow += 1
                         }
                     } catch is CancellationError {
@@ -411,10 +470,11 @@ final class AutomationProcessRunner {
 
                 if producedForThisRow == 0 {
                     let destName = finalPassthroughName(s2)
-                    let dest = outputDir.appendingPathComponent(destName)
+                    let dest = finalsDir.appendingPathComponent(destName)
                     do {
                         try linkOrCopy(from: inputURL, to: dest)
-                        markProduced(store, path: dest.path, title: destName)
+                        let listTitle = saveStep1 ? "Step 2/\(destName)" : destName
+                        markProduced(store, path: dest.path, title: listTitle)
                         store.runProgress.errors.append(
                             "\(s2.displayName): Step 2 produced no stems — kept Step 1 file"
                         )
@@ -445,7 +505,10 @@ final class AutomationProcessRunner {
                 markItemFailed(store, titleContains: s2.shortOutputName)
             }
 
-            try? fm.removeItem(at: intermediateDir)
+            // Only wipe hidden temp intermediates — never delete "Step 1" archive.
+            if !saveStep1 {
+                try? fm.removeItem(at: intermediateDir)
+            }
         }
 
         if store.runProgress.phase == .cancelled {
@@ -465,7 +528,12 @@ final class AutomationProcessRunner {
         } else {
             store.runProgress.phase = .completed
             store.runProgress.headline = "Automation Complete"
-            store.runProgress.currentMessage = "\(n) file(s) in Ready MIX"
+            if saveStep1 {
+                store.runProgress.currentMessage =
+                    "\(n) file(s) · Step 1 + Step 2 kept under Ready MIX"
+            } else {
+                store.runProgress.currentMessage = "\(n) file(s) in Ready MIX"
+            }
             // Mark any leftover pending items done if file exists.
             for i in store.runProgress.items.indices {
                 if store.runProgress.items[i].status == .pending
@@ -509,6 +577,7 @@ final class AutomationProcessRunner {
 
     private func planOutputItems(
         hasStep2: Bool,
+        saveStep1: Bool,
         step1Tracks: [AutomationTrackPlan],
         step2Further: [AutomationStep2TrackPlan],
         step2Passthrough: [AutomationStep2TrackPlan]
@@ -523,27 +592,37 @@ final class AutomationProcessRunner {
         }
 
         if hasStep2 {
+            // Passthrough stems are only Step 1 outputs (no second split).
             for s2 in step2Passthrough {
-                add(finalPassthroughName(s2))
+                let name = finalPassthroughName(s2)
+                add(saveStep1 ? "Step 1/\(name)" : name)
             }
+            // Further rows: Step 1 intermediate + Step 2 finals when archiving.
             for s2 in step2Further {
+                if saveStep1 {
+                    // Display is already `MAIN_V(Vocal)`-style.
+                    add("Step 1/\(AutomationNaming.sanitize(s2.displayName)).wav")
+                }
                 let pairs = s2.stemSelections.values.flatMap { $0 }
                 let count = max(1, Set(pairs).count)
                 if count <= 1, let only = pairs.first {
-                    add(AutomationNaming.finalFileName(
+                    let name = AutomationNaming.finalFileName(
                         shortOutputName: s2.shortOutputName,
                         stem: only,
                         stemCount: 1
-                    ))
+                    )
+                    add(saveStep1 ? "Step 2/\(name)" : name)
                 } else if count <= 1 {
-                    add(finalPassthroughName(s2))
+                    let name = finalPassthroughName(s2)
+                    add(saveStep1 ? "Step 2/\(name)" : name)
                 } else {
                     for stem in pairs.sorted() {
-                        add(AutomationNaming.finalFileName(
+                        let name = AutomationNaming.finalFileName(
                             shortOutputName: s2.shortOutputName,
                             stem: stem,
                             stemCount: count
-                        ))
+                        )
+                        add(saveStep1 ? "Step 2/\(name)" : name)
                     }
                 }
             }
@@ -657,6 +736,20 @@ final class AutomationProcessRunner {
         "\(parentID.uuidString)|\(modelID)|\(normalizeStem(stem))"
     }
 
+    /// Prefer `preferred`; if it already exists in `dir`, append `_fallbackTag` before extension.
+    private func uniqueName(preferred: String, in dir: URL, fallbackTag: String) -> String {
+        let fm = FileManager.default
+        let preferredURL = dir.appendingPathComponent(preferred)
+        if !fm.fileExists(atPath: preferredURL.path) {
+            return preferred
+        }
+        let base = (preferred as NSString).deletingPathExtension
+        let ext = (preferred as NSString).pathExtension
+        let tag = AutomationNaming.sanitize(fallbackTag)
+        let alt = ext.isEmpty ? "\(base)_\(tag)" : "\(base)_\(tag).\(ext)"
+        return alt
+    }
+
     private func parentStemKey(parentID: UUID, stem: String) -> String {
         "\(parentID.uuidString)|*|\(normalizeStem(stem))"
     }
@@ -765,11 +858,11 @@ final class AutomationProcessRunner {
         if wantedGroup == "back_instrumental", files.count == 2 {
             return files.last
         }
+        // Residual "other" only — never treat instrumental/inst as other (that stole files).
         if wantedGroup == "other" {
             if let hit = files.first(where: {
                 let s = baseStemID($0.stem)
-                return s.contains("other") || s.contains("rest") || s.contains("remainder")
-                    || s == "instrumental" || s == "inst"
+                return s == "other" || s == "rest" || s == "remainder"
             }) {
                 return hit
             }

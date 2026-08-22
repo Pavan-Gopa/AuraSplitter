@@ -27,14 +27,25 @@ def load_render_benchmarks(model_dir: str) -> list[dict[str, Any]]:
     return [sample for sample in data if isinstance(sample, dict)]
 
 
-def model_usage_counts(model_dir: str) -> dict[str, int]:
+def _usage_counts_by_field(model_dir: str, field: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for sample in load_render_benchmarks(model_dir):
-        model_filename = str(sample.get("modelFilename") or "").strip()
-        if not model_filename:
+        key = str(sample.get(field) or "").strip()
+        if not key:
             continue
-        counts[model_filename] = counts.get(model_filename, 0) + 1
+        counts[key] = counts.get(key, 0) + 1
     return counts
+
+
+def model_usage_counts(model_dir: str) -> dict[str, int]:
+    """Completed-run counts keyed by model filename (Models sidebar groups)."""
+    return _usage_counts_by_field(model_dir, "modelFilename")
+
+
+def preset_usage_counts(model_dir: str) -> dict[str, int]:
+    """Completed-run counts keyed by modelPresetID so chain presets that reuse
+    a base preset's checkpoint report their own usage."""
+    return _usage_counts_by_field(model_dir, "modelPresetID")
 
 
 def record_render_benchmark(model_dir: str, sample: dict[str, Any]) -> dict[str, Any]:

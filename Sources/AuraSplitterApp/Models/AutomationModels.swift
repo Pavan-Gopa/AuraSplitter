@@ -196,6 +196,9 @@ struct AutomationJob: Equatable, Codable {
     var step2Tracks: [AutomationStep2TrackPlan]
     /// Which matrix the user is editing: 1 or 2.
     var matrixPipelineStep: Int
+    /// When true (and Step 2 exists), keep Step 1 stems under `Ready MIX/Step 1/`
+    /// and write Step 2 finals to `Ready MIX/Step 2/` instead of deleting intermediates.
+    var saveStep1Outputs: Bool
 
     init(
         sourceFolderPath: String? = nil,
@@ -205,7 +208,8 @@ struct AutomationJob: Equatable, Codable {
         processSettings: ProcessSettingsSnapshot,
         regionEditorTrackID: UUID? = nil,
         step2Tracks: [AutomationStep2TrackPlan] = [],
-        matrixPipelineStep: Int = 1
+        matrixPipelineStep: Int = 1,
+        saveStep1Outputs: Bool = true
     ) {
         self.sourceFolderPath = sourceFolderPath
         self.outputFolderPath = outputFolderPath
@@ -215,12 +219,14 @@ struct AutomationJob: Equatable, Codable {
         self.regionEditorTrackID = regionEditorTrackID
         self.step2Tracks = step2Tracks
         self.matrixPipelineStep = matrixPipelineStep
+        self.saveStep1Outputs = saveStep1Outputs
     }
 
     // Back-compat: jobs saved before step 2 still decode.
     private enum CodingKeys: String, CodingKey {
         case sourceFolderPath, outputFolderPath, tracks, processPresetID
         case processSettings, regionEditorTrackID, step2Tracks, matrixPipelineStep
+        case saveStep1Outputs
     }
 
     init(from decoder: Decoder) throws {
@@ -233,6 +239,7 @@ struct AutomationJob: Equatable, Codable {
         regionEditorTrackID = try c.decodeIfPresent(UUID.self, forKey: .regionEditorTrackID)
         step2Tracks = try c.decodeIfPresent([AutomationStep2TrackPlan].self, forKey: .step2Tracks) ?? []
         matrixPipelineStep = try c.decodeIfPresent(Int.self, forKey: .matrixPipelineStep) ?? 1
+        saveStep1Outputs = try c.decodeIfPresent(Bool.self, forKey: .saveStep1Outputs) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -245,6 +252,7 @@ struct AutomationJob: Equatable, Codable {
         try c.encodeIfPresent(regionEditorTrackID, forKey: .regionEditorTrackID)
         try c.encode(step2Tracks, forKey: .step2Tracks)
         try c.encode(matrixPipelineStep, forKey: .matrixPipelineStep)
+        try c.encode(saveStep1Outputs, forKey: .saveStep1Outputs)
     }
 
     var sourceFolderURL: URL? {
@@ -270,9 +278,19 @@ struct AutomationJob: Equatable, Codable {
         sourceFolder.appendingPathComponent("Ready MIX", isDirectory: true)
     }
 
-    /// Temp folder for step-1 stem files when a second step is configured.
+    /// Temp folder for step-1 stem files when a second step is configured (deleted after run).
     static func intermediateFolder(for outputFolder: URL) -> URL {
         outputFolder.appendingPathComponent("_AutomationStep1", isDirectory: true)
+    }
+
+    /// Persistent Step 1 archive when “Save Step 1” is on.
+    static func step1ArchiveFolder(for outputFolder: URL) -> URL {
+        outputFolder.appendingPathComponent("Step 1", isDirectory: true)
+    }
+
+    /// Persistent Step 2 archive when “Save Step 1” is on (finals live here).
+    static func step2ArchiveFolder(for outputFolder: URL) -> URL {
+        outputFolder.appendingPathComponent("Step 2", isDirectory: true)
     }
 
     func estimatedWorkUnitCount() -> Int {
@@ -504,7 +522,7 @@ enum AutomationNaming {
             return "Piano"
         case "guitar", "guitars", "electric_guitar", "acoustic_guitar":
             return "Guitar"
-        case "instrumental", "instruments", "inst":
+        case "instrumental", "instrument", "instruments", "inst":
             return "Inst"
         case "other", "rest":
             return "Other"

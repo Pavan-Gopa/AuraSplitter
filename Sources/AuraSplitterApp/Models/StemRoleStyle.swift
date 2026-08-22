@@ -69,7 +69,7 @@ enum StemRoleStyle {
             return "music.mic"
 
         // —— Beds / residual ——
-        case "instrumental", "instruments", "inst", "karaoke":
+        case "instrumental", "instrument", "instruments", "inst", "karaoke":
             return "music.note.list"
         case "other", "rest", "remainder", "noise":
             return "ellipsis.circle.fill"
@@ -139,7 +139,7 @@ enum StemRoleStyle {
         case "flute", "woodwind", "winds", "sax", "saxophone", "brass", "horn", "harmonica", "harmon":
             return Color(red: 0.3, green: 0.85, blue: 0.7)
 
-        case "instrumental", "instruments", "inst", "karaoke":
+        case "instrumental", "instrument", "instruments", "inst", "karaoke":
             return .mint
         case "other", "rest", "remainder", "noise":
             return .blue

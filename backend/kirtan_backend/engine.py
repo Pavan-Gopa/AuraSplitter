@@ -9,13 +9,14 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections import OrderedDict
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
 from .audio_analysis import analyze_audio, analyze_audio_progressive, _bit_depth_from_stream
-from .ffmpeg_tools import ffmpeg_bin, ffprobe_bin
+from .ffmpeg_tools import ensure_ffmpeg_on_path, ffmpeg_bin, ffprobe_bin
 from .jobs import SeparationJob
 from .model_catalog import (
     attach_model_pack_to_separator,
@@ -27,13 +28,17 @@ from .model_catalog import (
 from .onnx_backend import onnx_runtime_status
 from .render_estimates import estimate_render_time, record_render_benchmark
 from .runtime import delete_model_cache_item, delete_model_group_source, model_cache, runtime_stats
-from .presets import preset_list
+from .presets import PRESETS, PostPassSpec, preset_list, resolve_post_pass_chain
 
 ProgressCallback = Callable[[str, str, float, dict | None], None]
 
 HEARTBEAT_EXPECTED_STAGE_SECONDS = 30 * 60
 # Cap below 1.0 so "complete" is reserved for real finish; do not freeze at 87%.
 HEARTBEAT_FRACTION_CAP = 0.97
+
+# Post-pass chains alternate models between stages; a small multi-slot cache
+# keeps each stage's model warm across a whole batch of files.
+SEPARATOR_CACHE_CAPACITY = 3
 
 
 def _format_elapsed_duration(seconds: float) -> str:
@@ -81,23 +86,6 @@ def _heartbeat_progress_value(
     return start + (end - start) * fraction
 
 
-def _bit_depth_from_sample_format(sample_format: str) -> int | None:
-    if not sample_format:
-        return None
-    normalized = sample_format.lower().rstrip("p")
-    if normalized in {"u8", "s8"}:
-        return 8
-    if normalized in {"s16", "u16"}:
-        return 16
-    if normalized in {"s24", "u24"}:
-        return 24
-    if normalized in {"s32", "u32", "flt"}:
-        return 32
-    if normalized == "dbl":
-        return 64
-    return None
-
-
 @dataclass(frozen=True)
 class AudioFormatSpec:
     channels: int | None
@@ -125,11 +113,8 @@ class MlxSeparatorEngine:
         self._cancel_reason = "User cancelled current operation"
         Path(self.model_dir).mkdir(parents=True, exist_ok=True)
 
-        # Warm Separator cache (K3): reuse the loaded Separator for the same
-        # model + parameter fingerprint instead of reloading on every separate.
-        self._cached_separator = None
-        self._cached_model_filename = None
-        self._cached_fingerprint = None
+        # Warm Separator cache: loaded instances keyed by parameter fingerprint.
+        self._separator_cache: OrderedDict[str, tuple[object, str]] = OrderedDict()
 
         # K8: best-effort Metal memory / cache limits at engine startup.
         try:
@@ -155,6 +140,12 @@ class MlxSeparatorEngine:
     def list_models(self, limit: int = 500) -> list[dict]:
         from mlx_audio_separator import Separator
 
+        # Belt-and-suspenders: guarantee Homebrew is on PATH right before the
+        # Separator constructor runs ``subprocess.check_output(["ffmpeg", ...])``
+        # (see mlx_audio_separator.core.check_ffmpeg_installed). The module-level
+        # call in ``ffmpeg_tools`` already does this at import time, but we
+        # re-assert here so a minimal GUI PATH can never break model listing.
+        ensure_ffmpeg_on_path()
         separator = Separator(info_only=True, model_file_dir=self.model_dir)
         attach_model_pack_to_separator(separator)
         simplified = separator.get_simplified_model_list(filter_sort_by="filename")
@@ -179,7 +170,7 @@ class MlxSeparatorEngine:
 
     def runtime_stats(self) -> dict:
         stats = runtime_stats(self.model_dir)
-        stats["modelHot"] = self._cached_separator is not None
+        stats["modelHot"] = bool(self._separator_cache)
         return stats
 
     def model_cache(self) -> dict:
@@ -225,7 +216,6 @@ class MlxSeparatorEngine:
     def cancel_current(self, reason: str = "User cancelled current operation") -> dict:
         self._cancel_reason = reason
         self._cancel_event.set()
-        self.invalidate_model_cache(f"cancel: {reason}")
         self.logger.info("Cancellation requested: %s", reason)
         return {
             "cancelled": True,
@@ -234,6 +224,105 @@ class MlxSeparatorEngine:
         }
 
     def separate(self, job: SeparationJob, progress: ProgressCallback) -> dict:
+        """Run a separation job, following the preset's post-pass chain if any."""
+        chain = resolve_post_pass_chain(job.preset)
+        if not chain:
+            return self._run_separation_stage(job, progress)
+        return self._run_post_pass_chain(job, progress, chain)
+
+    @staticmethod
+    def _scoped_progress(
+        progress: ProgressCallback,
+        stage_index: int,
+        total_stages: int,
+        stage_label: str,
+    ) -> ProgressCallback:
+        """Scale one chain stage's 0..1 progress into its slice of the whole run."""
+
+        def scoped(stage: str, message: str, fraction: float, extra: dict | None = None):
+            clamped = min(max(float(fraction), 0.0), 1.0)
+            scaled = (stage_index + clamped) / total_stages
+            progress(stage, f"[{stage_label}] {message}", scaled, extra)
+
+        return scoped
+
+    def _select_stage_input(self, files: list[dict], source_stem: str, stage_title: str) -> str:
+        """Pick the previous stage's output stem that feeds the next post-pass."""
+        wanted = source_stem.strip().lower()
+        for file in files:
+            if str(file.get("stem", "")).strip().lower() == wanted:
+                return str(file["path"])
+        available = ", ".join(sorted({str(f.get("stem")) for f in files})) or "none"
+        raise RuntimeError(
+            f"Post pass '{stage_title}' expects stem '{source_stem}', "
+            f"but the previous stage produced: {available}"
+        )
+
+    def _run_post_pass_chain(
+        self,
+        job: SeparationJob,
+        progress: ProgressCallback,
+        chain: tuple[PostPassSpec, ...],
+    ) -> dict:
+        total_stages = 1 + len(chain)
+        main_title = PRESETS[job.preset].title if job.preset in PRESETS else job.preset
+        stage_titles = [main_title] + [spec.title for spec in chain]
+        run_started = time.time()
+
+        current_job = job
+        all_files: list[dict] = []
+        model_hot_any = False
+        last_metrics = None
+        last_result: dict | None = None
+        total_elapsed = 0.0
+
+        for index in range(total_stages):
+            # Honor a cancel that arrives between stages — each stage clears
+            # the event on entry, so check before dispatching the next one.
+            self._raise_if_cancelled()
+            label = f"{index + 1}/{total_stages} {stage_titles[index]}"
+            stage_preset = current_job.preset
+            self.logger.info("Chain stage %s (%s)", label, stage_preset)
+            result = self._run_separation_stage(
+                current_job, self._scoped_progress(progress, index, total_stages, label)
+            )
+            model_hot_any = model_hot_any or bool(result.get("modelHot"))
+            total_elapsed += float(result.get("elapsedSeconds") or 0.0)
+            if result.get("metrics"):
+                last_metrics = result["metrics"]
+            all_files.extend(result.get("files") or [])
+            last_result = result
+            if index < len(chain):
+                next_spec = chain[index]
+                stem_path = self._select_stage_input(
+                    result.get("files") or [], next_spec.source_stem, next_spec.title
+                )
+                current_job = replace(
+                    current_job,
+                    input_path=stem_path,
+                    preset=next_spec.preset_id,
+                    model_filename=next_spec.model_filename,
+                )
+
+        assert last_result is not None
+        summary = dict(last_result)
+        stats = dict(summary.get("postRunStats") or {})
+        stats.update({"chainStages": stage_titles, "elapsedSeconds": round(total_elapsed, 2)})
+        summary.update({
+            "model": job.model_filename,
+            "preset": job.preset,
+            "startedAt": run_started,
+            "completedAt": time.time(),
+            "elapsedSeconds": round(total_elapsed, 2),
+            "files": all_files,
+            "metrics": last_metrics,
+            "modelHot": model_hot_any,
+            "chainStages": stage_titles,
+            "postRunStats": stats,
+        })
+        return summary
+
+    def _run_separation_stage(self, job: SeparationJob, progress: ProgressCallback) -> dict:
         from mlx_audio_separator import Separator
 
         self._cancel_event.clear()
@@ -310,7 +399,7 @@ class MlxSeparatorEngine:
         elapsed = time.perf_counter() - started
         completed_at = time.time()
         self._record_render_benchmark(job, input_path, elapsed)
-        files = [self._file_result(path) for path in output_files]
+        files = [self._file_result(path, job.model_filename) for path in output_files]
         missing_files = [file["path"] for file in files if file["sizeBytes"] <= 0]
         if missing_files:
             raise RuntimeError(
@@ -463,11 +552,13 @@ class MlxSeparatorEngine:
         return runtime.resolve_batch_size(self._total_ram_bytes(), explicit=explicit)
 
     def invalidate_model_cache(self, reason: str = "") -> None:
-        if self._cached_separator is not None:
-            self.logger.info("Invalidating Separator cache: %s", reason or "requested")
-        self._cached_separator = None
-        self._cached_model_filename = None
-        self._cached_fingerprint = None
+        if self._separator_cache:
+            self.logger.info(
+                "Invalidating %d cached Separator(s): %s",
+                len(self._separator_cache),
+                reason or "requested",
+            )
+        self._separator_cache.clear()
 
     def _get_or_load_separator(
         self, job: SeparationJob, progress: ProgressCallback
@@ -475,20 +566,18 @@ class MlxSeparatorEngine:
         from mlx_audio_separator import Separator
 
         fingerprint = self._separator_fingerprint(job, batch_size=self._resolve_mdxc_batch_size(job))
-        if (
-            self._cached_separator is not None
-            and self._cached_model_filename == job.model_filename
-            and self._cached_fingerprint == fingerprint
-        ):
+        cached = self._separator_cache.get(fingerprint)
+        if cached is not None:
+            self._separator_cache.move_to_end(fingerprint)
             self.logger.info("Reusing cached Separator for %s (warm cache hit)", job.model_filename)
             progress("loading", "Reusing loaded model (warm cache)", 0.30, self.runtime_stats())
-            return self._cached_separator, True
+            return cached[0], True
 
-        if self._cached_separator is not None:
+        if self._separator_cache:
             self.logger.info(
-                "Discarding cached Separator: fingerprint changed (cached=%r, requested=%r)",
-                self._cached_fingerprint,
-                fingerprint,
+                "Separator cache miss for %s (loaded slots: %s)",
+                job.model_filename,
+                ", ".join(model for _, model in self._separator_cache.values()),
             )
 
         performance_params = self._build_performance_params(job)
@@ -502,6 +591,11 @@ class MlxSeparatorEngine:
         }
         # output_dir here is only a bootstrap placeholder; every separate() call
         # rebinds it to the job stems folder via _set_separator_output_dir.
+        # Re-assert the augmented PATH immediately before construction: the
+        # Separator __init__ invokes ``check_ffmpeg_installed`` which shells out
+        # to a *bare* ``ffmpeg`` and raises ``FileNotFoundError`` when the backend
+        # was launched with a minimal GUI PATH (the original VOX.wav failure).
+        ensure_ffmpeg_on_path()
         separator = Separator(
             model_file_dir=self.model_dir,
             output_dir=str(self.model_dir),
@@ -528,9 +622,14 @@ class MlxSeparatorEngine:
         self._raise_if_cancelled()
         progress("model_ready", "Model ready", 0.30, self.runtime_stats())
 
-        self._cached_separator = separator
-        self._cached_model_filename = job.model_filename
-        self._cached_fingerprint = fingerprint
+        self._separator_cache[fingerprint] = (separator, job.model_filename)
+        while len(self._separator_cache) > SEPARATOR_CACHE_CAPACITY:
+            _, evicted_model = self._separator_cache.popitem(last=False)
+            self.logger.info(
+                "Evicted cached Separator for %s (capacity %d reached)",
+                evicted_model,
+                SEPARATOR_CACHE_CAPACITY,
+            )
         return separator, False
 
     def _force_separator_batch_size(self, separator, batch_size: int) -> None:
@@ -639,9 +738,7 @@ class MlxSeparatorEngine:
 
     @contextmanager
     def _stereo_input_path(self, input_path: Path, progress: ProgressCallback, channels: int | None = None):
-        if channels is None:
-            channels = self._audio_channel_count(input_path)
-        if channels == 2 or channels is None:
+        if channels in (None, 2):
             yield input_path
             return
 
@@ -712,27 +809,24 @@ class MlxSeparatorEngine:
         restored = []
         for output_file in output_files or []:
             path = Path(output_file)
-            current_channels = self._audio_channel_count(path)
-            current_sample_rate = self._audio_sample_rate(path)
-            current_bit_depth = self._audio_bit_depth(path)
-            current_codec = self._audio_codec_name(path)
+            probe = self._source_audio_format(path)
             target_codec = self._codec_for_source_format(path, source_format)
-            needs_channels = source_format.channels is not None and current_channels != source_format.channels
-            needs_sample_rate = source_format.sample_rate is not None and current_sample_rate != source_format.sample_rate
-            needs_bit_depth = source_format.bit_depth is not None and current_bit_depth != source_format.bit_depth
-            needs_codec = target_codec is not None and current_codec != target_codec
+            needs_channels = source_format.channels is not None and probe.channels != source_format.channels
+            needs_sample_rate = source_format.sample_rate is not None and probe.sample_rate != source_format.sample_rate
+            needs_bit_depth = source_format.bit_depth is not None and probe.bit_depth != source_format.bit_depth
+            needs_codec = target_codec is not None and probe.codec_name != target_codec
             if needs_channels or needs_sample_rate or needs_bit_depth or needs_codec:
                 self.logger.info(
                     "Conforming output to source format output=%s channels=%s->%s "
                     "sample_rate=%s->%s bit_depth=%s->%s codec=%s->%s",
                     path,
-                    current_channels,
+                    probe.channels,
                     source_format.channels,
-                    current_sample_rate,
+                    probe.sample_rate,
                     source_format.sample_rate,
-                    current_bit_depth,
+                    probe.bit_depth,
                     source_format.bit_depth,
-                    current_codec,
+                    probe.codec_name,
                     target_codec,
                 )
                 self._convert_output_audio_format(
@@ -775,12 +869,10 @@ class MlxSeparatorEngine:
             safe_suffix = re.sub(r'\s+', ' ', safe_suffix).strip()
 
             # Canonical role for filename _(role)_ — remap known mislabeled checkpoints.
-            raw_role = None
-            match = re.search(r"\(([^)]+)\)", path.name)
-            if match:
-                raw_role = match.group(1)
-            else:
-                raw_role = self._stem_name(path)
+            # CRITICAL: do NOT use the first bare "(…)" in the path. Step-2 intermediates
+            # are named like "Back_1(Vocal)_….wav"; that would steal role="Vocal" for every
+            # stem and force both Anvuew outputs to rename as Lead (missing Back, wrong A/B).
+            raw_role = self._extract_separator_role_token(path) or self._stem_name(path)
             role = self._canonical_stem_role(job.model_filename, raw_role)
             # Title-case for display token: Lead / Back / Vocals…
             role_label = role.replace("_", " ").strip().title() if role else "Stem"
@@ -882,105 +974,6 @@ class MlxSeparatorEngine:
         output_path.replace(target)
         return target
 
-    def _audio_channel_count(self, input_path: Path) -> int | None:
-        try:
-            output = subprocess.check_output(
-                [
-                    ffprobe_bin(),
-                    "-v",
-                    "error",
-                    "-select_streams",
-                    "a:0",
-                    "-show_entries",
-                    "stream=channels",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    str(input_path),
-                ],
-                text=True,
-                timeout=10,
-            )
-            return int(output.strip())
-        except Exception as exc:
-            self.logger.warning("Could not inspect audio channel count for %s: %s", input_path, exc)
-            return None
-
-    def _audio_sample_rate(self, input_path: Path) -> int | None:
-        try:
-            output = subprocess.check_output(
-                [
-                    ffprobe_bin(),
-                    "-v",
-                    "error",
-                    "-select_streams",
-                    "a:0",
-                    "-show_entries",
-                    "stream=sample_rate",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    str(input_path),
-                ],
-                text=True,
-                timeout=10,
-            )
-            value = int(output.strip())
-            return value if value > 0 else None
-        except Exception as exc:
-            self.logger.warning("Could not inspect audio sample rate for %s: %s", input_path, exc)
-            return None
-
-    def _audio_bit_depth(self, input_path: Path) -> int | None:
-        try:
-            output = subprocess.check_output(
-                [
-                    ffprobe_bin(),
-                    "-v",
-                    "error",
-                    "-select_streams",
-                    "a:0",
-                    "-show_entries",
-                    "stream=bits_per_raw_sample,bits_per_sample,sample_fmt",
-                    "-of",
-                    "json",
-                    str(input_path),
-                ],
-                text=True,
-                timeout=10,
-            )
-            stream = (json.loads(output).get("streams") or [{}])[0]
-            value = stream.get("bits_per_raw_sample") or stream.get("bits_per_sample")
-            if value and str(value).isdigit():
-                depth = int(value)
-                return depth if depth > 0 else None
-            return _bit_depth_from_sample_format(str(stream.get("sample_fmt") or ""))
-        except Exception as exc:
-            self.logger.warning("Could not inspect audio bit depth for %s: %s", input_path, exc)
-            return None
-
-    def _audio_codec_name(self, input_path: Path) -> str | None:
-        try:
-            output = subprocess.check_output(
-                [
-                    ffprobe_bin(),
-                    "-v",
-                    "error",
-                    "-select_streams",
-                    "a:0",
-                    "-show_entries",
-                    "stream=codec_name",
-                    "-of",
-                    "default=noprint_wrappers=1:nokey=1",
-                    str(input_path),
-                ],
-                text=True,
-                timeout=10,
-            )
-            value = output.strip()
-            return value or None
-        except Exception as exc:
-            self.logger.warning("Could not inspect audio codec for %s: %s", input_path, exc)
-            return None
-
     def _convert_to_stereo(self, input_path: Path, output_path: Path):
         command = [
             ffmpeg_bin(),
@@ -1013,7 +1006,7 @@ class MlxSeparatorEngine:
         codec: str | None = None,
     ):
         temp_path = output_path.with_name(f"{output_path.stem}.format.tmp{output_path.suffix}")
-        codec = codec or self._audio_codec_name(output_path) or ("flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le")
+        codec = codec or self._source_audio_format(output_path).codec_name or ("flac" if output_path.suffix.lower() == ".flac" else "pcm_f32le")
         command = [
             ffmpeg_bin(),
             "-hide_banner",
@@ -1110,7 +1103,7 @@ class MlxSeparatorEngine:
         payload = {
             "formatVersion": 1,
             "writtenAt": time.time(),
-            "stem": self._stem_name(output_path),
+            "stem": self._canonical_stem_role(job.model_filename, self._stem_name(output_path)),
             "path": str(output_path),
             "modelFilename": job.model_filename,
             "modelDisplayName": self._display_model_name(job.model_filename, Path(job.model_filename).stem),
@@ -1210,21 +1203,37 @@ class MlxSeparatorEngine:
         ensure_model_pack_assets(filename, self.model_dir, self.logger)
         return separator.load_model(model_filename=filename)
 
-    def _file_result(self, path_value: str) -> dict:
+    def _file_result(self, path_value: str, model_filename: str | None = None) -> dict:
         path = Path(path_value)
         if not path.is_absolute():
             path = Path.cwd() / path
+        raw = self._extract_separator_role_token(path) or self._stem_name(path)
+        # Apply Anvuew Vocals→lead / Instrumental→back so automation matchStem sees real roles.
+        stem = self._canonical_stem_role(model_filename, raw)
         return {
-            "stem": self._stem_name(path),
+            "stem": stem,
             "path": str(path),
             "sizeBytes": path.stat().st_size if path.exists() else 0,
         }
 
+    def _extract_separator_role_token(self, path: Path) -> str | None:
+        """Return the separator stem token from ``_(role)_`` (last match wins).
+
+        Source / step-2 intermediate names often contain bare parentheses such as
+        ``Back_1(Vocal)``. Those must never be treated as the separation role.
+        Separator outputs always use the underscore form: ``_(Vocals)_``, ``_(back-vocal)_``.
+        """
+        matches = re.findall(r"_\(([^)]+)\)", path.name)
+        if not matches:
+            return None
+        # Last token is the stem role; earlier ones can be intermediate labels after re-encode.
+        return matches[-1].strip()
+
     def _stem_name(self, path: Path) -> str:
-        match = re.search(r"_\(([^)]+)\)", path.stem)
-        if match:
+        token = self._extract_separator_role_token(path)
+        if token:
             # "vocals 2" -> "vocals_2" for stable stem IDs in the UI.
-            return match.group(1).strip().lower().replace(" ", "_")
+            return token.lower().replace(" ", "_")
         suffix = path.stem.split("_")[-1]
         return suffix.strip().lower().replace(" ", "_")
 
@@ -1235,6 +1244,9 @@ class MlxSeparatorEngine:
           - YAML "Vocals"        → actual **lead** vocal
           - YAML "Instrumental"  → actual **back** / bed
         (Previous mapping had these swapped.)
+
+        Gonza BVE uses YAML Lead / Back already — pass through lowercased.
+        Mega single-target models keep target id (lead-vocal, back-vocal, …) + other.
         """
         if not role:
             return "stem"
@@ -1258,6 +1270,13 @@ class MlxSeparatorEngine:
             if role_n in {"lead", "lead_vocal", "lead_vocals"}:
                 return "lead"
             if role_n in {"back", "back_vocal", "back_vocals", "backing", "backing_vocals"}:
+                return "back"
+
+        # Gonza BVE YAML: Lead / Back
+        if "bve_gonza" in name or "bve_gonza" in stem:
+            if role_n in {"lead", "vocals", "vocal"}:
+                return "lead"
+            if role_n in {"back", "backing", "instrumental", "instrument"}:
                 return "back"
 
         return role_n

@@ -1084,6 +1084,21 @@ struct AutomationMatrixStepView: View {
                      : "scroll · ⌘+scroll horizontal · Add Step for 2nd pass")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                if store.job.hasStep2 {
+                    Toggle(isOn: Binding(
+                        get: { store.job.saveStep1Outputs },
+                        set: { store.job.saveStep1Outputs = $0 }
+                    )) {
+                        Text("Save Step 1")
+                            .font(.caption.weight(.medium))
+                    }
+                    .toggleStyle(.checkbox)
+                    .help(
+                        "Keep Step 1 stems permanently under Ready MIX/Step 1/ "
+                            + "and write Step 2 finals to Ready MIX/Step 2/. "
+                            + "Off = only finals (Step 1 intermediates deleted)."
+                    )
+                }
                 Spacer()
                 Text(statusSummary)
                     .font(.caption)
@@ -1116,11 +1131,12 @@ struct AutomationMatrixStepView: View {
     }
 
     private var statusSummary: String {
+        let keep = store.job.hasStep2 && store.job.saveStep1Outputs ? " · keep Step 1" : ""
         if showingStep2 {
-            return "Step 2 · \(store.job.selectedStep2Tracks.count) intermediates · \(store.job.estimatedWorkUnitCount()) jobs"
+            return "Step 2 · \(store.job.selectedStep2Tracks.count) intermediates · \(store.job.estimatedWorkUnitCount()) jobs\(keep)"
         }
         let s2 = store.job.hasStep2 ? " · +Step 2" : ""
-        return "Step 1 · \(store.job.selectedTracks.count) tracks · \(store.job.estimatedWorkUnitCount()) jobs\(s2)"
+        return "Step 1 · \(store.job.selectedTracks.count) tracks · \(store.job.estimatedWorkUnitCount()) jobs\(s2)\(keep)"
     }
 
     private var pipelineStepPicker: some View {
