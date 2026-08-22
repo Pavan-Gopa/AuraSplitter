@@ -1,6 +1,8 @@
 <p align="center">
   <img src="LOGO/AuraSplitter_Logo_white.png#gh-dark-mode-only" width="200" alt="Aura Splitter logo">
   <img src="LOGO/AuraSplitter_Logo_Black.png#gh-light-mode-only" width="200" alt="Aura Splitter logo">
+</p>
+
 <h1 align="center">Aura Splitter</h1>
 
 <p align="center">
