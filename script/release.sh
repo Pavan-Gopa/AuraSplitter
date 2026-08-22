@@ -35,8 +35,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="AuraSplitter"
 DIST="$ROOT_DIR/dist"
 APP="$DIST/$APP_NAME.app"
-ZIP="$DIST/$APP_NAME-$VERSION-arm64.zip"
-DMG="$DIST/$APP_NAME-$VERSION-arm64.dmg"
+# Unversioned asset names keep releases/latest/download/ links stable.
+ZIP="$DIST/$APP_NAME-arm64.zip"
+DMG="$DIST/$APP_NAME-arm64.dmg"
 STAPLER="xcrun stapler"
 PROFILE="${AURA_NOTARY_PROFILE:-AuraSplitter}"
 
