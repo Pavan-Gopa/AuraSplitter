@@ -38,6 +38,7 @@ APP="$DIST/$APP_NAME.app"
 ZIP="$DIST/$APP_NAME-$VERSION-arm64.zip"
 DMG="$DIST/$APP_NAME-$VERSION-arm64.dmg"
 STAPLER="xcrun stapler"
+PROFILE="${AURA_NOTARY_PROFILE:-AuraSplitter}"
 
 echo "== AuraSplitter release $VERSION =="
 
@@ -59,12 +60,22 @@ if [[ -z "$IDENTITY" ]]; then
 fi
 echo "-- codesign: $IDENTITY"
 codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
-# Staple the app itself (covers the ZIP path used by the in-app updater,
-# including offline machines). Requires a completed notarization.
-if [[ "$SKIP_NOTARIZE" == false ]]; then
-  $STAPLER staple "$APP"
-fi
+codesign --verify --strict --deep "$APP"
 spctl -a -vv -t execute "$APP"
+
+# 4. Register the app signature with Apple notary (submission #1), then staple
+#    the bundle — the updater ZIP then carries a stapled app that passes
+#    Gatekeeper even on offline machines.
+if [[ "$SKIP_NOTARIZE" == false ]]; then
+  REGISTRY_ZIP="$DIST/.registry-$VERSION.zip"
+  rm -f "$REGISTRY_ZIP"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$REGISTRY_ZIP"
+  echo "-- notarytool register app ($PROFILE); waiting…"
+  xcrun notarytool submit "$REGISTRY_ZIP" --keychain-profile "$PROFILE" --wait
+  $STAPLER staple "$APP"
+  rm -f "$REGISTRY_ZIP"
+  spctl -a -vv -t execute "$APP"
+fi
 
 # 5. Zip archive for the auto-updater (preserves signature + staple metadata).
 rm -f "$ZIP"
@@ -84,8 +95,7 @@ rm -rf "$(dirname "$STAGE_DMG")"
 if [[ "$SKIP_NOTARIZE" == true ]]; then
   echo "!! SKIPPING notarization (--skip-notarize): DMG will trigger Gatekeeper on other Macs."
 else
-  PROFILE="${AURA_NOTARY_PROFILE:-AuraSplitter}"
-  echo "-- notarytool submit ($PROFILE); this can take several minutes…"
+  echo "-- notarytool submit DMG ($PROFILE); waiting…"
   if ! xcrun notarytool submit "$DMG" --keychain-profile "$PROFILE" --wait; then
     cat >&2 <<EOF
 
