@@ -54,7 +54,7 @@
 
 Most AI separators either run in the cloud on someone else's GPU or crawl through CPU-bound pipelines. **Aura Splitter is a native macOS app built around one idea: every heavy operation runs on the M-series GPU via MLX/Metal** — spectrograms, model forward passes, all of it.
 
-It was born restoring hours of noisy live kirtan recordings — some of the hardest material a separator can face: crowd bleed, room reverb, blown-out phone mics. If it handles those, it handles yours.
+It was forged on the hardest material a separator can face: hours of raw live recordings — crowd bleed, room reverb, blown-out phone mics. If it handles those, it handles yours.
 
 - **Batch-first.** Drop ten files or a hundred; the queue processes them one by one with live per-chunk progress.
 - **Serious models.** BS-Roformer, ViperX, MDX23C and MVSep Mega checkpoints — the same families topping UVR leaderboards.
@@ -75,7 +75,7 @@ It was born restoring hours of noisy live kirtan recordings — some of the hard
 A three-step flow that builds complex processing chains visually:
 
 1. **Input → Output** — choose sources and where results land;
-2. **Regions** — split each track into logical regions (kirtan, lecture, katha…);
+2. **Regions** — split each track into logical regions (songs, sections, takes);
 3. **Matrix** — map every intermediate stem to its final file name, then hit **Process**.
 
 ### Everything else you'd expect
@@ -128,5 +128,5 @@ The app checks GitHub Releases in the background (every 6 h), verifies every dow
 ---
 
 <p align="center">
-  <em>Built for engineers who'd rather listen than wait.</em>
+  <em>Built for musicians who'd rather listen than wait.</em>
 </p>
