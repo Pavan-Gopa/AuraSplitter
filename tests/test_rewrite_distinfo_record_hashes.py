@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
 import importlib.util
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -75,8 +77,7 @@ def test_rewriter_is_noop_when_hashes_already_match(tmp_path: Path):
     assert (dist / "RECORD").read_text(encoding="utf-8") == original
 
 
-def test_rewriter_fixes_real_signed_mlx_audio_io_extension():
-    rewriter = _load_rewriter()
+def _bundled_site_packages() -> Path | None:
     bundled = (
         Path(__file__).resolve().parents[1]
         / "dist"
@@ -88,15 +89,48 @@ def test_rewriter_fixes_real_signed_mlx_audio_io_extension():
         / "python3.11"
         / "site-packages"
     )
-    native = bundled / "mlx_audio_io" / "_core.cpython-311-darwin.so"
-    record = bundled / "mlx_audio_io-1.3.11.dist-info" / "RECORD"
-    if not native.is_file() or not record.is_file():
+    return bundled if bundled.is_dir() else None
+
+
+def test_release_bundle_record_matches_signed_native_files():
+    """Release-pipeline regression: every native binary shipped in the signed
+    app bundle must have a RECORD hash matching the bytes actually on disk
+    (codesign mutates Mach-O bytes after pip writes RECORD)."""
+    bundled = _bundled_site_packages()
+    if bundled is None:
         pytest.skip("signed app bundle is not present")
 
-    expected_wheel_hash = "feVd2lZX8yKfsydErQSpv579tizZCeMV26qqbvous0w"
-    actual = _sha256_record(native.read_bytes())
-    assert actual != expected_wheel_hash
-    assert expected_wheel_hash in record.read_text(encoding="utf-8")
+    rewriter = _load_rewriter()
+    stale = []
+    for dist_info in sorted(bundled.glob("*.dist-info")):
+        record = dist_info / "RECORD"
+        if not record.is_file():
+            continue
+        for row in csv.reader(record.read_text(encoding="utf-8").splitlines()):
+            if len(row) < 2 or not row[1].lower().startswith("sha256="):
+                continue
+            target = bundled / row[0]
+            if target.suffix not in {".so", ".dylib"} or not target.is_file():
+                continue
+            if _sha256_record(target.read_bytes()) != row[1].split("=", 1)[1]:
+                stale.append(row[0])
+    assert stale == [], (
+        "Signed bundle ships stale RECORD hashes for native files; "
+        f"run script/rewrite_distinfo_record_hashes.py during release: {stale}"
+    )
+
+
+def test_rewriter_fixes_codesigned_mlx_audio_io_extension():
+    """Simulate the exact release failure: Developer ID codesign rewrote the
+    native extension bytes so RECORD no longer matches; the rewriter must
+    repair it. Builds the broken state from the real signed bundle so the
+    test is independent of dist/'s current state."""
+    rewriter = _load_rewriter()
+    bundled = _bundled_site_packages()
+    if bundled is None or not (bundled / "mlx_audio_io").is_dir():
+        pytest.skip("signed app bundle is not present")
+
+    original_wheel_hash = "feVd2lZX8yKfsydErQSpv579tizZCeMV26qqbvous0w"
 
     with tempfile.TemporaryDirectory() as tmp:
         dest = Path(tmp) / "site-packages"
@@ -106,11 +140,32 @@ def test_rewriter_fixes_real_signed_mlx_audio_io_extension():
             bundled / "mlx_audio_io-1.3.11.dist-info",
             dest / "mlx_audio_io-1.3.11.dist-info",
         )
+
+        # Sign the copied extension like the release pipeline does, then
+        # rewind its RECORD entry to the pre-codesign wheel hash.
+        subprocess.run(
+            ["codesign", "--force", "--sign", "-", str(dest / "mlx_audio_io" / "_core.cpython-311-darwin.so")],
+            check=True,
+            capture_output=True,
+        )
+        record_path = dest / "mlx_audio_io-1.3.11.dist-info" / "RECORD"
+        native_rel = "mlx_audio_io/_core.cpython-311-darwin.so"
+        lines = []
+        for line in record_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(native_rel + ","):
+                lines.append(f"{native_rel},sha256={original_wheel_hash},501760")
+            else:
+                lines.append(line)
+        record_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        on_disk = _sha256_record((dest / native_rel).read_bytes())
+        assert on_disk != original_wheel_hash, "codesign did not mutate the extension; simulation invalid"
+
         updated = rewriter.rewrite_site_packages(dest)
         assert updated >= 1
-        new_record = (dest / "mlx_audio_io-1.3.11.dist-info" / "RECORD").read_text(encoding="utf-8")
+        new_record = record_path.read_text(encoding="utf-8")
         native_line = next(
-            line for line in new_record.splitlines() if line.startswith("mlx_audio_io/_core.cpython-311-darwin.so,")
+            line for line in new_record.splitlines() if line.startswith(native_rel + ",")
         )
-        assert f"sha256={actual}" in native_line
-        assert expected_wheel_hash not in native_line
+        assert f"sha256={on_disk}" in native_line
+        assert original_wheel_hash not in native_line
