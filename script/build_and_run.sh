@@ -32,8 +32,10 @@ LEGACY_MODEL_DIR="$LEGACY_APP_SUPPORT/models"
 RUNTIME_MODEL_DIR="${KIRTAN_SPLITTER_MODEL_DIR:-$HOME/AI_LOCAL_MODELS/Sound/$BRAND_NAME}"
 LEGACY_SOUND_MODEL_DIR="$HOME/AI_LOCAL_MODELS/Sound/$LEGACY_BRAND_NAME"
 LOG_FILE="$APP_SUPPORT/logs/backend.log"
-PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
-SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
+PYTHON_REAL=""
+SITE_PACKAGES=""
+PYTHON_ROOT=""
+FFMPEG_BUNDLE_DIR="$APP_RESOURCES"
 BACKEND_HOST="127.0.0.1"
 BACKEND_PORT="${KIRTAN_SPLITTER_BACKEND_PORT:-51273}"
 BACKEND_LABEL="com.pavan.aurasplitter.backend"
@@ -43,6 +45,10 @@ cd "$ROOT_DIR"
 if [[ ! -x "$ROOT_DIR/.venv/bin/python" ]]; then
   "$ROOT_DIR/script/setup_backend.sh"
 fi
+
+PYTHON_REAL="$(realpath "$ROOT_DIR/.venv/bin/python")"
+PYTHON_ROOT="$(cd "$(dirname "$PYTHON_REAL")/.." && pwd)"
+SITE_PACKAGES="$ROOT_DIR/.venv/lib/python3.11/site-packages"
 
 # Kill legacy KirtanSplitter processes too
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
@@ -89,6 +95,23 @@ chmod +x "$RUNTIME_LAUNCHER"
 mkdir -p "$APP_RESOURCES/backend"
 rsync -a --delete "$ROOT_DIR/backend/" "$APP_RESOURCES/backend/"
 cp "$ROOT_DIR/script/run_backend.sh" "$APP_RESOURCES/run_backend.sh"
+
+# Ship a relocatable Python runtime and all installed wheels. The uv-managed
+# interpreter is standalone; copying it preserves its relative prefix and
+# removes the developer's home directory from the release bundle.
+rm -rf "$APP_RESOURCES/python"
+rsync -a --delete \
+  --exclude 'include/' \
+  --exclude 'share/' \
+  --exclude 'lib/tcl*' \
+  --exclude 'lib/tk*' \
+  "$PYTHON_ROOT/" "$APP_RESOURCES/python/"
+mkdir -p "$APP_RESOURCES/python/lib/python3.11/site-packages"
+rsync -a --delete "$SITE_PACKAGES/" "$APP_RESOURCES/python/lib/python3.11/site-packages/"
+
+# FFmpeg is bundled with its Homebrew-linked libraries rewritten to relative
+# loader paths, so audio import/export never depends on Homebrew on the user's Mac.
+"$ROOT_DIR/script/bundle_macos_tools.sh" "$FFMPEG_BUNDLE_DIR"
 if [[ -d "$ROOT_DIR/models" ]]; then
   rsync -a --ignore-existing "$ROOT_DIR/models/" "$RUNTIME_MODEL_DIR/"
 fi
@@ -121,20 +144,6 @@ cat >"$INFO_PLIST" <<PLIST
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
-  <key>AuraSplitterProjectRoot</key>
-  <string>$ROOT_DIR</string>
-  <key>AuraSplitterPython</key>
-  <string>$PYTHON_REAL</string>
-  <key>AuraSplitterPythonPath</key>
-  <string>$RUNTIME_BACKEND:$SITE_PACKAGES</string>
-  <key>AuraSplitterBackendServer</key>
-  <string>$RUNTIME_BACKEND/server.py</string>
-  <key>AuraSplitterBackendLauncher</key>
-  <string>$RUNTIME_LAUNCHER</string>
-  <key>AuraSplitterModelDir</key>
-  <string>$RUNTIME_MODEL_DIR</string>
-  <key>AuraSplitterLogFile</key>
-  <string>$LOG_FILE</string>
   <key>AuraSplitterBackendHost</key>
   <string>$BACKEND_HOST</string>
   <key>AuraSplitterBackendPort</key>

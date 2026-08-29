@@ -110,7 +110,6 @@ final class BackendClient: ObservableObject {
         proc.currentDirectoryURL = URL(fileURLWithPath: paths.runtimeDir)
 
         var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONPATH"] = paths.pythonPath
         environment["KIRTAN_SPLITTER_PROJECT_ROOT"] = paths.projectRoot
@@ -118,6 +117,13 @@ final class BackendClient: ObservableObject {
         environment["KIRTAN_SPLITTER_BACKEND_SERVER"] = paths.server
         environment["KIRTAN_SPLITTER_MODEL_DIR"] = paths.modelDir
         environment["KIRTAN_SPLITTER_LOG_FILE"] = paths.logFile
+        if let ffmpeg = paths.ffmpeg {
+            environment["KIRTAN_SPLITTER_FFMPEG"] = ffmpeg
+            environment["PATH"] = URL(fileURLWithPath: ffmpeg).deletingLastPathComponent().path + ":" + (environment["PATH"] ?? "")
+        }
+        if let ffprobe = paths.ffprobe {
+            environment["KIRTAN_SPLITTER_FFPROBE"] = ffprobe
+        }
         environment["MLX_USE_FAST_SDP"] = "1"
         proc.environment = environment
 
@@ -751,6 +757,22 @@ final class BackendClient: ObservableObject {
             withIntermediateDirectories: true
         )
 
+        var environment = [
+            "PYTHONUNBUFFERED=1",
+            "PYTHONPATH=\(paths.pythonPath)",
+            "KIRTAN_SPLITTER_MODEL_DIR=\(paths.modelDir)",
+            "KIRTAN_SPLITTER_LOG_FILE=\(paths.logFile)",
+            "MLX_USE_FAST_SDP=1",
+        ]
+        if let ffmpeg = paths.ffmpeg {
+            environment.append("KIRTAN_SPLITTER_FFMPEG=\(ffmpeg)")
+            let toolDirectory = URL(fileURLWithPath: ffmpeg).deletingLastPathComponent().path
+            environment.append("PATH=\(toolDirectory):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        }
+        if let ffprobe = paths.ffprobe {
+            environment.append("KIRTAN_SPLITTER_FFPROBE=\(ffprobe)")
+        }
+
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         proc.arguments = [
@@ -758,11 +780,7 @@ final class BackendClient: ObservableObject {
             "-e",
             "exit 0 if fork; setsid(); exec @ARGV or die $!",
             "/usr/bin/env",
-            "PYTHONUNBUFFERED=1",
-            "PYTHONPATH=\(paths.pythonPath)",
-            "KIRTAN_SPLITTER_MODEL_DIR=\(paths.modelDir)",
-            "KIRTAN_SPLITTER_LOG_FILE=\(paths.logFile)",
-            "MLX_USE_FAST_SDP=1",
+        ] + environment + [
             paths.python,
             paths.server,
             "--model-dir",
@@ -1027,7 +1045,6 @@ final class BackendClient: ObservableObject {
             appendLog("Telemetry refresh failed: \(error.localizedDescription)\n")
         }
     }
-
     private func mergeModelCacheSummary(_ summary: ModelCacheSummary) {
         guard modelCache == nil else { return }
         modelCache = ModelCache(modelDir: summary.modelDir, totalBytes: summary.totalBytes, items: [], groups: [])
@@ -1036,6 +1053,16 @@ final class BackendClient: ObservableObject {
     private func resolveBackendPaths() -> BackendPaths {
         let env = ProcessInfo.processInfo.environment
         let info = Bundle.main.infoDictionary ?? [:]
+        let bundleResources = Bundle.main.resourceURL
+        let bundleBackend = bundleResources?.appendingPathComponent("backend", isDirectory: true)
+        let bundlePythonRoot = bundleResources?.appendingPathComponent("python", isDirectory: true)
+        let bundlePython = bundlePythonRoot?.appendingPathComponent("bin/python3.11").path
+        let bundlePythonPath = bundlePythonRoot?.appendingPathComponent("lib/python3.11/site-packages").path
+        let bundleServer = bundleBackend?.appendingPathComponent("server.py").path
+        let bundleLauncher = bundleResources?.appendingPathComponent("run_backend.sh").path
+        let bundleFFmpeg = bundleResources?.appendingPathComponent("bin/ffmpeg").path
+        let bundleFFprobe = bundleResources?.appendingPathComponent("bin/ffprobe").path
+
         let bundledProjectRoot = info["AuraSplitterProjectRoot"] as? String
         let bundledPython = info["AuraSplitterPython"] as? String
         let bundledPythonPath = info["AuraSplitterPythonPath"] as? String
@@ -1046,18 +1073,27 @@ final class BackendClient: ObservableObject {
         let bundledTCPHost = info["AuraSplitterBackendHost"] as? String
         let bundledTCPPort = info["AuraSplitterBackendPort"] as? String
 
-        let projectRoot = env["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? bundledProjectRoot ?? FileManager.default.currentDirectoryPath
+        let isBundled = bundlePython.flatMap(FileManager.default.isExecutableFile(atPath:)) == true
+            && bundleServer.map(FileManager.default.fileExists(atPath:)) == true
+        let projectRoot = env["KIRTAN_SPLITTER_PROJECT_ROOT"]
+            ?? (isBundled ? (bundleResources?.path ?? FileManager.default.currentDirectoryPath) : nil)
+            ?? bundledProjectRoot
+            ?? FileManager.default.currentDirectoryPath
         let backendDir = URL(fileURLWithPath: projectRoot).appendingPathComponent("backend").path
         let python = env["KIRTAN_SPLITTER_PYTHON"]
+            ?? (isBundled ? bundlePython : nil)
             ?? bundledPython
             ?? URL(fileURLWithPath: projectRoot).appendingPathComponent(".venv/bin/python").path
         let server = env["KIRTAN_SPLITTER_BACKEND_SERVER"]
+            ?? (isBundled ? bundleServer : nil)
             ?? bundledServer
             ?? URL(fileURLWithPath: backendDir).appendingPathComponent("server.py").path
         let backendLauncher = env["KIRTAN_SPLITTER_BACKEND_LAUNCHER"]
+            ?? (isBundled ? bundleLauncher : nil)
             ?? bundledBackendLauncher
             ?? URL(fileURLWithPath: projectRoot).appendingPathComponent("script/run_backend.sh").path
         let pythonPath = env["KIRTAN_SPLITTER_PYTHONPATH"]
+            ?? (isBundled ? [bundleBackend?.path, bundlePythonPath].compactMap { $0 }.joined(separator: ":") : nil)
             ?? bundledPythonPath
             ?? [
                 backendDir,
@@ -1079,69 +1115,28 @@ final class BackendClient: ObservableObject {
         let runtimeDir = ModelStoragePaths.defaultRuntimeDirectory()
         let tcpHost = env["KIRTAN_SPLITTER_BACKEND_HOST"] ?? bundledTCPHost
         let tcpPort = (env["KIRTAN_SPLITTER_BACKEND_PORT"] ?? bundledTCPPort).flatMap(Int.init)
-        // Portable (release) installs: when the staged absolute paths from the
-        // Info.plist do not exist on this machine, fall back to the backend
-        // shipped inside the app bundle and self-install it into App Support.
-        var resolvedServer = server
-        var resolvedLauncher = backendLauncher
-        var resolvedBackendDir = backendDir
-        var resolvedPythonPath = pythonPath
-        let needsPortableFallback =
-            env["KIRTAN_SPLITTER_BACKEND_SERVER"] == nil
-            && env["KIRTAN_SPLITTER_BACKEND_LAUNCHER"] == nil
-            && !FileManager.default.fileExists(atPath: server)
-        if needsPortableFallback,
-           let bundledServer = Bundle.main.url(forResource: "server", withExtension: "py", subdirectory: "backend") {
-            let support = ModelStoragePaths.applicationSupportDirectory()
-            let targetBackendDir = URL(fileURLWithPath: support).appendingPathComponent("backend", isDirectory: true)
-            installBundledBackend(from: bundledServer.deletingLastPathComponent(), to: targetBackendDir)
-            resolvedServer = targetBackendDir.appendingPathComponent("server.py").path
-            resolvedBackendDir = targetBackendDir.path
-            resolvedPythonPath = ([targetBackendDir.path]
-                + pythonPath.split(separator: ":")
-                    .map { String($0) }
-                    .filter { !$0.hasSuffix("/backend") }
-            ).joined(separator: ":")
-            if let bundledLauncher = Bundle.main.url(forResource: "run_backend", withExtension: "sh") {
-                let targetLauncher = URL(fileURLWithPath: support).appendingPathComponent("run_backend.sh")
-                if !FileManager.default.fileExists(atPath: targetLauncher.path) {
-                    try? FileManager.default.copyItem(at: bundledLauncher, to: targetLauncher)
-                    try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetLauncher.path)
-                }
-                resolvedLauncher = targetLauncher.path
-            }
-        }
+        let ffmpeg = env["KIRTAN_SPLITTER_FFMPEG"]
+            ?? (bundleFFmpeg.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil })
+        let ffprobe = env["KIRTAN_SPLITTER_FFPROBE"]
+            ?? (bundleFFprobe.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil })
 
         return BackendPaths(
             projectRoot: projectRoot,
-            backendDir: resolvedBackendDir,
+            backendDir: isBundled ? (bundleBackend?.path ?? backendDir) : backendDir,
             python: python,
-            pythonPath: resolvedPythonPath,
-            server: resolvedServer,
-            backendLauncher: resolvedLauncher,
+            pythonPath: pythonPath,
+            server: server,
+            backendLauncher: backendLauncher,
             modelDir: modelDir,
             logFile: logFile,
             runtimeDir: runtimeDir,
             tcpHost: tcpHost,
-            tcpPort: tcpPort
+            tcpPort: tcpPort,
+            ffmpeg: ffmpeg,
+            ffprobe: ffprobe
         )
     }
 
-    /// Copies the bundle-shipped backend sources into App Support (idempotent).
-    private func installBundledBackend(from sourceDir: URL, to targetDir: URL) {
-        let fm = FileManager.default
-        guard !fm.fileExists(atPath: targetDir.appendingPathComponent("server.py").path) else { return }
-        do {
-            try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-            let items = try fm.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil)
-            for item in items where item.pathExtension == "py" || item.pathExtension == "sh" {
-                try? fm.removeItem(at: targetDir.appendingPathComponent(item.lastPathComponent))
-                try fm.copyItem(at: item, to: targetDir.appendingPathComponent(item.lastPathComponent))
-            }
-        } catch {
-            errorMessage = errorMessage ?? "Could not install bundled backend: \(error.localizedDescription)"
-        }
-    }
 }
 
 private struct BackendPaths {
@@ -1156,4 +1151,6 @@ private struct BackendPaths {
     let runtimeDir: String
     let tcpHost: String?
     let tcpPort: Int?
+    let ffmpeg: String?
+    let ffprobe: String?
 }

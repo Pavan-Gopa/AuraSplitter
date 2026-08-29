@@ -160,7 +160,11 @@ enum AutomationAudioCutter {
     }
 
     static func resolveFFmpeg() -> String {
-        let candidates = [
+        var candidates: [String] = []
+        if let bundled = Bundle.main.url(forResource: "ffmpeg", withExtension: nil, subdirectory: "bin") {
+            candidates.append(bundled.path)
+        }
+        candidates += [
             "/opt/homebrew/bin/ffmpeg",
             "/usr/local/bin/ffmpeg",
             "/usr/bin/ffmpeg",

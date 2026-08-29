@@ -13,12 +13,14 @@ struct WorkspaceWidgetRailView: View {
     var automationAction: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            importWidget
-            systemWidget
-            Spacer(minLength: 0)
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 12) {
+                importWidget
+                systemWidget
+            }
+            .padding(14)
         }
-        .padding(14)
+        .scrollIndicators(.automatic)
         .background(.thinMaterial)
     }
 

@@ -60,7 +60,55 @@ if [[ -z "$IDENTITY" ]]; then
   exit 3
 fi
 echo "-- codesign: $IDENTITY"
-codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
+# Resources can contain executable Python extensions and FFmpeg dylibs; they
+# are not traversed by codesign --deep unless they live in a conventional
+# nested-code directory. Sign every shipped binary explicitly first.
+while IFS= read -r -d '' nested; do
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
+done < <(find "$APP/Contents/Resources" -type f \( -name '*.dylib' -o -name '*.so' \) -print0)
+for nested in \
+  "$APP/Contents/Resources/python/bin/python3.11" \
+  "$APP/Contents/Resources/bin/ffmpeg" \
+  "$APP/Contents/Resources/bin/ffprobe"; do
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested"
+done
+while IFS= read -r -d '' nested; do
+  case "$(file -b "$nested")" in
+    *"Mach-O"*) codesign --force --options runtime --timestamp --sign "$IDENTITY" "$nested" ;;
+  esac
+done < <(find "$APP/Contents/Resources" -type f -perm +111 -print0)
+
+# codesign mutates Mach-O bytes. mlx-audio-io compares native extensions
+# against dist-info RECORD and refuses to load on mismatch — rewrite hashes
+# to the signed files before sealing the app bundle.
+SITE_PACKAGES="$APP/Contents/Resources/python/lib/python3.11/site-packages"
+echo "-- rewriting dist-info RECORD hashes after nested codesign"
+"$ROOT_DIR/.venv/bin/python" \
+  "$ROOT_DIR/script/rewrite_distinfo_record_hashes.py" "$SITE_PACKAGES"
+
+codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP"
+
+# If --deep re-signed a resource .so, RECORD would be stale again. Refresh
+# hashes and reseal the outer bundle (no --deep) so CodeResources matches.
+echo "-- verifying mlx-audio-io native preflight"
+smoke_mlx_audio_io() {
+  "$APP/Contents/Resources/python/bin/python3.11" - <<'PY'
+from mlx_audio_io._native_loader import run_preflight_checks
+run_preflight_checks()
+print("mlx-audio-io preflight OK")
+PY
+}
+if ! smoke_mlx_audio_io; then
+  echo "-- preflight failed after --deep; unsealing, rewriting RECORD, resealing"
+  # A sealed bundle rejects RECORD writes (EPERM). Drop the outer signature
+  # so hashes can be refreshed, then reseal without --deep so .so bytes stay put.
+  codesign --remove-signature "$APP"
+  "$ROOT_DIR/.venv/bin/python" \
+    "$ROOT_DIR/script/rewrite_distinfo_record_hashes.py" "$SITE_PACKAGES"
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+  smoke_mlx_audio_io
+fi
+
 codesign --verify --strict --deep "$APP"
 spctl -a -vv -t execute "$APP"
 
@@ -122,16 +170,26 @@ ls -lh "$ZIP" "$DMG"
 if [[ "$PUBLISH" == true ]]; then
   gh auth status >/dev/null 2>&1 || { echo "ERROR: gh is not authenticated; cannot publish." >&2; exit 5; }
   NOTES="$(mktemp)"
+  if [[ -f "$ROOT_DIR/RELEASE_NOTES_${VERSION}.md" ]]; then
+    cat "$ROOT_DIR/RELEASE_NOTES_${VERSION}.md" >"$NOTES"
+    printf '\n' >>"$NOTES"
+  else
+    {
+      echo "## AuraSplitter $VERSION"
+      echo
+      echo "- Install: open the DMG and drag **AuraSplitter** into Applications."
+      echo "- The in-app updater uses the `.zip` asset."
+      echo
+    } >"$NOTES"
+  fi
   {
-    echo "## AuraSplitter $VERSION"
-    echo
-    echo "- Install: open the DMG and drag **AuraSplitter** into Applications."
-    echo "- The in-app updater uses the \`.zip\` asset."
+    echo "Install: open the DMG and drag **AuraSplitter** into Applications."
+    echo "The in-app updater uses the \`.zip\` asset."
     echo
     echo '```'
-    echo "sha256($APP_NAME-$VERSION-arm64.zip) = $ZIP_SHA"
+    echo "sha256($(basename "$ZIP")) = $ZIP_SHA"
     echo '```'
-  } >"$NOTES"
+  } >>"$NOTES"
   gh release create "v$VERSION" "$DMG" "$ZIP" \
     --title "AuraSplitter $VERSION" \
     --notes-file "$NOTES"

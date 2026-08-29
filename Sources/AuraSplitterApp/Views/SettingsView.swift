@@ -4,11 +4,19 @@ struct SettingsView: View {
     private let environment = ProcessInfo.processInfo.environment
     @ObservedObject private var updateService = UpdateService.shared
 
+    private var bundledPythonDescription: String {
+        if let python = Bundle.main.url(forResource: "python3.11", withExtension: nil, subdirectory: "python/bin"),
+           FileManager.default.isExecutableFile(atPath: python.path) {
+            return "Included (Python 3.11)"
+        }
+        return environment["KIRTAN_SPLITTER_PYTHON"] ?? ".venv/bin/python"
+    }
+
     var body: some View {
         Form {
             Section("Runtime") {
-                LabeledContent("Project root", value: environment["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? FileManager.default.currentDirectoryPath)
-                LabeledContent("Python", value: environment["KIRTAN_SPLITTER_PYTHON"] ?? ".venv/bin/python")
+                LabeledContent("Project root", value: environment["KIRTAN_SPLITTER_PROJECT_ROOT"] ?? "Application bundle")
+                LabeledContent("Python", value: bundledPythonDescription)
                 LabeledContent("Models", value: environment["KIRTAN_SPLITTER_MODEL_DIR"] ?? ModelStoragePaths.defaultModelDirectory())
             }
 
@@ -29,7 +37,7 @@ struct SettingsView: View {
             }
 
             Section("Requirements") {
-                Text("Apple Silicon macOS 13+, Python 3.10+, ffmpeg, mlx-audio-separator.")
+                Text("Apple Silicon macOS 13+. Python 3.11, backend dependencies, ffmpeg and ffprobe are included in the application.")
                     .foregroundStyle(.secondary)
             }
         }
