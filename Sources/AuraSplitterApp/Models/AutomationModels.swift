@@ -306,8 +306,13 @@ struct AutomationJob: Equatable, Codable {
         return step1 + step2
     }
 
-    /// Build step-2 rows from step-1 kept stems: `ShortName(StemRole)`.
-    static func buildStep2Tracks(from step1Tracks: [AutomationTrackPlan]) -> [AutomationStep2TrackPlan] {
+    /// Build Step-2 sources from selected Step-1 tracks and kept stems.
+    /// When a catalog is supplied, only model/role pairs declared by that
+    /// catalog survive; an empty catalog therefore yields no sources.
+    static func buildStep2Tracks(
+        from step1Tracks: [AutomationTrackPlan],
+        allowedStemsByModelID: [String: Set<String>]? = nil
+    ) -> [AutomationStep2TrackPlan] {
         var rows: [AutomationStep2TrackPlan] = []
         var usedNames: [String: Int] = [:]
 
@@ -315,6 +320,10 @@ struct AutomationJob: Equatable, Codable {
             let short = track.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !short.isEmpty else { continue }
             for pair in track.selectedStemPairs {
+                if let allowedStemsByModelID,
+                   allowedStemsByModelID[pair.modelID]?.contains(pair.stem) != true {
+                    continue
+                }
                 let baseLabel = AutomationNaming.intermediateDisplayName(
                     shortOutputName: short,
                     stem: pair.stem

@@ -1063,6 +1063,7 @@ struct AutomationMatrixStepView: View {
     private let rowH: CGFloat = 96
     private let headerH: CGFloat = 44
     private let iconSize: CGFloat = 28
+    private let iconHitSize: CGFloat = 36
     private let gridColSpacing: CGFloat = 8
     private let gridRowSpacing: CGFloat = 10
     private let railGray = Color.secondary.opacity(0.12)
@@ -1087,7 +1088,7 @@ struct AutomationMatrixStepView: View {
                 if store.job.hasStep2 {
                     Toggle(isOn: Binding(
                         get: { store.job.saveStep1Outputs },
-                        set: { store.job.saveStep1Outputs = $0 }
+                        set: { store.setSaveStep1Outputs($0) }
                     )) {
                         Text("Save Step 1")
                             .font(.caption.weight(.medium))
@@ -1187,6 +1188,12 @@ struct AutomationMatrixStepView: View {
                 .strokeBorder(Color.secondary.opacity(0.15), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .onAppear {
+            store.configureMatrixPresets(presets)
+        }
+        .onChange(of: presets) { updatedPresets in
+            store.configureMatrixPresets(updatedPresets)
+        }
     }
 
     /// Only models the user left visible (eye open) in Settings / header menu.
@@ -1249,7 +1256,10 @@ struct AutomationMatrixStepView: View {
             TextField(
                 "Main Vocal",
                 text: Binding(
-                    get: { track.shortOutputName },
+                    get: {
+                        store.job.tracks.first(where: { $0.id == track.id })?.shortOutputName
+                            ?? track.shortOutputName
+                    },
                     set: { store.setShortName(for: track.id, name: $0) }
                 )
             )
@@ -1259,6 +1269,7 @@ struct AutomationMatrixStepView: View {
             .padding(.horizontal, 8)
             .frame(width: finalColW, height: rowH)
             .background(railGray)
+            .accessibilityIdentifier("automation-matrix-step1-final-name-\(track.id.uuidString)")
         }
         .frame(width: tableWidth, height: rowH, alignment: .leading)
         .background(Color.primary.opacity(0.02))
@@ -1295,7 +1306,10 @@ struct AutomationMatrixStepView: View {
             TextField(
                 "Final",
                 text: Binding(
-                    get: { track.shortOutputName },
+                    get: {
+                        store.job.step2Tracks.first(where: { $0.id == track.id })?.shortOutputName
+                            ?? track.shortOutputName
+                    },
                     set: { store.setStep2ShortName(for: track.id, name: $0) }
                 )
             )
@@ -1305,6 +1319,7 @@ struct AutomationMatrixStepView: View {
             .padding(.horizontal, 8)
             .frame(width: finalColW, height: rowH)
             .background(railGray)
+            .accessibilityIdentifier("automation-matrix-step2-final-name-\(track.id.uuidString)")
             .disabled(!track.isSelected)
             .opacity(track.isSelected ? 1 : 0.45)
         }
@@ -1350,32 +1365,40 @@ struct AutomationMatrixStepView: View {
 
     /// Fixed 3×2 slots so icons line up across every model column.
     private func stemGridStep1(track: AutomationTrackPlan, model: SeparationPreset) -> some View {
-        stemIconGrid(stems: model.expectedStems) { stem in
+        let identity = "step1-\(track.id.uuidString)-\(model.id)"
+        return stemIconGrid(stems: model.expectedStems, identity: identity) { stem in
             StemRoleIconButton(
                 stem: stem,
                 size: iconSize,
                 isOn: store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem),
-                action: { store.toggleStem(trackID: track.id, modelID: model.id, stem: stem) }
+                action: {
+                    guard model.expectedStems.contains(stem) else { return }
+                    store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
+                }
             )
+            .accessibilityIdentifier("\(identity)-\(stem)")
         }
     }
 
     private func stemGridStep2(track: AutomationStep2TrackPlan, model: SeparationPreset) -> some View {
-        stemIconGrid(stems: model.expectedStems) { stem in
+        let identity = "step2-\(track.id.uuidString)-\(model.id)"
+        return stemIconGrid(stems: model.expectedStems, identity: identity) { stem in
             StemRoleIconButton(
                 stem: stem,
                 size: iconSize,
                 isOn: store.isStep2StemSelected(trackID: track.id, modelID: model.id, stem: stem),
                 action: {
-                    guard track.isSelected else { return }
+                    guard track.isSelected, model.expectedStems.contains(stem) else { return }
                     store.toggleStep2Stem(trackID: track.id, modelID: model.id, stem: stem)
                 }
             )
+            .accessibilityIdentifier("\(identity)-\(stem)")
         }
     }
 
     private func stemIconGrid<Content: View>(
         stems: [String],
+        identity: String,
         @ViewBuilder cell: @escaping (String) -> Content
     ) -> some View {
         VStack(spacing: gridRowSpacing) {
@@ -1384,15 +1407,26 @@ struct AutomationMatrixStepView: View {
                     ForEach(0..<3, id: \.self) { col in
                         let idx = row * 3 + col
                         if idx < stems.count {
-                            cell(stems[idx])
+                            let stem = stems[idx]
+                            cell(stem)
+                                // Give each icon its own padded, rectangular target.
+                                // The role is part of identity so a reordered catalog
+                                // cannot reuse a neighboring role's view state.
+                                .frame(width: iconHitSize, height: iconHitSize)
+                                .contentShape(Rectangle())
+                                .id("\(identity)-stem-\(stem)")
                         } else {
-                            Color.clear.frame(width: iconSize, height: iconSize)
+                            Color.clear
+                                .frame(width: iconHitSize, height: iconHitSize)
+                                .id("\(identity)-empty-\(idx)")
                         }
                     }
                 }
+                .id("\(identity)-row-\(row)")
             }
         }
         .frame(width: modelW, height: rowH)
+        .id(identity)
     }
 }
 
@@ -1559,6 +1593,10 @@ private struct StemRoleIconButton: View {
             }
             .frame(width: size, height: size)
             .contentShape(Circle())
+            // The label fills the outer hit target so padded clicks still
+            // invoke this role's Button rather than a neighboring cell.
+            .frame(width: size + 8, height: size + 8)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(instrumentName)

@@ -1,14 +1,21 @@
-# DESIGN_V2 track — orchestrated by Grok
-# Product scope: AI_Workflow_Kit/docs/DESIGN_STEPS.md
-# Prior track OPT_PERF closed (K0–K8).
+# MATRIX_HARDENING track — post-DESIGN_DONE automation fix
+# Product scope: AI_Workflow_Kit/docs/STEPS.md
+# DESIGN_V2 (D0–D6) remains closed history.
 
-current_step: DESIGN_DONE
+current_step: MATRIX_HARDENING
 step_description: >
-  DESIGN_V2 complete. All steps D0–D6 approved (Gemini) and visually gated.
-  No active implementation task. Optional follow-ups only if human requests
-  (full package rename, bundle id, more brand polish).
+  Repair Automation Matrix stem-selection interaction and keep/drop semantics.
+  Matrix work is explicitly registered after the completed DESIGN_V2 checkpoint.
 
-target_files: []
+current_work_item_id: MATRIX_HARDENING.D5
+current_work_item: Publish version 1.1.2
+
+target_files:
+  - Sources/AuraSplitterApp/Models/AutomationModels.swift
+  - Sources/AuraSplitterApp/Models/AutomationWizardStore.swift
+  - Sources/AuraSplitterApp/Views/Automation/AutomationWizardView.swift
+  - Sources/AuraSplitterApp/Services/AutomationProcessRunner.swift
+  - tests/AuraSplitterAppTests/AutomationMatrixTests.swift
 
 completed_steps:
   - D0
@@ -20,23 +27,28 @@ completed_steps:
   - D6
 
 implementation:
-  status: idle
-  attempts: 0
+  status: complete
+  attempts: 1
 
 review:
   status: approved
+  verdict: approved
   last_feedback_file: "AI_Workflow_Kit/docs/AI/FEEDBACK.md"
 
 visual:
-  status: approved
-  notes: "D6 filled waveform + main Spectrum/Waveform sliders"
+  status: pass_with_scope_note
+  notes: "Build/run and live Matrix rendering passed; direct live role-click flow was unavailable during QA because the user was concurrently driving and closed the window. Store-level 7/7 regressions cover the interaction contracts."
+
+release:
+  status: pending
+  version: "1.1.2"
+next_actor: coder
 
 fix_prompt: ""
 
-next_actor: human
 
-track: DESIGN_V2
-prior_track: OPT_PERF
+track: MATRIX_HARDENING
+prior_track: DESIGN_V2
 
 checkpoint:
   last_pre_tag: design/pre-D6
@@ -49,6 +61,7 @@ git:
   last_push: "origin design/D6-done + design/DESIGN_DONE + branch"
 
 plan_files:
+  - AI_Workflow_Kit/docs/STEPS.md
   - AI_Workflow_Kit/docs/DESIGN_STEPS.md
   - AI_Workflow_Kit/docs/AI/TEAM_CONTRACT.md
   - AI_Workflow_Kit/docs/PROJECT_CONTEXT.md

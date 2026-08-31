@@ -8,6 +8,10 @@ final class AutomationWizardStore: ObservableObject {
     @Published var job: AutomationJob
     @Published var runProgress = AutomationRunProgress()
     @Published var stepError: String?
+    /// Expected roles supplied by the backend preset catalog. Until a catalog
+    /// is registered, existing selections remain usable; a supplied catalog
+    /// (including an empty one) is authoritative.
+    private var expectedStemsByModelID: [String: Set<String>]?
 
     init(
         processPresetID: String = ProcessSettingsPreset.defaultPresetID,
@@ -63,7 +67,10 @@ final class AutomationWizardStore: ObservableObject {
         case .regions:
             return job.selectedTracks.isEmpty ? "No tracks selected." : nil
         case .matrix:
-            let selected = job.selectedTracks
+            let selected = filteredTracks(
+                job.selectedTracks,
+                allowedByModel: expectedStemsByModelID
+            )
             if selected.isEmpty { return "No tracks selected." }
             if selected.contains(where: { $0.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
                 return "Every track needs a short output name."
@@ -79,16 +86,25 @@ final class AutomationWizardStore: ObservableObject {
             }
             // Optional pipeline step 2
             if job.hasStep2 {
+                let catalogTracks = filteredTracks(
+                    job.tracks,
+                    allowedByModel: expectedStemsByModelID
+                )
+                let step2Tracks = filteredStep2Tracks(
+                    job.step2Tracks,
+                    tracks: catalogTracks,
+                    allowedByModel: expectedStemsByModelID
+                )
                 // Every intermediate (selected or not) needs a final name for Ready MIX export.
-                if job.step2Tracks.contains(where: {
+                if step2Tracks.contains(where: {
                     $0.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 }) {
                     return "Step 2: every intermediate needs a final name."
                 }
                 // Selected + stems → further split; deselected → passthrough as-is.
                 // At least one Step-1 stem must exist (step2Tracks non-empty already).
-                let further = job.step2Tracks.filter { $0.isSelected && $0.hasAnyStemSelection() }
-                let passthrough = job.step2Tracks.filter { !($0.isSelected && $0.hasAnyStemSelection()) }
+                let further = step2Tracks.filter { $0.isSelected && $0.hasAnyStemSelection() }
+                let passthrough = step2Tracks.filter { !($0.isSelected && $0.hasAnyStemSelection()) }
                 if further.isEmpty && passthrough.isEmpty {
                     return "Step 2: no intermediate tracks."
                 }
@@ -116,13 +132,19 @@ final class AutomationWizardStore: ObservableObject {
 
     func toggleTrackSelection(_ id: UUID) {
         guard let index = job.tracks.firstIndex(where: { $0.id == id }) else { return }
-        job.tracks[index].isSelected.toggle()
+        var tracks = job.tracks
+        tracks[index].isSelected.toggle()
+        job.tracks = tracks
+        pruneStep2Sources()
     }
 
     func selectAllTracks(_ selected: Bool) {
-        for index in job.tracks.indices {
-            job.tracks[index].isSelected = selected
+        var tracks = job.tracks
+        for index in tracks.indices {
+            tracks[index].isSelected = selected
         }
+        job.tracks = tracks
+        pruneStep2Sources()
     }
 
     func ensureDefaultOutputFolder() {
@@ -153,17 +175,19 @@ final class AutomationWizardStore: ObservableObject {
                 return zone
             }
         )
+        var tracks = job.tracks
         if propagateToAllSelected {
-            for i in job.tracks.indices where job.tracks[i].isSelected {
-                let d = job.tracks[i].durationSeconds
-                job.tracks[i].exclusionZones = normalized.map { z in
+            for i in tracks.indices where tracks[i].isSelected {
+                let d = tracks[i].durationSeconds
+                tracks[i].exclusionZones = normalized.map { z in
                     if let d { return z.clamped(to: d) }
                     return z
                 }
             }
         } else {
-            job.tracks[index].exclusionZones = normalized
+            tracks[index].exclusionZones = normalized
         }
+        job.tracks = tracks
     }
 
     func clearZones(for trackID: UUID) {
@@ -172,15 +196,125 @@ final class AutomationWizardStore: ObservableObject {
 
     // MARK: - Matrix (step 1)
 
+    /// Register the backend's role contract and discard any stale selections.
+    /// The UI calls this whenever the preset catalog is available so a
+    /// model can never receive a role it does not produce.
+    func configureMatrixPresets(_ presets: [SeparationPreset]) {
+        var allowedByModel: [String: Set<String>] = [:]
+        for preset in presets {
+            allowedByModel[preset.id] = Set(preset.expectedStems)
+        }
+        expectedStemsByModelID = allowedByModel
+        applyCatalogFiltering()
+    }
+
     func setShortName(for trackID: UUID, name: String) {
         guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
-        job.tracks[index].shortOutputName = name
+        var tracks = job.tracks
+        tracks[index].shortOutputName = name
+        job.tracks = tracks
+    }
+
+    func setSaveStep1Outputs(_ enabled: Bool) {
+        guard job.hasStep2 else { return }
+        var updatedJob = job
+        updatedJob.saveStep1Outputs = enabled
+        job = updatedJob
+    }
+
+    /// Returns only roles declared by the currently registered backend catalog.
+    private func filteredSelections(
+        _ selections: [String: Set<String>],
+        allowedByModel: [String: Set<String>]?
+    ) -> [String: Set<String>] {
+        guard let allowedByModel else { return selections }
+        return selections.reduce(into: [String: Set<String>]()) { result, entry in
+            guard let allowed = allowedByModel[entry.key] else { return }
+            let kept = entry.value.intersection(allowed)
+            if !kept.isEmpty {
+                result[entry.key] = kept
+            }
+        }
+    }
+    private func filteredTracks(
+        _ tracks: [AutomationTrackPlan],
+        allowedByModel: [String: Set<String>]?
+    ) -> [AutomationTrackPlan] {
+        tracks.map { track in
+            var filtered = track
+            filtered.stemSelections = filteredSelections(
+                track.stemSelections,
+                allowedByModel: allowedByModel
+            )
+            return filtered
+        }
+    }
+
+    /// Step-2 rows are valid only while their selected Step-1 source remains
+    /// selected and catalog-supported. This prevents persisted rows from
+    /// becoming hidden inputs after a Step-1 toggle or catalog refresh.
+    private func filteredStep2Tracks(
+        _ rows: [AutomationStep2TrackPlan],
+        tracks: [AutomationTrackPlan],
+        allowedByModel: [String: Set<String>]?
+    ) -> [AutomationStep2TrackPlan] {
+        rows.compactMap { row in
+            guard let parent = tracks.first(where: { $0.id == row.parentTrackID }),
+                  parent.isSelected,
+                  parent.stemSelections[row.fromModelID]?.contains(row.fromStem) == true
+            else {
+                return nil
+            }
+            var filtered = row
+            filtered.stemSelections = filteredSelections(
+                row.stemSelections,
+                allowedByModel: allowedByModel
+            )
+            return filtered
+        }
+    }
+
+    private func applyCatalogFiltering() {
+        var updatedJob = job
+        updatedJob.tracks = filteredTracks(
+            job.tracks,
+            allowedByModel: expectedStemsByModelID
+        )
+        updatedJob.step2Tracks = filteredStep2Tracks(
+            job.step2Tracks,
+            tracks: updatedJob.tracks,
+            allowedByModel: expectedStemsByModelID
+        )
+        if updatedJob.step2Tracks.isEmpty {
+            updatedJob.matrixPipelineStep = 1
+        }
+        if updatedJob != job {
+            job = updatedJob
+        }
+    }
+
+    private func pruneStep2Sources() {
+        var updatedJob = job
+        updatedJob.step2Tracks = filteredStep2Tracks(
+            job.step2Tracks,
+            tracks: job.tracks,
+            allowedByModel: expectedStemsByModelID
+        )
+        if updatedJob.step2Tracks.isEmpty {
+            updatedJob.matrixPipelineStep = 1
+        }
+        if updatedJob != job {
+            job = updatedJob
+        }
     }
 
     func toggleStem(trackID: UUID, modelID: String, stem: String) {
+        if let allowedByModel = expectedStemsByModelID,
+           allowedByModel[modelID]?.contains(stem) != true {
+            return
+        }
         guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
-        // Mutate a local copy then reassign so @Published always notifies (nested
-        // dictionary/set edits can otherwise be silent and leave icons “dead”).
+        // Mutate a local copy then reassign so @Published always notifies.
         var tracks = job.tracks
         var set = tracks[index].stemSelections[modelID] ?? []
         if set.contains(stem) {
@@ -194,25 +328,29 @@ final class AutomationWizardStore: ObservableObject {
             tracks[index].stemSelections[modelID] = set
         }
         job.tracks = tracks
+        pruneStep2Sources()
     }
 
     func isStemSelected(trackID: UUID, modelID: String, stem: String) -> Bool {
         job.tracks.first(where: { $0.id == trackID })?.stemSelections[modelID]?.contains(stem) == true
     }
 
-    // MARK: - Matrix pipeline step 2 (max 2 steps)
-
-    /// Create / rebuild step 2 from step-1 final names + selected stems.
-    /// Left column becomes `MAIN_V(Vocal)`, `MAIN_V(Drum)`, … — only two steps total.
     func addMatrixStep() {
+        applyCatalogFiltering()
         stepError = validationMessageForAddingStep2()
         guard stepError == nil else { return }
-        job.step2Tracks = AutomationJob.buildStep2Tracks(from: job.selectedTracks)
-        guard !job.step2Tracks.isEmpty else {
+        let rows = AutomationJob.buildStep2Tracks(
+            from: job.selectedTracks,
+            allowedStemsByModelID: expectedStemsByModelID
+        )
+        guard !rows.isEmpty else {
             stepError = "Select stems in Step 1 first — they become Step 2 sources."
             return
         }
-        job.matrixPipelineStep = 2
+        var updatedJob = job
+        updatedJob.step2Tracks = rows
+        updatedJob.matrixPipelineStep = 2
+        job = updatedJob
         stepError = nil
     }
 
@@ -223,25 +361,38 @@ final class AutomationWizardStore: ObservableObject {
 
     func setMatrixPipelineStep(_ step: Int) {
         guard step == 1 || (step == 2 && job.hasStep2) else { return }
-        job.matrixPipelineStep = step
+        var updatedJob = job
+        updatedJob.matrixPipelineStep = step
+        job = updatedJob
     }
 
     func clearMatrixStep2() {
-        job.step2Tracks = []
-        job.matrixPipelineStep = 1
+        guard !job.step2Tracks.isEmpty || job.matrixPipelineStep != 1 else { return }
+        var updatedJob = job
+        updatedJob.step2Tracks = []
+        updatedJob.matrixPipelineStep = 1
+        job = updatedJob
     }
 
     func setStep2ShortName(for trackID: UUID, name: String) {
         guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }) else { return }
-        job.step2Tracks[index].shortOutputName = name
+        var rows = job.step2Tracks
+        rows[index].shortOutputName = name
+        job.step2Tracks = rows
     }
 
     func toggleStep2TrackSelection(_ id: UUID) {
         guard let index = job.step2Tracks.firstIndex(where: { $0.id == id }) else { return }
-        job.step2Tracks[index].isSelected.toggle()
+        var rows = job.step2Tracks
+        rows[index].isSelected.toggle()
+        job.step2Tracks = rows
     }
 
     func toggleStep2Stem(trackID: UUID, modelID: String, stem: String) {
+        if let allowedByModel = expectedStemsByModelID,
+           allowedByModel[modelID]?.contains(stem) != true {
+            return
+        }
         guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }) else { return }
         var rows = job.step2Tracks
         var set = rows[index].stemSelections[modelID] ?? []
@@ -263,7 +414,10 @@ final class AutomationWizardStore: ObservableObject {
     }
 
     private func validationMessageForAddingStep2() -> String? {
-        let selected = job.selectedTracks
+        let selected = filteredTracks(
+            job.selectedTracks,
+            allowedByModel: expectedStemsByModelID
+        )
         if selected.isEmpty { return "Select tracks on Input/Output first." }
         if selected.contains(where: { $0.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
             return "Fill Final name on every track before Add Step."
@@ -298,6 +452,9 @@ final class AutomationWizardStore: ObservableObject {
 
     func startProcess(backend: BackendClient, processPresetStore: ProcessSettingsPresetStore) {
         guard !isProcessing else { return }
+        // Reconcile persisted selections with the backend catalog immediately
+        // before validation and execution, even if the matrix view was skipped.
+        configureMatrixPresets(backend.presets)
         if let msg = validationMessage(for: .matrix) {
             stepError = msg
             return

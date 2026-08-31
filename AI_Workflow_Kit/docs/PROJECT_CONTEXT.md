@@ -29,22 +29,23 @@ Native **macOS** app for stem separation of live kirtan recordings on **Apple Si
 
 Faster model runs (Metal/MLX + memory), RX-class preview, design tokens. Tags: `opt/K0-done` … `opt/K8-done`.
 
-## Current track: DESIGN_V2
+## Prior track: DESIGN_V2 (closed)
 
-UI/UX + branding. Cards: `AI_Workflow_Kit/docs/DESIGN_STEPS.md`. Gates: Gemini review **and** live visual accept.
+UI/UX + branding. Historical cards: `AI_Workflow_Kit/docs/DESIGN_STEPS.md`.
+All D0–D6 work is retained as completed history; it is not reopened by the
+matrix fix.
+
+## Current track: MATRIX_HARDENING
+
+Automation Matrix interaction and keep/drop semantics. Canonical cards:
+`AI_Workflow_Kit/docs/STEPS.md`. Standard pipeline: Coder → Main verification →
+Reviewer → Main verification → Tester → Main verification.
 
 | Step | Name |
 |------|------|
-| D0 | Branding AuraSplitter + logo + Kirtan→Aura titles |
-| D1 | Process preset → Custom when dirty |
-| D2 | Results: Compare menu; Info→Folder→Trash |
-| D3 | Settings sidebar reorder / simplify |
-| D4 | Eye visibility models + process presets |
-| D5 | Est. time from real knobs |
-| D6 | Filled waveform + main Spectrum/Waveform sliders |
-| DESIGN_DONE | Acceptance |
+| MATRIX_HARDENING | Matrix stem selection, click targets, and release 1.1.2 |
 
-Post-OPT (CoreML ONNX/ANE runner, etc.) is **out of scope** until OPT is accepted.
+The matrix track preserves the existing separation engine and preset catalog.
 
 ## Rules
 1. Keep project **testable** after every step (pytest / swift build).
@@ -63,8 +64,8 @@ Post-OPT (CoreML ONNX/ANE runner, etc.) is **out of scope** until OPT is accepte
 - **Verification (Gemini 3.5 Flash)**: reviews, writes FEEDBACK
 
 ## Paths note
-From repo root `KirtanSplitter/`:
-- Plan: `OPTIMIZATION_PLAN_GROK.md`
-- Steps: `AI_Workflow_Kit/docs/OPT_STEPS.md`
+From repo root `AuraSplitter/`:
+- Plan: `AI_Workflow_Kit/docs/STEPS.md`
+- Historical design plan: `AI_Workflow_Kit/docs/DESIGN_STEPS.md`
 - State: `AI_Workflow_Kit/docs/AI/STATE.yaml`
 - Feedback: `AI_Workflow_Kit/docs/AI/FEEDBACK.md`

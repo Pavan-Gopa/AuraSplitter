@@ -47,3 +47,14 @@ Orchestrator (Grok) пишет сюда решения при deadlock (`attempt
 - Binary/module may still be named KirtanSplitter until a separate full rebrand PR.
 - STATE: `current_step: DESIGN_DONE`, `next_actor: human`.
 
+
+## 2026-08-31 — Automation Matrix hardening opened
+
+- Adopt the existing post-`DESIGN_DONE` matrix-hardening diff as the implementation
+  candidate for the user's matrix bug report; do not reopen D0–D6.
+- Register `MATRIX_HARDENING` as a separate standard-risk step with stable
+  implementation, objective, and judgment gates in `AI_Workflow_Kit/docs/STEPS.md`.
+- Preserve unrelated dirty-tree changes. Only the matrix target files and release
+  metadata are in scope.
+- Required route: Coder → Main verification → Reviewer → Main verification →
+  Tester → Main verification → release `1.1.2`.
