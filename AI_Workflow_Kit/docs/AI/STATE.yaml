@@ -7,8 +7,8 @@ step_description: >
   Repair Automation Matrix stem-selection interaction and keep/drop semantics.
   Matrix work is explicitly registered after the completed DESIGN_V2 checkpoint.
 
-current_work_item_id: MATRIX_HARDENING.D5
-current_work_item: Publish version 1.1.2
+current_work_item_id: null
+current_work_item: null
 
 target_files:
   - Sources/AuraSplitterApp/Models/AutomationModels.swift
@@ -18,13 +18,23 @@ target_files:
   - tests/AuraSplitterAppTests/AutomationMatrixTests.swift
 
 completed_steps:
-  - D0
-  - D1
-  - D2
-  - D3
-  - D4
-  - D5
-  - D6
+  - DESIGN_V2.D0
+  - DESIGN_V2.D1
+  - DESIGN_V2.D2
+  - DESIGN_V2.D3
+  - DESIGN_V2.D4
+  - DESIGN_V2.D5
+  - DESIGN_V2.D6
+  - MATRIX_HARDENING.D1
+  - MATRIX_HARDENING.D2
+  - MATRIX_HARDENING.D3
+  - MATRIX_HARDENING.D4
+  - MATRIX_HARDENING.J1
+  - MATRIX_HARDENING.O1
+  - MATRIX_HARDENING.O2
+  - MATRIX_HARDENING.O3
+  - MATRIX_HARDENING.J2
+  - MATRIX_HARDENING.D5
 
 implementation:
   status: complete
@@ -40,9 +50,12 @@ visual:
   notes: "Build/run and live Matrix rendering passed; direct live role-click flow was unavailable during QA because the user was concurrently driving and closed the window. Store-level 7/7 regressions cover the interaction contracts."
 
 release:
-  status: pending
+  status: published
   version: "1.1.2"
-next_actor: coder
+  tag: "v1.1.2"
+  commit: "b26692d339d2072bd4c2aaa5d2e01d5cc105682c"
+  url: "https://github.com/Pavan-Gopa/AuraSplitter/releases/tag/v1.1.2"
+next_actor: none
 
 fix_prompt: ""
 
@@ -52,13 +65,13 @@ prior_track: DESIGN_V2
 
 checkpoint:
   last_pre_tag: design/pre-D6
-  last_post_tag: design/D6-done
-  last_commit: b8d8877
+  last_post_tag: v1.1.2
+  last_commit: b26692d339d2072bd4c2aaa5d2e01d5cc105682c
 
 git:
   pre_tag: design/pre-D6
-  post_tag: design/D6-done
-  last_push: "origin design/D6-done + design/DESIGN_DONE + branch"
+  post_tag: v1.1.2
+  last_push: "origin main b26692d339d2072bd4c2aaa5d2e01d5cc105682c + GitHub release v1.1.2"
 
 plan_files:
   - AI_Workflow_Kit/docs/STEPS.md

@@ -38,4 +38,4 @@
 
 #### Release
 
-- [ ] MATRIX_HARDENING.D5 — Publish version 1.1.2
+- [x] MATRIX_HARDENING.D5 — Publish version 1.1.2

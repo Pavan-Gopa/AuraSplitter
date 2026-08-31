@@ -93,3 +93,21 @@ DMG, `spctl` Developer ID acceptance, and `mlx-audio-io` preflight all passed.
 Notary submissions were accepted for both app and DMG. GitHub publication was
 intentionally not performed by the preparation command; artifacts are ready
 for the final publish step.
+
+---
+
+## 2026-09-01 release publication
+
+Published stable GitHub release `v1.1.2` at
+https://github.com/Pavan-Gopa/AuraSplitter/releases/tag/v1.1.2.
+
+- Release target: commit `b26692d339d2072bd4c2aaa5d2e01d5cc105682c`
+- `isDraft: false`
+- `isPrerelease: false`
+- `AuraSplitter-arm64.dmg`: uploaded, 384,921,024 bytes,
+  SHA-256 `93252ca393480f0544e681f084559d9493e496b0baa7ba55ab22b757585e326e`
+- `AuraSplitter-arm64.zip`: uploaded, 282,513,025 bytes,
+  SHA-256 `4423ad97ec26a9f9f1d1ee56c802067e564e632634bb5e3e13772479a4955d3b`
+
+The first publish attempt was rejected because GitHub did not accept the
+abbreviated `--target b26692d`; the retry with the full commit SHA succeeded.
