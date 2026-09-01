@@ -261,4 +261,92 @@ final class AutomationMatrixTests: XCTestCase {
             [auraVocalProID: ["instrument"]]
         )
     }
+    func testStepTwoReconciliationPreservesIdentityNamesSelectionAndModelScopedStems() {
+        let trackID = UUID(uuidString: "00000000-0000-0000-0000-000000000009")!
+        let track = AutomationTrackPlan(
+            id: trackID,
+            sourceURL: URL(fileURLWithPath: "/tmp/reconcile.wav"),
+            shortOutputName: "Reconcile",
+            stemSelections: [
+                auraProID: ["vocals"],
+                auraVocalProID: ["instrument"]
+            ]
+        )
+        let store = AutomationWizardStore()
+        configureCatalog(on: store)
+        store.job.outputFolderPath = "/tmp/Ready MIX"
+        store.job.tracks = [track]
+        store.addMatrixStep()
+        XCTAssertNil(store.stepError)
+        XCTAssertEqual(store.job.step2Tracks.count, 2)
+
+        let vocalID = try! XCTUnwrap(
+            store.job.step2Tracks.first {
+                $0.fromModelID == auraProID && $0.fromStem == "vocals"
+            }?.id
+        )
+        let instrumentID = try! XCTUnwrap(
+            store.job.step2Tracks.first {
+                $0.fromModelID == auraVocalProID && $0.fromStem == "instrument"
+            }?.id
+        )
+        store.setStep2ShortName(for: vocalID, name: "Custom Vocal Final")
+        store.toggleStep2TrackSelection(instrumentID)
+        store.toggleStep2Stem(
+            trackID: vocalID,
+            modelID: auraVocalProID,
+            stem: "instrument"
+        )
+
+        // Inject a stale role so the next reconciliation must prune it while
+        // retaining the valid model-scoped role above.
+        var rows = store.job.step2Tracks
+        let vocalIndex = rows.firstIndex { $0.id == vocalID }!
+        rows[vocalIndex].stemSelections = [
+            auraProID: ["instrument"],
+            auraVocalProID: ["instrument"]
+        ]
+        store.job.step2Tracks = rows
+
+        // A new Step-1 source must be added without rebuilding surviving rows.
+        store.toggleStem(trackID: trackID, modelID: auraProID, stem: "drums")
+        XCTAssertEqual(store.job.step2Tracks.count, 3)
+
+        let preservedBeforeRebuild = try! XCTUnwrap(
+            store.job.step2Tracks.first { $0.id == vocalID }
+        )
+        XCTAssertEqual(preservedBeforeRebuild.shortOutputName, "Custom Vocal Final")
+        XCTAssertEqual(preservedBeforeRebuild.stemSelections, [
+            auraVocalProID: ["instrument"]
+        ])
+        XCTAssertTrue(preservedBeforeRebuild.isSelected)
+
+        let deselectedBeforeRebuild = try! XCTUnwrap(
+            store.job.step2Tracks.first { $0.id == instrumentID }
+        )
+        XCTAssertFalse(deselectedBeforeRebuild.isSelected)
+
+        // Rebuilding the matrix must keep semantic survivors by UUID and
+        // retain their editable state.
+        store.addMatrixStep()
+        let preservedAfterRebuild = try! XCTUnwrap(
+            store.job.step2Tracks.first { $0.id == vocalID }
+        )
+        XCTAssertEqual(preservedAfterRebuild.shortOutputName, "Custom Vocal Final")
+        XCTAssertEqual(preservedAfterRebuild.stemSelections, [
+            auraVocalProID: ["instrument"]
+        ])
+        XCTAssertTrue(preservedAfterRebuild.isSelected)
+
+        let deselectedAfterRebuild = try! XCTUnwrap(
+            store.job.step2Tracks.first { $0.id == instrumentID }
+        )
+        XCTAssertFalse(deselectedAfterRebuild.isSelected)
+        XCTAssertTrue(
+            store.job.step2Tracks.contains {
+                $0.fromModelID == auraProID && $0.fromStem == "drums"
+            }
+        )
+    }
+
 }

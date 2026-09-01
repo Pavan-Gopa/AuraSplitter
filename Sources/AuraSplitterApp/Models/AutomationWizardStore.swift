@@ -213,6 +213,7 @@ final class AutomationWizardStore: ObservableObject {
         var tracks = job.tracks
         tracks[index].shortOutputName = name
         job.tracks = tracks
+        pruneStep2Sources()
     }
 
     func setSaveStep1Outputs(_ enabled: Bool) {
@@ -280,11 +281,13 @@ final class AutomationWizardStore: ObservableObject {
             job.tracks,
             allowedByModel: expectedStemsByModelID
         )
-        updatedJob.step2Tracks = filteredStep2Tracks(
-            job.step2Tracks,
-            tracks: updatedJob.tracks,
-            allowedByModel: expectedStemsByModelID
-        )
+        if !job.step2Tracks.isEmpty {
+            updatedJob.step2Tracks = AutomationJob.reconcileStep2Tracks(
+                existing: job.step2Tracks,
+                from: updatedJob.tracks,
+                allowedStemsByModelID: expectedStemsByModelID
+            )
+        }
         if updatedJob.step2Tracks.isEmpty {
             updatedJob.matrixPipelineStep = 1
         }
@@ -294,11 +297,17 @@ final class AutomationWizardStore: ObservableObject {
     }
 
     private func pruneStep2Sources() {
+        guard !job.step2Tracks.isEmpty else { return }
+
         var updatedJob = job
-        updatedJob.step2Tracks = filteredStep2Tracks(
-            job.step2Tracks,
-            tracks: job.tracks,
+        updatedJob.tracks = filteredTracks(
+            job.tracks,
             allowedByModel: expectedStemsByModelID
+        )
+        updatedJob.step2Tracks = AutomationJob.reconcileStep2Tracks(
+            existing: job.step2Tracks,
+            from: updatedJob.tracks,
+            allowedStemsByModelID: expectedStemsByModelID
         )
         if updatedJob.step2Tracks.isEmpty {
             updatedJob.matrixPipelineStep = 1
@@ -313,7 +322,9 @@ final class AutomationWizardStore: ObservableObject {
            allowedByModel[modelID]?.contains(stem) != true {
             return
         }
-        guard let index = job.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        guard let index = job.tracks.firstIndex(where: { $0.id == trackID }),
+              job.tracks[index].isSelected
+        else { return }
         // Mutate a local copy then reassign so @Published always notifies.
         var tracks = job.tracks
         var set = tracks[index].stemSelections[modelID] ?? []
@@ -339,7 +350,8 @@ final class AutomationWizardStore: ObservableObject {
         applyCatalogFiltering()
         stepError = validationMessageForAddingStep2()
         guard stepError == nil else { return }
-        let rows = AutomationJob.buildStep2Tracks(
+        let rows = AutomationJob.reconcileStep2Tracks(
+            existing: job.step2Tracks,
             from: job.selectedTracks,
             allowedStemsByModelID: expectedStemsByModelID
         )
@@ -393,7 +405,9 @@ final class AutomationWizardStore: ObservableObject {
            allowedByModel[modelID]?.contains(stem) != true {
             return
         }
-        guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        guard let index = job.step2Tracks.firstIndex(where: { $0.id == trackID }),
+              job.step2Tracks[index].isSelected
+        else { return }
         var rows = job.step2Tracks
         var set = rows[index].stemSelections[modelID] ?? []
         if set.contains(stem) {

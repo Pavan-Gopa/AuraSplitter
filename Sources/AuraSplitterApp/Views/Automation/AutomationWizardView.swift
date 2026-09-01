@@ -1058,13 +1058,14 @@ struct AutomationMatrixStepView: View {
     /// Source / Final rail (includes horizontal padding).
     private let sourceColW: CGFloat = 148
     private let finalColW: CGFloat = 140
-    /// ~25% narrower than previous 168 — fits 2×3 icons without huge gaps.
-    private let modelW: CGFloat = 126
+    /// Three 36-point role targets plus two 2-point gaps exactly fill each
+    /// model cell, keeping every role target separate and non-overlapping.
+    private let modelW: CGFloat = 112
     private let rowH: CGFloat = 96
     private let headerH: CGFloat = 44
     private let iconSize: CGFloat = 28
     private let iconHitSize: CGFloat = 36
-    private let gridColSpacing: CGFloat = 8
+    private let gridColSpacing: CGFloat = 2
     private let gridRowSpacing: CGFloat = 10
     private let railGray = Color.secondary.opacity(0.12)
 
@@ -1257,8 +1258,7 @@ struct AutomationMatrixStepView: View {
                 "Main Vocal",
                 text: Binding(
                     get: {
-                        store.job.tracks.first(where: { $0.id == track.id })?.shortOutputName
-                            ?? track.shortOutputName
+                        store.job.tracks.first(where: { $0.id == track.id })?.shortOutputName ?? ""
                     },
                     set: { store.setShortName(for: track.id, name: $0) }
                 )
@@ -1277,23 +1277,31 @@ struct AutomationMatrixStepView: View {
 
     private func step2DataRow(_ track: AutomationStep2TrackPlan) -> some View {
         HStack(spacing: 0) {
-            // Intermediate source: MAIN_V(Vocal) — click toggles inclusion
-            HStack(spacing: 4) {
-                Image(systemName: track.isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.caption)
-                    .foregroundStyle(track.isSelected ? KSTheme.accent : .secondary)
-                Text(track.displayName)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+            // Intermediate source: MAIN_V(Vocal) — click toggles inclusion.
+            Button {
+                store.toggleStep2TrackSelection(track.id)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: track.isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(track.isSelected ? KSTheme.accent : .secondary)
+                    Text(track.displayName)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                .frame(width: sourceColW - 20, height: rowH, alignment: .leading)
+                .padding(.horizontal, 10)
+                .frame(width: sourceColW, height: rowH, alignment: .leading)
+                .background(railGray)
             }
-            .frame(width: sourceColW - 20, height: rowH, alignment: .leading)
-            .padding(.horizontal, 10)
-            .frame(width: sourceColW, height: rowH, alignment: .leading)
-            .background(railGray)
+            .buttonStyle(.plain)
             .contentShape(Rectangle())
-            .onTapGesture { store.toggleStep2TrackSelection(track.id) }
             .help("\(track.displayName) · from \(track.fromStem) of step 1")
+            .accessibilityIdentifier("automation-matrix-step2-source-\(track.id.uuidString)")
+            .accessibilityLabel("Step 2 source \(track.displayName)")
+            .accessibilityValue(track.isSelected ? "included" : "excluded")
+            .accessibilityHint("Toggle whether this Step 1 stem is included in Step 2")
             .opacity(track.isSelected ? 1 : 0.45)
 
             ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
@@ -1307,8 +1315,7 @@ struct AutomationMatrixStepView: View {
                 "Final",
                 text: Binding(
                     get: {
-                        store.job.step2Tracks.first(where: { $0.id == track.id })?.shortOutputName
-                            ?? track.shortOutputName
+                        store.job.step2Tracks.first(where: { $0.id == track.id })?.shortOutputName ?? ""
                     },
                     set: { store.setStep2ShortName(for: track.id, name: $0) }
                 )
@@ -1369,10 +1376,10 @@ struct AutomationMatrixStepView: View {
         return stemIconGrid(stems: model.expectedStems, identity: identity) { stem in
             StemRoleIconButton(
                 stem: stem,
+                modelTitle: model.title,
                 size: iconSize,
                 isOn: store.isStemSelected(trackID: track.id, modelID: model.id, stem: stem),
                 action: {
-                    guard model.expectedStems.contains(stem) else { return }
                     store.toggleStem(trackID: track.id, modelID: model.id, stem: stem)
                 }
             )
@@ -1385,10 +1392,10 @@ struct AutomationMatrixStepView: View {
         return stemIconGrid(stems: model.expectedStems, identity: identity) { stem in
             StemRoleIconButton(
                 stem: stem,
+                modelTitle: model.title,
                 size: iconSize,
                 isOn: store.isStep2StemSelected(trackID: track.id, modelID: model.id, stem: stem),
                 action: {
-                    guard track.isSelected, model.expectedStems.contains(stem) else { return }
                     store.toggleStep2Stem(trackID: track.id, modelID: model.id, stem: stem)
                 }
             )
@@ -1568,6 +1575,7 @@ private final class MatrixScrollChromeNSView: NSView {
 /// (NSViewRepresentable icons were regularly blocked by background chrome hit-testing.)
 private struct StemRoleIconButton: View {
     let stem: String
+    let modelTitle: String
     var size: CGFloat = 30
     let isOn: Bool
     let action: () -> Void
@@ -1579,6 +1587,7 @@ private struct StemRoleIconButton: View {
     private var roleColor: Color {
         StemRoleStyle.color(for: stem)
     }
+
 
     var body: some View {
         Button(action: action) {
@@ -1599,8 +1608,8 @@ private struct StemRoleIconButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(instrumentName)
-        .accessibilityLabel(instrumentName)
+        .help("\(modelTitle) · \(instrumentName)")
+        .accessibilityLabel("\(modelTitle) · \(instrumentName)")
         .accessibilityValue(isOn ? "keep" : "skip")
         .accessibilityHint("Toggle whether this stem is kept in Ready MIX")
     }

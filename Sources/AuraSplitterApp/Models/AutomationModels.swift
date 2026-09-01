@@ -306,6 +306,14 @@ struct AutomationJob: Equatable, Codable {
         return step1 + step2
     }
 
+    /// Stable identity for a derived Step-2 source. The UUID of a row is
+    /// presentation state, while this key describes the source itself.
+    private struct Step2SourceKey: Hashable {
+        let parentTrackID: UUID
+        let fromModelID: String
+        let fromStem: String
+    }
+
     /// Build Step-2 sources from selected Step-1 tracks and kept stems.
     /// When a catalog is supplied, only model/role pairs declared by that
     /// catalog survive; an empty catalog therefore yields no sources.
@@ -313,44 +321,117 @@ struct AutomationJob: Equatable, Codable {
         from step1Tracks: [AutomationTrackPlan],
         allowedStemsByModelID: [String: Set<String>]? = nil
     ) -> [AutomationStep2TrackPlan] {
+        reconcileStep2Tracks(
+            existing: [],
+            from: step1Tracks,
+            allowedStemsByModelID: allowedStemsByModelID
+        )
+    }
+
+    /// Reconcile derived Step-2 sources against the current Step-1 plan.
+    ///
+    /// Existing rows are matched by their semantic source key so catalog
+    /// refreshes and matrix rebuilds do not discard row identity or edits.
+    /// Dictionary-backed selections are filtered against the current catalog
+    /// before they are retained.
+    static func reconcileStep2Tracks(
+        existing: [AutomationStep2TrackPlan],
+        from step1Tracks: [AutomationTrackPlan],
+        allowedStemsByModelID: [String: Set<String>]? = nil
+    ) -> [AutomationStep2TrackPlan] {
+        var existingByKey: [Step2SourceKey: AutomationStep2TrackPlan] = [:]
+        for row in existing {
+            let key = Step2SourceKey(
+                parentTrackID: row.parentTrackID,
+                fromModelID: row.fromModelID,
+                fromStem: row.fromStem
+            )
+            if existingByKey[key] == nil {
+                existingByKey[key] = row
+            }
+        }
+
         var rows: [AutomationStep2TrackPlan] = []
         var usedNames: [String: Int] = [:]
 
         for track in step1Tracks where track.isSelected {
             let short = track.shortOutputName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !short.isEmpty else { continue }
+
             for pair in track.selectedStemPairs {
                 if let allowedStemsByModelID,
                    allowedStemsByModelID[pair.modelID]?.contains(pair.stem) != true {
                     continue
                 }
-                let baseLabel = AutomationNaming.intermediateDisplayName(
-                    shortOutputName: short,
-                    stem: pair.stem
+
+                let key = Step2SourceKey(
+                    parentTrackID: track.id,
+                    fromModelID: pair.modelID,
+                    fromStem: pair.stem
                 )
-                // Disambiguate if the same short+stem appears from two models.
-                let count = usedNames[baseLabel, default: 0]
-                usedNames[baseLabel] = count + 1
+                let existingRow = existingByKey[key]
+                // Keep an existing source visible while its Step-1 name is
+                // temporarily empty, so editing a TextField does not remove
+                // the row mid-edit. New sources wait for validation.
+                guard !short.isEmpty || existingRow != nil else { continue }
+
                 let display: String
-                if count == 0 {
-                    display = baseLabel
+                if short.isEmpty, let existingRow {
+                    display = existingRow.displayName
                 } else {
-                    display = "\(baseLabel)_\(count + 1)"
-                }
-                rows.append(
-                    AutomationStep2TrackPlan(
-                        parentTrackID: track.id,
-                        parentShortName: short,
-                        fromModelID: pair.modelID,
-                        fromStem: pair.stem,
-                        displayName: display,
-                        shortOutputName: display,
-                        isSelected: true
+                    let baseLabel = AutomationNaming.intermediateDisplayName(
+                        shortOutputName: short,
+                        stem: pair.stem
                     )
-                )
+                    // Disambiguate if the same short+stem appears from two models.
+                    let count = usedNames[baseLabel, default: 0]
+                    usedNames[baseLabel] = count + 1
+                    display = count == 0 ? baseLabel : "\(baseLabel)_\(count + 1)"
+                }
+
+                if var row = existingRow {
+                    row.parentShortName = short
+                    row.displayName = display
+                    row.fromModelID = pair.modelID
+                    row.fromStem = pair.stem
+                    row.stemSelections = filteredStemSelections(
+                        row.stemSelections,
+                        allowedStemsByModelID: allowedStemsByModelID
+                    )
+                    rows.append(row)
+                } else {
+                    rows.append(
+                        AutomationStep2TrackPlan(
+                            parentTrackID: track.id,
+                            parentShortName: short,
+                            fromModelID: pair.modelID,
+                            fromStem: pair.stem,
+                            displayName: display,
+                            shortOutputName: display,
+                            isSelected: true
+                        )
+                    )
+                }
             }
         }
         return rows
+    }
+
+    private static func filteredStemSelections(
+        _ selections: [String: Set<String>],
+        allowedStemsByModelID: [String: Set<String>]?
+    ) -> [String: Set<String>] {
+        guard let allowedStemsByModelID else { return selections }
+
+        var filtered: [String: Set<String>] = [:]
+        for (modelID, stems) in selections {
+            let kept = stems.filter {
+                allowedStemsByModelID[modelID]?.contains($0) == true
+            }
+            if !kept.isEmpty {
+                filtered[modelID] = Set(kept)
+            }
+        }
+        return filtered
     }
 }
 
