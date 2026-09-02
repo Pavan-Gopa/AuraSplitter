@@ -99,19 +99,8 @@ struct ContentView: View {
             }
             .onAppear {
                 UpdateService.shared.isBusyProvider = { [weak backend] in backend?.isBusy ?? false }
-                UpdateService.shared.unsavedWorkProvider = {
-                    var reasons: [String] = []
-                    if !sources.isEmpty {
-                        reasons.append("\(sources.count) file(s) are still in the queue")
-                    }
-                    if ProcessSettingsPreset.displayTitle(
-                        for: selectedProcessPresetID,
-                        in: processPresetStore.presets,
-                        settings: settings
-                    ) == "Custom" {
-                        reasons.append("Process settings were changed but not saved as a preset")
-                    }
-                    return reasons
+                UpdateService.shared.unsavedWorkProvider = { [self] in
+                    unsavedWorkReasons()
                 }
             }
 
@@ -316,6 +305,7 @@ struct ContentView: View {
             get: { selectedProcessPresetID },
             set: { presetID in
                 selectedProcessPresetID = presetID
+                applyProcessPreset(presetID)
             }
         )
     }
@@ -355,6 +345,23 @@ struct ContentView: View {
     private func applyProcessPreset(_ presetID: String) {
         guard let preset = processPresetStore.preset(id: presetID) else { return }
         preset.snapshot.apply(to: &settings)
+    }
+
+    private func unsavedWorkReasons() -> [String] {
+        var reasons: [String] = []
+        let queuedCount = sources.count
+        if queuedCount > 0 {
+            reasons.append("\(queuedCount) file(s) are still in the queue")
+        }
+        let processTitle = ProcessSettingsPreset.displayTitle(
+            for: selectedProcessPresetID,
+            in: processPresetStore.presets,
+            settings: settings
+        )
+        if processTitle == "Custom" {
+            reasons.append("Process settings were changed but not saved as a preset")
+        }
+        return reasons
     }
 
     /// Hidden process presets cannot stay selected; prefer Heavy then Max/Extreme/…
