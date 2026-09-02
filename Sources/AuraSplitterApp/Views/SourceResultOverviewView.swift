@@ -239,7 +239,7 @@ private struct BatchSourceRow: View {
 
             Button(action: closeAction) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
                     .font(.system(size: 14))
             }
             .buttonStyle(.plain)

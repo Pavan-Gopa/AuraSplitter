@@ -1157,7 +1157,11 @@ struct AutomationMatrixStepView: View {
 
     private var matrixTable: some View {
         ScrollView([.horizontal, .vertical], showsIndicators: true) {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            // Eager VStack on purpose: LazyVStack leaves row hit-frames stale for seconds after
+            // fast scrolling (top rows dead or routed to wrong controls; bottom rows fine).
+            // The matrix is bounded (tracks × 12 icons), so eager layout costs little and keeps
+            // every row's AppKit hit area in sync with its visible frame.
+            VStack(spacing: 0) {
                 Section {
                     if showingStep2 {
                         ForEach(store.job.step2Tracks) { track in

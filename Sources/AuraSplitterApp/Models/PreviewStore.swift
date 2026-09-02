@@ -12,14 +12,38 @@ final class PreviewStore: ObservableObject {
     @Published var heightFraction = AudioPreviewLayout.defaultBottomFraction
     @Published var isFullscreen = false
 
+    /// Master switch for the bottom player + spectrogram pane. Off by default:
+    /// the pane stays hidden and loaded files are not analyzed until opened.
+    @Published private(set) var isPaneEnabled: Bool
+
+    private static let paneEnabledKey = "KirtanSplitter.previewPaneEnabled"
+
     var resizeStartFraction: CGFloat?
 
     private let backend: BackendClient
     private let player: AudioPreviewPlayer
+    private let defaults: UserDefaults
 
-    init(backend: BackendClient, player: AudioPreviewPlayer) {
+    init(
+        backend: BackendClient,
+        player: AudioPreviewPlayer,
+        defaults: UserDefaults = .standard
+    ) {
         self.backend = backend
         self.player = player
+        self.defaults = defaults
+        isPaneEnabled = defaults.object(forKey: Self.paneEnabledKey) as? Bool ?? false
+    }
+
+    func setPaneEnabled(_ enabled: Bool) {
+        guard isPaneEnabled != enabled else { return }
+        isPaneEnabled = enabled
+        defaults.set(enabled, forKey: Self.paneEnabledKey)
+        if !enabled {
+            // Closing the pane also drops its expanded state and silences playback.
+            isFullscreen = false
+            player.stop()
+        }
     }
 
     func previewSource(_ source: BatchSourceItem, sources: [BatchSourceItem]) {

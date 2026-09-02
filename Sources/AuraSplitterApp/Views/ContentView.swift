@@ -44,7 +44,9 @@ struct ContentView: View {
                     renderEstimate: backend.renderEstimate,
                     hasSelectedSources: hasSelectedSources,
                     isSettingsSidebarOpen: isSettingsSidebarOpen,
+                    previewPaneEnabled: preview.isPaneEnabled,
                     primaryAction: performPrimaryProcessAction,
+                    previewPaneAction: togglePreviewPane,
                     settingsAction: toggleSettingsSidebar,
                     modelRatings: $modelRatings,
                     selectedModelIDs: $selectedModelIDs
@@ -76,6 +78,7 @@ struct ContentView: View {
             }
             .animation(.easeInOut(duration: 0.18), value: isSettingsSidebarOpen)
             .animation(.easeInOut(duration: 0.18), value: preview.isFullscreen)
+            .animation(.easeInOut(duration: 0.18), value: preview.isPaneEnabled)
             .onChange(of: backend.lastSummary?.completedAt) { _ in
                 guard backend.lastSummary != nil else { return }
                 // Surface Post Run Stats immediately after a finished separation.
@@ -86,6 +89,12 @@ struct ContentView: View {
                 if !busy {
                     // A scheduled update installs as soon as processing drains.
                     UpdateService.shared.performInstallIfPending()
+                }
+            }
+            .onChange(of: preview.isPaneEnabled) { enabled in
+                if enabled {
+                    // Opening the pane backfills previews for everything already loaded.
+                    analyzeLoadedSources()
                 }
             }
             .onAppear {
@@ -185,28 +194,33 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 if !preview.isFullscreen {
                     topWorkspace
-                        .frame(height: topHeight)
+                        .frame(height: preview.isPaneEnabled ? topHeight : nil)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    PreviewResizeHandle()
-                        .frame(height: handleHeight)
-                        .gesture(
-                            DragGesture(minimumDistance: 0)
-                                .onChanged { value in
-                                    if preview.resizeStartFraction == nil {
-                                        preview.resizeStartFraction = preview.heightFraction
+                    if preview.isPaneEnabled {
+                        PreviewResizeHandle()
+                            .frame(height: handleHeight)
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        if preview.resizeStartFraction == nil {
+                                            preview.resizeStartFraction = preview.heightFraction
+                                        }
+                                        let startFraction = preview.resizeStartFraction ?? preview.heightFraction
+                                        let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
+                                        preview.heightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
                                     }
-                                    let startFraction = preview.resizeStartFraction ?? preview.heightFraction
-                                    let nextFraction = startFraction - value.translation.height / max(1, geometry.size.height)
-                                    preview.heightFraction = AudioPreviewLayout.clampedBottomFraction(nextFraction)
-                                }
-                                .onEnded { _ in
-                                    preview.resizeStartFraction = nil
-                                }
-                        )
+                                    .onEnded { _ in
+                                        preview.resizeStartFraction = nil
+                                    }
+                            )
+                    }
                 }
 
-                audioPreviewPane
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if preview.isPaneEnabled {
+                    audioPreviewPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
     }
@@ -485,7 +499,7 @@ struct ContentView: View {
 
         guard let first = nextSources.first else { return }
         preview.selection = .source(first.id)
-        preview.isAnalyzing = backend.isReady
+        preview.isAnalyzing = preview.isPaneEnabled && backend.isReady
         analyzeLoadedSources()
     }
 
@@ -509,13 +523,18 @@ struct ContentView: View {
     }
 
     private func analyzeLoadedSources() {
-        guard backend.isReady, !sources.isEmpty else { return }
+        // Spectrogram scanning is opt-in: skip entirely while the preview pane is closed.
+        guard preview.isPaneEnabled, backend.isReady, !sources.isEmpty else { return }
         let ids = sources.map(\.id)
         Task {
             for id in ids {
                 await analyzeSource(id: id)
             }
         }
+    }
+
+    private func togglePreviewPane() {
+        preview.setPaneEnabled(!preview.isPaneEnabled)
     }
 
     private func previewSource(_ source: BatchSourceItem) {
@@ -529,7 +548,7 @@ struct ContentView: View {
 
         audioPreviewPlayer.seek(path: path, time: previousTime)
 
-        if source.analysis == nil, source.analysisError == nil {
+        if preview.isPaneEnabled, source.analysis == nil, source.analysisError == nil {
             Task {
                 await analyzeSource(id: source.id)
             }
@@ -547,6 +566,8 @@ struct ContentView: View {
         preview.isAnalyzing = false
 
         audioPreviewPlayer.seek(path: path, time: previousTime)
+
+        guard preview.isPaneEnabled else { return }
 
         if applyCachedResultPreview(for: path) {
             return
@@ -802,6 +823,7 @@ struct ContentView: View {
     }
 
     private func prewarmResultPreviews(for stems: [StemFile]) {
+        guard preview.isPaneEnabled else { return }
         for stem in stems {
             Task {
                 await analyzeResultStem(path: stem.path)
@@ -901,7 +923,9 @@ private struct AppHeaderView: View {
     let renderEstimate: RenderEstimate?
     let hasSelectedSources: Bool
     let isSettingsSidebarOpen: Bool
+    let previewPaneEnabled: Bool
     let primaryAction: () -> Void
+    let previewPaneAction: () -> Void
     let settingsAction: () -> Void
     @Binding var modelRatings: [String: Int]
     @Binding var selectedModelIDs: Set<String>
@@ -1002,6 +1026,18 @@ private struct AppHeaderView: View {
             .controlSize(.large)
             .disabled(presentation.isPrimaryDisabled(hasSelectedSources: hasSelectedSources))
             .help(primaryActionHelp)
+
+            Button(action: previewPaneAction) {
+                Image(systemName: "waveform")
+                    .symbolVariant(previewPaneEnabled ? .fill : .none)
+                    .frame(
+                        width: WorkspaceLayoutMetrics.settingsToggleButtonSize,
+                        height: WorkspaceLayoutMetrics.settingsToggleButtonSize
+                    )
+            }
+            .buttonStyle(SettingsSidebarToggleButtonStyle(isActive: previewPaneEnabled))
+            .help(previewPaneEnabled ? "Hide player & spectrogram panel" : "Show player & spectrogram panel")
+            .accessibilityLabel(previewPaneEnabled ? "Hide player & spectrogram panel" : "Show player & spectrogram panel")
 
             Button(action: settingsAction) {
                 Image(systemName: "sidebar.trailing")
@@ -1275,7 +1311,6 @@ private struct ModelPresetDropdownRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
             Button(action: onSelectName) {
                 Text(title)
                     .font(.callout)
@@ -1305,7 +1340,6 @@ private struct ModelPresetDropdownRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 28)
-        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear, in: RoundedRectangle(cornerRadius: KSTheme.radiusSM, style: .continuous))
         .help(state.helpText)
     }
 }

@@ -145,6 +145,49 @@ final class ProcessSettingsPresetTests: XCTestCase {
     private func heavyPreset() -> ProcessSettingsPreset {
         ProcessSettingsPreset.builtIn.first { $0.id == "builtin.heavy" }!
     }
+    func testDefaultPresetTitleIsCleanForUntouchedSettings() {
+        let defaultPreset = ProcessSettingsPreset.builtIn.first { $0.id == ProcessSettingsPreset.defaultPresetID }!
+        let settings = SeparationSettings()
+
+        XCTAssertFalse(defaultPreset.isDirty(settings: settings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(
+                for: defaultPreset.id,
+                in: ProcessSettingsPreset.builtIn,
+                settings: settings
+            ),
+            "Default"
+        )
+    }
+
+    func testDefaultPresetSnapshotRoundTripIsClean() {
+        let defaultPreset = ProcessSettingsPreset.builtIn.first { $0.id == ProcessSettingsPreset.defaultPresetID }!
+        var settings = SeparationSettings()
+
+        defaultPreset.snapshot.apply(to: &settings)
+
+        XCTAssertFalse(defaultPreset.isDirty(settings: settings))
+    }
+
+    func testModelSelectionChangesDoNotDirtyDefaultProcessPreset() {
+        let defaultPreset = ProcessSettingsPreset.builtIn.first { $0.id == ProcessSettingsPreset.defaultPresetID }!
+        var settings = SeparationSettings()
+        defaultPreset.snapshot.apply(to: &settings)
+
+        settings.presetID = "viperx_vocal"
+        settings.modelOverride = "custom.ckpt"
+
+        XCTAssertFalse(defaultPreset.isDirty(settings: settings))
+        XCTAssertEqual(
+            ProcessSettingsPreset.displayTitle(
+                for: defaultPreset.id,
+                in: ProcessSettingsPreset.builtIn,
+                settings: settings
+            ),
+            "Default"
+        )
+    }
+
 
     func testDisplayTitleShowsPresetTitleWhenSettingsMatchSnapshot() {
         let heavy = heavyPreset()

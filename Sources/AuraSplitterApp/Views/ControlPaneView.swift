@@ -79,6 +79,7 @@ struct ControlPaneView: View {
                                 // Only header-visible presets can be chosen as the active preset.
                                 guard menuVisibility.isProcessPresetVisible(preset.id) else { return }
                                 selectedProcessPresetID = preset.id
+                                applyProcessPresetAction(preset.id)
                                 isProcessPresetPickerOpen = false
                             }
                         )
@@ -275,6 +276,7 @@ struct ControlPaneView: View {
             excluding: selectedProcessPresetID
         ) else { return }
         selectedProcessPresetID = nextID
+        applyProcessPresetAction(nextID)
     }
 
     private func reselectVisibleModelIfNeeded() {
